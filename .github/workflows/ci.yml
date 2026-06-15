@@ -1,0 +1,60 @@
+name: ci
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '26.3.0'
+  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6.0.3
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint:check
+
+      - name: Run tests with coverage
+        run: npm run coverage
+
+      - name: Upload coverage to Codecov
+        if: ${{ env.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@v7.0.0
+        with:
+          token: ${{ env.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+
+      - name: Build project
+        run: npm run build
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v7.2.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: klinok.ui:ci
