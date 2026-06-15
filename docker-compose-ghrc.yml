@@ -1,0 +1,13 @@
+# Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+# All rights reserved.
+# This file is a part of Klinok application
+
+  ui-blue:
+    image: ghcr.io/maxirmx/klinok.ui:latest
+    restart: always
+    ports:
+      # Direct access only, not routed by Traefik
+      - "80:8082"
+      - "443:8083"
+    volumes:
+      - /home/maxirmx/.certificate:/etc/nginx/certificate:ro
