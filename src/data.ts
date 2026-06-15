@@ -1,3 +1,7 @@
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok ui application
+
 export type Role = "vet" | "owner" | "company";
 export type TabId = "home" | "pets" | "requests" | "materials" | "profile";
 export type SheetId = "filter" | "analysis" | "material" | "template" | "appointment-success" | null;
