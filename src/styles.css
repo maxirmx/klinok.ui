@@ -1065,6 +1065,20 @@ dd {
   color: #000;
 }
 
+.version-info {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.mobile-version {
+  position: absolute;
+  right: 16px;
+  bottom: 8px;
+  z-index: 1;
+}
+
 .floating-add {
   position: absolute;
   left: 50%;
@@ -1302,6 +1316,11 @@ dd {
     margin-top: auto;
     background: #000 !important;
     color: #fff !important;
+  }
+
+  .version-info {
+    display: block;
+    margin: 4px 12px 0;
   }
 
   .app-surface {
