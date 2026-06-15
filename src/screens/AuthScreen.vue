@@ -105,7 +105,7 @@ function goBack() {
       <button class="primary-action" :disabled="step === 'role' && !selectedRole" @click="nextStep">
         {{ step === "welcome" ? "Перейти в приложение" : "Продолжить" }}
       </button>
-      <button v-if="step !== 'welcome'" class="link-action" @click="router.push('/auth/login')">
+      <button v-if="step !== 'welcome'" class="link-action" @click="step === 'role' ? router.push('/auth/login') : router.push('/auth/role')">
         <span>{{ step === "role" ? "Есть аккаунт ?" : "Нет аккаунта ?" }}</span>
         <strong>{{ step === "role" ? "Войти" : "Зарегистрироваться" }}</strong>
       </button>

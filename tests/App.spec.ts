@@ -5,11 +5,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { flushPromises, mount } from "@vue/test-utils";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 import App from "../src/App.vue";
 import { routes } from "../src/router";
 import { applyPetFilters, darkMode, petQuery, selectedRole } from "../src/state";
+
+const mountedWrappers: ReturnType<typeof mount>[] = [];
 
 async function mountAt(path = "/auth/role") {
   const router = createRouter({
@@ -23,6 +25,8 @@ async function mountAt(path = "/auth/role") {
     },
   });
 
+  mountedWrappers.push(wrapper);
+
   await router.isReady();
   await router.push(path);
   await flushPromises();
@@ -30,6 +34,12 @@ async function mountAt(path = "/auth/role") {
 }
 
 describe("App", () => {
+  afterEach(() => {
+    while (mountedWrappers.length) {
+      mountedWrappers.pop()!.unmount();
+    }
+  });
+
   beforeEach(() => {
     selectedRole.value = "owner";
     petQuery.value = "";
