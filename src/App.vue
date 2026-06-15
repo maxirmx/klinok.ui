@@ -10,7 +10,6 @@ import {
   templates,
   visits as seedVisits,
   type AppointmentDraft,
-  type Pet,
   type Role,
   type SheetId,
   type TabId,

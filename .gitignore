@@ -30,6 +30,7 @@ replay_pid*
 node_modules/
 dist/
 .vite/
+coverage/
 
 # Local Figma/design handoff extracts
 .design-reference/
