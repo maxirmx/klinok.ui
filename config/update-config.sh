@@ -3,8 +3,8 @@ set -eu
 
 # This script updates the runtime configuration with environment variables.
 
-CONFIG_PATH=${CONFIG_PATH:-/usr/share/nginx/html/config.json}
-API_URL=${API_URL:-}
+CONFIG_PATH=${CONFIG_PATH:-/var/www/klinok/config.json}
+API_URL=${API_URL:-https://klinok.sw.consulting:8085/api}
 ENABLE_LOG=${ENABLE_LOG:-false}
 
 case "$ENABLE_LOG" in
