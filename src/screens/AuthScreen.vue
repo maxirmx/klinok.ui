@@ -6,8 +6,9 @@
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { roles, type Role } from "../data";
-import { otp, phone, selectedRole, selectedRoleLabel } from "../state";
+import { darkMode, otp, phone, selectedRole, selectedRoleLabel } from "../state";
 import AppIcon from "../components/AppIcon.vue";
+import BrandLogo from "../components/BrandLogo.vue";
 
 const props = defineProps<{
   scenarioId: string;
@@ -50,7 +51,9 @@ function goBack() {
 </script>
 
 <template>
-  <section class="auth-surface">
+  <section class="auth-surface" :class="{ 'has-back': step !== 'role' }">
+    <BrandLogo class="auth-brand" :variant="darkMode ? 'mono' : 'full'" />
+
     <button v-if="step !== 'role'" class="back-float" aria-label="Назад" @click="goBack">
       <AppIcon name="chevron-left" />
     </button>

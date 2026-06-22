@@ -5,16 +5,29 @@ This file is a part of Klinok ui application
 */
 
 :root {
-  --bg: #f0f2f4;
-  --surface: #ffffff;
-  --surface-soft: #f4f4f5;
-  --surface-muted: #eeeeef;
-  --surface-card: #f2f2f2;
-  --text: #101010;
-  --text-soft: rgba(16, 16, 16, 0.64);
-  --text-muted: rgba(16, 16, 16, 0.42);
-  --line: #e2e2e2;
-  --blue: #3778ff;
+  --brand-sky: #4087D1;
+  --brand-orange: #FF7F1A;
+  --brand-black: #000000;
+  --brand-white: #FFFFFF;
+  --brand-bg-sky: #EAF4FF;
+  --brand-bg-orange: #FFEAD9;
+  --brand-bg-neutral: #EFEFEF;
+  --brand-sky-soft: #F5FAFF;
+  --brand-orange-soft: #FFF6EF;
+  --brand-sky-border: rgba(64, 135, 209, 0.24);
+  --brand-orange-border: rgba(255, 127, 26, 0.34);
+  --bg: var(--brand-bg-neutral);
+  --surface: var(--brand-white);
+  --surface-soft: var(--brand-sky-soft);
+  --surface-muted: var(--brand-bg-sky);
+  --surface-card: var(--brand-sky-soft);
+  --text: #102033;
+  --text-soft: rgba(16, 32, 51, 0.68);
+  --text-muted: rgba(16, 32, 51, 0.46);
+  --line: var(--brand-sky-border);
+  --accent: var(--brand-sky);
+  --accent-strong: var(--brand-orange);
+  --blue: var(--brand-sky);
   --danger: #c7362f;
   --radius: 10px;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Arial, sans-serif;
@@ -64,6 +77,35 @@ a {
   background: var(--bg);
 }
 
+.brand-logo {
+  display: block;
+  height: auto;
+  flex: 0 0 auto;
+  color: inherit;
+}
+
+.brand-logo--compact {
+  width: 136px;
+}
+
+.brand-logo--standard {
+  width: 178px;
+}
+
+.brand-block {
+  display: grid;
+  width: max-content;
+  max-width: 100%;
+  gap: 12px;
+  color: var(--text);
+}
+
+.brand-block span {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
 .auth-surface {
   position: relative;
   display: grid;
@@ -75,6 +117,17 @@ a {
   background: var(--surface);
 }
 
+.auth-brand {
+  position: absolute;
+  top: max(22px, calc(12px + env(safe-area-inset-top, 0px)));
+  left: 24px;
+  z-index: 3;
+}
+
+.auth-surface.has-back .auth-brand {
+  left: 70px;
+}
+
 .back-float,
 .icon-button,
 .round-icon {
@@ -82,7 +135,7 @@ a {
   place-items: center;
   border: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--brand-sky);
 }
 
 .back-float {
@@ -107,7 +160,7 @@ a {
 .auth-heading {
   display: grid;
   gap: 10px;
-  color: #1e2833;
+  color: var(--text);
   text-align: center;
 }
 
@@ -123,7 +176,7 @@ a {
 .welcome-card p {
   max-width: 285px;
   margin: 0 auto;
-  color: #1e2833;
+  color: var(--text-soft);
   font-size: 16px;
   line-height: 24px;
 }
@@ -143,10 +196,10 @@ a {
 .form-panel select {
   width: 100%;
   min-height: 56px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 10px;
-  background: rgba(30, 40, 51, 0.05);
-  color: rgba(30, 40, 51, 0.56);
+  background: var(--surface-soft);
+  color: var(--text-soft);
   text-align: left;
 }
 
@@ -156,8 +209,9 @@ a {
 }
 
 .input-tile.selected {
-  outline: 1.5px solid var(--blue);
-  background: #fff;
+  border-color: var(--brand-sky);
+  outline: 0;
+  background: var(--brand-bg-sky);
   color: var(--blue);
 }
 
@@ -231,7 +285,7 @@ label > span {
   height: 52px;
   place-items: center;
   border-radius: 50%;
-  background: #e9f0ff;
+  background: var(--brand-bg-sky);
   color: var(--blue);
 }
 
@@ -263,11 +317,13 @@ label > span {
 .primary-action {
   background: var(--blue);
   color: #fff;
+  box-shadow: 0 10px 24px rgba(64, 135, 209, 0.18);
 }
 
 .primary-action:disabled {
-  background: #dcdcdc;
-  color: rgba(16, 16, 16, 0.4);
+  background: var(--brand-bg-neutral);
+  color: var(--text-muted);
+  box-shadow: none;
 }
 
 .primary-action.inline {
@@ -280,12 +336,12 @@ label > span {
 
 .outline-action {
   border: 1.5px solid var(--blue);
-  background: #fff;
+  background: var(--brand-bg-sky);
   color: var(--blue);
 }
 
 .black-action {
-  background: #000;
+  background: var(--brand-orange);
   color: #fff;
 }
 
@@ -294,11 +350,12 @@ label > span {
   gap: 4px;
   border: 0;
   background: transparent;
-  color: #1e2833;
+  color: var(--text-soft);
   font-size: 13px;
 }
 
 .link-action strong {
+  color: var(--brand-orange);
   font-size: 16px;
 }
 
@@ -365,7 +422,8 @@ label > span {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--surface-card);
+  background: var(--brand-bg-sky);
+  color: var(--brand-sky);
 }
 
 .round-icon .app-icon {
@@ -387,7 +445,7 @@ label > span {
 .content-scroll {
   height: calc(100dvh - 70px - 82px - env(safe-area-inset-bottom, 0px));
   overflow: auto;
-  padding-bottom: 16px;
+  padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
   background: var(--bg);
   scrollbar-width: none;
 }
@@ -405,6 +463,8 @@ label > span {
   padding: 16px;
   border-radius: 10px;
   background: var(--surface);
+  border: 1px solid rgba(64, 135, 209, 0.08);
+  min-width: 0;
 }
 
 .section-title {
@@ -433,8 +493,9 @@ label > span {
 .section-title button {
   border: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--brand-sky);
   font-size: 14px;
+  font-weight: 600;
 }
 
 .horizontal-cards,
@@ -454,9 +515,10 @@ label > span {
   flex: 0 0 auto;
   align-items: end;
   padding: 10px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--brand-sky-border);
   border-radius: 18px;
-  background: var(--surface-card);
+  background: linear-gradient(160deg, var(--brand-sky-soft), var(--brand-bg-sky));
+  color: var(--text);
   font-size: 11px;
 }
 
@@ -467,7 +529,7 @@ label > span {
   flex: 0 0 auto;
   overflow: hidden;
   border-radius: 12px;
-  background: var(--surface-card);
+  background: linear-gradient(160deg, var(--brand-sky-soft), var(--brand-bg-sky));
   color: var(--text);
 }
 
@@ -480,7 +542,7 @@ label > span {
   display: grid;
   height: 100%;
   place-items: center;
-  color: rgba(16, 16, 16, 0.16);
+  color: rgba(64, 135, 209, 0.22);
   font-size: 74px;
   font-weight: 800;
 }
@@ -492,7 +554,9 @@ label > span {
   left: 0;
   padding: 12px;
   border-radius: 10px;
-  background: #e2e2e2;
+  background: rgba(255, 255, 255, 0.82);
+  border-top: 1px solid rgba(64, 135, 209, 0.12);
+  backdrop-filter: blur(8px);
 }
 
 .pet-caption h3 {
@@ -512,7 +576,8 @@ label > span {
 .event-card {
   display: block;
   border-radius: 10px;
-  background: var(--surface-soft);
+  background: var(--brand-sky-soft);
+  border: 1px solid rgba(64, 135, 209, 0.12);
   color: var(--text);
 }
 
@@ -551,8 +616,10 @@ label > span {
 .visit-card-head span,
 .event-card header span {
   padding: 7px 8px;
-  border: 1px solid #b0b0b0;
+  border: 1px solid var(--brand-orange-border);
   border-radius: 100px;
+  background: var(--brand-bg-orange);
+  color: #9a4b00;
   font-size: 10px;
   white-space: nowrap;
 }
@@ -587,6 +654,7 @@ dd {
   align-items: center;
   padding: 12px 16px;
   border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.42);
 }
 
 .doctor-mini small {
@@ -596,14 +664,14 @@ dd {
 
 .avatar {
   display: inline-block;
-  background: #e2e2e2;
+  background: linear-gradient(135deg, var(--brand-bg-sky), var(--brand-bg-orange));
 }
 
 .avatar.black {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #131313;
+  background: linear-gradient(135deg, var(--brand-sky), var(--brand-orange));
 }
 
 .avatar.square {
@@ -623,6 +691,7 @@ dd {
   gap: 9px;
   padding: 16px;
   background: var(--surface);
+  border-bottom: 1px solid rgba(64, 135, 209, 0.08);
 }
 
 .search-input {
@@ -630,10 +699,10 @@ dd {
   align-items: center;
   min-height: 44px;
   padding: 0 14px;
-  border: 1px solid #e8eaf2;
+  border: 1px solid var(--line);
   border-radius: 24px;
   background: var(--surface);
-  color: #8a8da0;
+  color: var(--text-muted);
 }
 
 .search-input input {
@@ -666,8 +735,8 @@ dd {
 .form-panel select,
 .form-panel textarea {
   padding: 0 16px;
-  border: 1px solid #dde0e6;
-  background: var(--surface);
+  border: 1px solid var(--brand-sky-border);
+  background: #fff;
   color: var(--text);
 }
 
@@ -684,6 +753,7 @@ dd {
   margin: 12px 0 20px;
   padding: 4px;
   border-radius: 24px;
+  background: var(--surface-soft);
 }
 
 .segmented.compact {
@@ -695,13 +765,13 @@ dd {
   min-height: 40px;
   border: 0;
   border-radius: 22px;
-  background: #f0f0f2;
+  background: transparent;
   color: var(--text-soft);
 }
 
 .segmented button.active {
   border: 1.5px solid var(--blue);
-  background: var(--surface);
+  background: var(--brand-bg-sky);
   color: var(--blue);
 }
 
@@ -721,12 +791,23 @@ dd {
   color: var(--text);
 }
 
+.doctor-card > div,
+.doctor-mini,
+.profile-hero > div,
+.doctor-profile > div,
+.field,
+.plain-card,
+.template-row span,
+.material-row span {
+  min-width: 0;
+}
+
 .doctor-photo {
   display: block;
   width: 92px;
   height: 88px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #e5e7eb, #f8fafc);
+  background: linear-gradient(135deg, var(--brand-bg-sky), var(--brand-bg-orange));
 }
 
 .doctor-photo.large {
@@ -788,7 +869,7 @@ dd {
 }
 
 .accordion {
-  border-top: 1px solid #c9c9c9;
+  border-top: 1px solid var(--line);
 }
 
 .accordion-head,
@@ -842,8 +923,8 @@ dd {
   height: 28px;
   place-items: center;
   border-radius: 6px;
-  background: #f0f1f6;
-  color: #00042c;
+  background: var(--brand-bg-sky);
+  color: var(--brand-sky);
 }
 
 .tiny-control .app-icon {
@@ -884,12 +965,14 @@ dd {
   color: var(--text-soft);
   font-size: 16px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .field {
   padding: 10px 16px;
   border-radius: 9px;
-  background: var(--surface-soft);
+  background: var(--brand-sky-soft);
+  border: 1px solid rgba(64, 135, 209, 0.08);
 }
 
 .field span {
@@ -904,8 +987,9 @@ dd {
   overflow: hidden;
   font-size: 17px;
   font-weight: 400;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .settings-row {
@@ -917,7 +1001,7 @@ dd {
 
 .settings-row:first-of-type {
   grid-template-columns: 1fr auto;
-  color: #566074;
+  color: var(--text-soft);
   font-size: 19px;
   font-weight: 700;
 }
@@ -931,8 +1015,9 @@ dd {
   position: relative;
   width: 34px;
   height: 18px;
-  border: 2px solid #5f6878;
+  border: 2px solid var(--brand-sky-border);
   border-radius: 999px;
+  background: var(--surface-soft);
 }
 
 .switch i {
@@ -942,13 +1027,13 @@ dd {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #5f6878;
+  background: var(--brand-sky);
   transition: transform 0.2s ease;
 }
 
 .switch.on {
-  border-color: var(--blue);
-  background: var(--blue);
+  border-color: var(--brand-orange);
+  background: var(--brand-orange);
 }
 
 .switch.on i {
@@ -987,7 +1072,7 @@ dd {
 .visit-document h3,
 .visit-meta span {
   margin: 3px 0 0;
-  color: #8c8c8c;
+  color: var(--text-soft);
 }
 
 .visit-meta {
@@ -1005,7 +1090,7 @@ dd {
 
 .visit-document hr {
   border: 0;
-  border-top: 1px solid #ddd;
+  border-top: 1px solid var(--line);
 }
 
 .visit-document ul {
@@ -1025,11 +1110,12 @@ dd {
   z-index: 20;
   display: grid;
   min-height: calc(82px + env(safe-area-inset-bottom, 0px));
-  grid-template-columns: repeat(5, 1fr);
-  align-items: start;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: center;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--line);
-  background: #f9f9f9;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -10px 30px rgba(64, 135, 209, 0.08);
 }
 
 .mobile-tabs a {
@@ -1039,7 +1125,7 @@ dd {
   gap: 2px;
   border: 0;
   background: transparent;
-  color: rgba(30, 40, 51, 0.44);
+  color: var(--text-muted);
   font-size: 10px;
   line-height: 16px;
 }
@@ -1050,7 +1136,7 @@ dd {
 }
 
 .mobile-tabs a.active {
-  color: #000;
+  color: var(--brand-sky);
 }
 
 .version-info {
@@ -1061,17 +1147,16 @@ dd {
 }
 
 .floating-add {
-  position: absolute;
-  left: 50%;
-  bottom: calc(54px + env(safe-area-inset-bottom, 0px));
+  position: static;
   display: grid !important;
-  width: 58px;
-  height: 58px;
-  transform: translateX(-50%);
+  width: 46px;
+  height: 46px;
+  margin: 0 auto;
   place-items: center;
-  border-radius: 50%;
-  background: #000 !important;
-  color: #aeb4bd !important;
+  border-radius: 16px;
+  background: var(--brand-orange) !important;
+  color: #fff !important;
+  box-shadow: 0 10px 24px rgba(255, 127, 26, 0.28);
 }
 
 .sheet-line {
@@ -1101,17 +1186,17 @@ dd {
 .chips button {
   min-height: 42px;
   padding: 0 18px;
-  border: 1px solid transparent;
+  border: 1px solid var(--brand-sky-border);
   border-radius: 22px;
-  background: var(--surface-soft);
+  background: #fff;
   color: var(--text-soft);
 }
 
 .chips button.active,
 .service-chips button {
-  border-color: var(--blue);
-  background: var(--surface);
-  color: var(--blue);
+  border-color: var(--brand-sky);
+  background: var(--brand-bg-sky);
+  color: var(--brand-sky);
 }
 
 .parameter-grid {
@@ -1126,7 +1211,8 @@ dd {
   display: block;
   padding: 12px;
   border-radius: 10px;
-  background: #dedada;
+  background: var(--brand-bg-orange);
+  border: 1px solid var(--brand-orange-border);
   color: var(--text);
 }
 
@@ -1160,7 +1246,7 @@ dd {
 .plain-card.unread {
   padding-inline: 12px;
   border-radius: 10px;
-  background: #eef4ff;
+  background: var(--brand-bg-sky);
 }
 
 .faq-item {
@@ -1243,10 +1329,11 @@ dd {
   border: 0;
   border-radius: 999px;
   background: var(--surface-soft);
+  color: var(--text-soft);
 }
 
 .qa-role-filter button.active {
-  background: #101010;
+  background: var(--brand-sky);
   color: #fff;
 }
 
@@ -1264,7 +1351,7 @@ dd {
 }
 
 .qa-row.current {
-  background: #eef4ff;
+  background: var(--brand-bg-sky);
 }
 
 .qa-row > span:last-child {
@@ -1297,7 +1384,7 @@ dd {
   margin: 0 auto;
   padding: 13px 16px;
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.84);
+  background: rgba(16, 32, 51, 0.92);
   color: #fff;
   text-align: center;
 }
@@ -1326,7 +1413,9 @@ dd {
 .role-header nav a {
   padding: 9px 12px;
   border-radius: 999px;
-  background: var(--surface-soft);
+  background: var(--brand-bg-sky);
+  color: var(--brand-sky);
+  font-weight: 600;
 }
 
 .role-main {
@@ -1394,19 +1483,12 @@ dd {
   }
 
   .brand-block {
-    display: grid;
-    gap: 4px;
+    gap: 14px;
     margin-bottom: 20px;
   }
 
-  .brand-block strong {
-    font-size: 26px;
-  }
-
   .brand-block span {
-    color: var(--text-soft);
-    font-size: 13px;
-    line-height: 1.3;
+    max-width: 170px;
   }
 
   .nav-item {
@@ -1423,14 +1505,15 @@ dd {
   }
 
   .nav-item.active {
-    background: var(--surface-soft);
-    color: var(--text);
+    background: var(--brand-bg-sky);
+    color: var(--brand-sky);
   }
 
   .desktop-add {
     margin-top: auto;
-    background: #000;
+    background: var(--brand-orange);
     color: #fff;
+    box-shadow: 0 10px 24px rgba(255, 127, 26, 0.18);
   }
 
   .version-info {

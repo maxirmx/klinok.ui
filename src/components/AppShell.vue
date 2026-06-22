@@ -7,7 +7,9 @@ import { computed } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import packageJson from "../../package.json";
 import { ownerNavigation } from "../navigation";
+import { darkMode } from "../state";
 import AppIcon from "./AppIcon.vue";
+import BrandLogo from "./BrandLogo.vue";
 
 const props = defineProps<{
   title: string;
@@ -39,7 +41,7 @@ function goBack() {
   <section class="app-layout">
     <aside class="desktop-nav" aria-label="Основная навигация">
       <RouterLink class="brand-block" to="/owner/home">
-        <strong>Клинок</strong>
+        <BrandLogo :variant="darkMode ? 'mono' : 'full'" size="compact" />
         <span>Здоровье питомца под контролем</span>
       </RouterLink>
 

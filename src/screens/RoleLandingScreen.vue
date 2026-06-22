@@ -6,7 +6,9 @@
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import AppIcon from "../components/AppIcon.vue";
+import BrandLogo from "../components/BrandLogo.vue";
 import { users, vetRequests } from "../data";
+import { darkMode } from "../state";
 
 const props = defineProps<{
   scenarioId: string;
@@ -26,7 +28,7 @@ const title = computed(() => {
   <section class="role-layout">
     <header class="role-header">
       <RouterLink class="brand-block" :to="isVet ? '/vet/home' : '/company/home'">
-        <strong>Клинок</strong>
+        <BrandLogo :variant="darkMode ? 'mono' : 'full'" size="compact" />
         <span>{{ title }}</span>
       </RouterLink>
       <nav>

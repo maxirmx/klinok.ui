@@ -133,6 +133,38 @@ describe("App", () => {
     expect(visible.wrapper.text()).toContain("owner-home");
   });
 
+  it("renders the brand logo on entry, owner shell, and role landing surfaces", async () => {
+    const entry = await mountAt("/auth/role");
+    expect(entry.wrapper.find("[data-brand-logo]").exists()).toBe(true);
+    expect(entry.wrapper.find(".auth-brand").attributes("aria-label")).toBe("Клинок");
+    expect(entry.wrapper.findAll("[data-brand-logo] path")).toHaveLength(3);
+
+    const owner = await mountAt("/owner/home");
+    expect(owner.wrapper.find(".desktop-nav .brand-logo").exists()).toBe(true);
+    expect(owner.wrapper.findAll(".desktop-nav .brand-logo path")).toHaveLength(3);
+
+    const vet = await mountAt("/vet/home");
+    expect(vet.wrapper.find(".role-header .brand-logo").exists()).toBe(true);
+    expect(vet.wrapper.findAll(".role-header .brand-logo path")).toHaveLength(3);
+  });
+
+  it("keeps brand tokens aligned with the logo book", () => {
+    const styles = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+    const fullLogo = readFileSync(resolve(process.cwd(), "src/assets/brand/klinok-logo-full-ru.svg"), "utf8");
+    const monoLogo = readFileSync(resolve(process.cwd(), "src/assets/brand/klinok-logo-mono-ru.svg"), "utf8");
+
+    const stylesLower = styles.toLowerCase();
+    for (const color of ["#4087D1", "#FF7F1A", "#000000", "#FFFFFF", "#EAF4FF", "#FFEAD9", "#EFEFEF"]) {
+      expect(stylesLower).toContain(color.toLowerCase());
+    }
+
+    expect(styles.toLowerCase()).not.toContain("#3778ff");
+    expect(fullLogo).toContain('viewBox="0 0 773 198"');
+    expect(fullLogo).toContain('fill="#4087D1"');
+    expect(fullLogo).toContain('fill="#FF7F1A"');
+    expect(monoLogo).toContain('fill="#000000"');
+  });
+
   it("does not render or keep device chrome selectors", async () => {
     const { wrapper } = await mountAt("/owner/home");
     const forbidden = ["status-bar", "dynamic-island", "home-indicator", "battery", "wifi", "signal"];
