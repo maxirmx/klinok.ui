@@ -145,13 +145,13 @@ describe("App", () => {
     expect(vet.wrapper.find(".role-header .brand-logo").exists()).toBe(true);
   });
 
-  it("keeps brand tokens aligned with the logo book", () => {
     const styles = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
     const fullLogo = readFileSync(resolve(process.cwd(), "src/assets/brand/klinok-logo-full-ru.svg"), "utf8");
     const monoLogo = readFileSync(resolve(process.cwd(), "src/assets/brand/klinok-logo-mono-ru.svg"), "utf8");
 
+    const stylesLower = styles.toLowerCase();
     for (const color of ["#4087D1", "#FF7F1A", "#000000", "#FFFFFF", "#EAF4FF", "#FFEAD9", "#EFEFEF"]) {
-      expect(styles).toContain(color);
+      expect(stylesLower).toContain(color.toLowerCase());
     }
 
     expect(styles.toLowerCase()).not.toContain("#3778ff");
