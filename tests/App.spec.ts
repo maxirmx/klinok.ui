@@ -137,14 +137,18 @@ describe("App", () => {
     const entry = await mountAt("/auth/role");
     expect(entry.wrapper.find("[data-brand-logo]").exists()).toBe(true);
     expect(entry.wrapper.find(".auth-brand").attributes("aria-label")).toBe("Клинок");
+    expect(entry.wrapper.findAll("[data-brand-logo] path")).toHaveLength(3);
 
     const owner = await mountAt("/owner/home");
     expect(owner.wrapper.find(".desktop-nav .brand-logo").exists()).toBe(true);
+    expect(owner.wrapper.findAll(".desktop-nav .brand-logo path")).toHaveLength(3);
 
     const vet = await mountAt("/vet/home");
     expect(vet.wrapper.find(".role-header .brand-logo").exists()).toBe(true);
+    expect(vet.wrapper.findAll(".role-header .brand-logo path")).toHaveLength(3);
   });
 
+  it("keeps brand tokens aligned with the logo book", () => {
     const styles = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
     const fullLogo = readFileSync(resolve(process.cwd(), "src/assets/brand/klinok-logo-full-ru.svg"), "utf8");
     const monoLogo = readFileSync(resolve(process.cwd(), "src/assets/brand/klinok-logo-mono-ru.svg"), "utf8");
