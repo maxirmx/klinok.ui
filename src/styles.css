@@ -81,7 +81,7 @@ a {
   display: block;
   height: auto;
   flex: 0 0 auto;
-  color: var(--text);
+  color: inherit;
 }
 
 .brand-logo--compact {
@@ -90,10 +90,6 @@ a {
 
 .brand-logo--standard {
   width: 178px;
-}
-
-.brand-logo--mono {
-  color: currentColor;
 }
 
 .brand-block {
