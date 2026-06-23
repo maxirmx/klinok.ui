@@ -93,6 +93,7 @@ function goBack() {
       </div>
 
       <nav class="mobile-tabs" aria-label="Нижняя навигация">
+        <span class="mobile-version version-info">Версия {{ version }}</span>
         <RouterLink
           v-for="item in ownerNavigation"
           :key="item.path"

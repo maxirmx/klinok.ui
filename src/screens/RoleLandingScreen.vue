@@ -9,11 +9,13 @@ import AppIcon from "../components/AppIcon.vue";
 import BrandLogo from "../components/BrandLogo.vue";
 import { users, vetRequests } from "../data";
 import { darkMode } from "../state";
+import { APP_VERSION } from "../version";
 
 const props = defineProps<{
   scenarioId: string;
 }>();
 
+const version = APP_VERSION;
 const isVet = computed(() => props.scenarioId.startsWith("vet-"));
 const user = computed(() => users.find((item) => item.role === (isVet.value ? "vet" : "company")) ?? users[0]);
 const title = computed(() => {
@@ -31,11 +33,14 @@ const title = computed(() => {
         <BrandLogo :variant="darkMode ? 'mono' : 'full'" size="compact" />
         <span>{{ title }}</span>
       </RouterLink>
-      <nav>
-        <RouterLink v-if="isVet" to="/vet/requests">Заявки</RouterLink>
-        <RouterLink :to="isVet ? '/vet/profile' : '/company/profile'">Профиль</RouterLink>
-        <RouterLink to="/owner/home">Owner demo</RouterLink>
-      </nav>
+      <div class="role-header-actions">
+        <nav>
+          <RouterLink v-if="isVet" to="/vet/requests">Заявки</RouterLink>
+          <RouterLink :to="isVet ? '/vet/profile' : '/company/profile'">Профиль</RouterLink>
+          <RouterLink to="/owner/home">Owner demo</RouterLink>
+        </nav>
+        <span class="role-version version-info">Версия {{ version }}</span>
+      </div>
     </header>
 
     <main class="role-main">

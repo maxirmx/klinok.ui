@@ -7,6 +7,7 @@ import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { roles, type Role } from "../data";
 import { darkMode, otp, phone, selectedRole, selectedRoleLabel } from "../state";
+import { APP_VERSION } from "../version";
 import AppIcon from "../components/AppIcon.vue";
 import BrandLogo from "../components/BrandLogo.vue";
 
@@ -15,6 +16,7 @@ const props = defineProps<{
 }>();
 
 const router = useRouter();
+const version = APP_VERSION;
 
 const step = computed(() => {
   if (props.scenarioId === "auth-login") return "login";
@@ -52,66 +54,76 @@ function goBack() {
 
 <template>
   <section class="auth-surface" :class="{ 'has-back': step !== 'role' }">
-    <BrandLogo class="auth-brand" :variant="darkMode ? 'mono' : 'full'" />
-
-    <button v-if="step !== 'role'" class="back-float" aria-label="Назад" @click="goBack">
-      <AppIcon name="chevron-left" />
-    </button>
-
-    <div class="auth-center" :class="`step-${step}`">
-      <div class="auth-heading">
-        <h1>{{ heading }}</h1>
-        <p v-if="step === 'role'">Давайте познакомимся</p>
-        <p v-else-if="step === 'login'">Введите свой номер телефона - отправим код для подтверждения</p>
-        <p v-else-if="step === 'code'">Код отправлен на номер {{ phone }}</p>
-        <p v-else>{{ selectedRoleLabel }}</p>
+    <aside class="auth-rail" aria-label="О приложении">
+      <BrandLogo class="auth-brand" :variant="darkMode ? 'mono' : 'full'" />
+      <div class="auth-rail-copy">
+        <h2>Здоровье питомца под контролем</h2>
+        <p>Единый доступ для владельцев, ветеринаров и организаций.</p>
       </div>
+      <span class="auth-rail-version version-info">Версия {{ version }}</span>
+    </aside>
 
-      <div v-if="step === 'role'" class="role-list">
-        <button
-          v-for="role in roles"
-          :key="role.id"
-          class="input-tile"
-          :class="{ selected: selectedRole === role.id }"
-          @click="selectRole(role.id)"
-        >
-          {{ role.label }}
-        </button>
-      </div>
+    <div class="auth-panel">
+      <button v-if="step !== 'role'" class="back-float" aria-label="Назад" @click="goBack">
+        <AppIcon name="chevron-left" />
+      </button>
 
-      <label v-else-if="step === 'login'" class="text-input">
-        <span>Телефон</span>
-        <input v-model="phone" inputmode="tel" autocomplete="tel" />
-      </label>
-
-      <template v-else-if="step === 'code'">
-        <div class="otp-row" aria-label="Код подтверждения">
-          <input
-            v-for="(_, index) in otp"
-            :key="index"
-            v-model="otp[index]"
-            maxlength="1"
-            inputmode="numeric"
-          />
+      <div class="auth-center" :class="`step-${step}`">
+        <div class="auth-heading">
+          <h1>{{ heading }}</h1>
+          <p v-if="step === 'role'">Давайте познакомимся</p>
+          <p v-else-if="step === 'login'">Введите свой номер телефона - отправим код для подтверждения</p>
+          <p v-else-if="step === 'code'">Код отправлен на номер {{ phone }}</p>
+          <p v-else>{{ selectedRoleLabel }}</p>
         </div>
-        <p class="timer">Запросить новый код можно через: 0:52</p>
-      </template>
 
-      <div v-else class="welcome-card">
-        <span><AppIcon name="check" /></span>
-        <strong>Профиль готов</strong>
-        <p>Основные разделы доступны сразу после входа.</p>
+        <div v-if="step === 'role'" class="role-list">
+          <button
+            v-for="role in roles"
+            :key="role.id"
+            class="input-tile"
+            :class="{ selected: selectedRole === role.id }"
+            @click="selectRole(role.id)"
+          >
+            {{ role.label }}
+          </button>
+        </div>
+
+        <label v-else-if="step === 'login'" class="text-input">
+          <span>Телефон</span>
+          <input v-model="phone" inputmode="tel" autocomplete="tel" />
+        </label>
+
+        <template v-else-if="step === 'code'">
+          <div class="otp-row" aria-label="Код подтверждения">
+            <input
+              v-for="(_, index) in otp"
+              :key="index"
+              v-model="otp[index]"
+              maxlength="1"
+              inputmode="numeric"
+            />
+          </div>
+          <p class="timer">Запросить новый код можно через: 0:52</p>
+        </template>
+
+        <div v-else class="welcome-card">
+          <span><AppIcon name="check" /></span>
+          <strong>Профиль готов</strong>
+          <p>Основные разделы доступны сразу после входа.</p>
+        </div>
       </div>
-    </div>
 
-    <footer class="auth-footer">
-      <button class="primary-action" :disabled="step === 'role' && !selectedRole" @click="nextStep">
-        {{ step === "welcome" ? "Перейти в приложение" : "Продолжить" }}
-      </button>
-      <button v-if="step !== 'welcome'" class="link-action" @click="step === 'role' ? router.push('/auth/login') : router.push('/auth/role')">
-        <span>{{ step === "role" ? "Есть аккаунт ?" : "Нет аккаунта ?" }}</span>
-        <strong>{{ step === "role" ? "Войти" : "Зарегистрироваться" }}</strong>
-      </button>
-    </footer>
+      <footer class="auth-footer">
+        <button class="primary-action" :disabled="step === 'role' && !selectedRole" @click="nextStep">
+          {{ step === "welcome" ? "Перейти в приложение" : "Продолжить" }}
+        </button>
+        <button v-if="step !== 'welcome'" class="link-action" @click="step === 'role' ? router.push('/auth/login') : router.push('/auth/role')">
+          <span>{{ step === "role" ? "Есть аккаунт ?" : "Нет аккаунта ?" }}</span>
+          <strong>{{ step === "role" ? "Войти" : "Зарегистрироваться" }}</strong>
+        </button>
+        <span class="auth-version version-info">Версия {{ version }}</span>
+      </footer>
+    </div>
   </section>
 </template>

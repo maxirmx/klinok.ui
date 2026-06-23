@@ -9,7 +9,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 import App from "../src/App.vue";
 import { routes } from "../src/router";
+import { scenarioRegistry } from "../src/scenarios";
 import { applyPetFilters, darkMode, petQuery, selectedRole } from "../src/state";
+import { APP_VERSION } from "../src/version";
 
 const mountedWrappers: ReturnType<typeof mount>[] = [];
 
@@ -31,6 +33,10 @@ async function mountAt(path = "/auth/role") {
   await router.push(path);
   await flushPromises();
   return { wrapper, router };
+}
+
+function resolveScenarioPath(path: string) {
+  return path.replace(/:id/g, "1");
 }
 
 describe("App", () => {
@@ -146,6 +152,22 @@ describe("App", () => {
     const vet = await mountAt("/vet/home");
     expect(vet.wrapper.find(".role-header .brand-logo").exists()).toBe(true);
     expect(vet.wrapper.findAll(".role-header .brand-logo path")).toHaveLength(3);
+  });
+
+  it("shows the version label on every implemented screen", async () => {
+    const expectedVersion = `Версия ${APP_VERSION}`;
+    const missingScreens: string[] = [];
+
+   for (const scenario of scenarioRegistry.filter((item) => item.implemented)) {
+     const { wrapper } = await mountAt(resolveScenarioPath(scenario.path));
+     if (!wrapper.text().includes(expectedVersion)) {
+       missingScreens.push(`${scenario.id} (${scenario.path})`);
+     }
+     wrapper.unmount();
+     mountedWrappers.pop();
+   }
+
+    expect(missingScreens).toEqual([]);
   });
 
   it("keeps brand tokens aligned with the logo book", () => {
