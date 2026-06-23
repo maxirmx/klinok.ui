@@ -7,11 +7,11 @@ import { resolve } from "node:path";
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
-import packageJson from "../package.json";
 import App from "../src/App.vue";
 import { routes } from "../src/router";
 import { scenarioRegistry } from "../src/scenarios";
 import { applyPetFilters, darkMode, petQuery, selectedRole } from "../src/state";
+import { APP_VERSION } from "../src/version";
 
 const mountedWrappers: ReturnType<typeof mount>[] = [];
 
@@ -155,7 +155,7 @@ describe("App", () => {
   });
 
   it("shows the version label on every implemented screen", async () => {
-    const expectedVersion = `Версия ${packageJson.version}`;
+    const expectedVersion = `Версия ${APP_VERSION}`;
     const missingScreens: string[] = [];
 
 for (const scenario of scenarioRegistry.filter((item) => item.implemented)) {

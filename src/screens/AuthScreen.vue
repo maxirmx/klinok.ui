@@ -5,9 +5,9 @@
 
 import { computed } from "vue";
 import { useRouter } from "vue-router";
-import packageJson from "../../package.json";
 import { roles, type Role } from "../data";
 import { darkMode, otp, phone, selectedRole, selectedRoleLabel } from "../state";
+import { APP_VERSION } from "../version";
 import AppIcon from "../components/AppIcon.vue";
 import BrandLogo from "../components/BrandLogo.vue";
 
@@ -16,7 +16,7 @@ const props = defineProps<{
 }>();
 
 const router = useRouter();
-const version = packageJson.version;
+const version = APP_VERSION;
 
 const step = computed(() => {
   if (props.scenarioId === "auth-login") return "login";

@@ -5,17 +5,17 @@
 
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
-import packageJson from "../../package.json";
 import AppIcon from "../components/AppIcon.vue";
 import BrandLogo from "../components/BrandLogo.vue";
 import { users, vetRequests } from "../data";
 import { darkMode } from "../state";
+import { APP_VERSION } from "../version";
 
 const props = defineProps<{
   scenarioId: string;
 }>();
 
-const version = packageJson.version;
+const version = APP_VERSION;
 const isVet = computed(() => props.scenarioId.startsWith("vet-"));
 const user = computed(() => users.find((item) => item.role === (isVet.value ? "vet" : "company")) ?? users[0]);
 const title = computed(() => {
