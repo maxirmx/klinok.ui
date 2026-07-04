@@ -10,7 +10,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import App from "../src/App.vue";
 import { routes } from "../src/router";
 import { scenarioRegistry } from "../src/scenarios";
-import { applyPetFilters, darkMode, petQuery, selectedRole } from "../src/state";
+import { complaintRecords, drugRecords, resetPrototypeStateForTests } from "../src/state";
 import { APP_VERSION } from "../src/version";
 
 const mountedWrappers: ReturnType<typeof mount>[] = [];
@@ -47,10 +47,7 @@ describe("App", () => {
   });
 
   beforeEach(() => {
-    selectedRole.value = "owner";
-    petQuery.value = "";
-    applyPetFilters("Все", "Все");
-    darkMode.value = false;
+    resetPrototypeStateForTests();
   });
 
   it("walks through the auth routes and opens the owner home screen", async () => {
@@ -101,6 +98,26 @@ describe("App", () => {
     expect(wrapper.text()).toContain("Откликнувшиеся врачи");
   });
 
+  it("creates a real complaint record from the booking template", async () => {
+    const { wrapper } = await mountAt("/owner/booking");
+
+    await wrapper.findAll("[data-test='complaint-tree'] button").find((button) => button.text() === "Есть проблемы")!.trigger("click");
+    await wrapper.findAll("[data-test='complaint-tree'] button").find((button) => button.text() === "С поведением")!.trigger("click");
+    await wrapper.findAll("[data-test='complaint-tree'] button").find((button) => button.text() === "Снижение активности")!.trigger("click");
+    await wrapper.get("[data-test='complaint-free-text']").setValue("стал тише");
+    await wrapper.get("[data-test='complaint-details']").setValue("после прогулки меньше играет");
+    await wrapper.get("button.primary-action.inline").trigger("click");
+    await flushPromises();
+
+    expect(complaintRecords.value[0]).toMatchObject({
+      templateId: "what-happened-tree",
+      pet: "Чарли",
+      selectedOptionLabels: ["Есть проблемы", "С поведением", "Снижение активности"],
+      freeText: "стал тише",
+      details: "после прогулки меньше играет",
+    });
+  });
+
   it("supports the add-analysis template flow", async () => {
     const { wrapper, router } = await mountAt("/owner/analysis");
 
@@ -128,6 +145,25 @@ describe("App", () => {
 
     expect(router.currentRoute.value.path).toBe("/owner/profile/faq");
     expect(wrapper.text()).toContain("Как долго хранится история болезни?");
+  });
+
+  it("creates and displays a real drug record from the drug template", async () => {
+    const { wrapper, router } = await mountAt("/owner/materials/drugs/new");
+
+    await wrapper.get("[data-test='drug-activeSubstanceRu']").setValue("Тестовое вещество");
+    await wrapper.get("[data-test='drug-activeSubstanceLatin']").setValue("Substantia test");
+    await wrapper.get("[data-test='drug-tradeNames']").setValue("Название 1, Название 2");
+    await wrapper.get("[data-test='save-drug-record']").trigger("click");
+    await flushPromises();
+
+    expect(drugRecords.value[0]).toMatchObject({
+      activeSubstanceRu: "Тестовое вещество",
+      activeSubstanceLatin: "Substantia test",
+      tradeNames: ["Название 1", "Название 2"],
+    });
+    expect(router.currentRoute.value.path).toBe(`/owner/materials/drugs/${drugRecords.value[0].id}`);
+    expect(wrapper.text()).toContain("Тестовое вещество");
+    expect(wrapper.text()).toContain("Источник не указан");
   });
 
   it("shows QA scenario menu only when requested", async () => {

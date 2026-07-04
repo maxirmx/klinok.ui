@@ -762,6 +762,66 @@ dd {
   resize: vertical;
 }
 
+.field-caption {
+  display: block;
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.template-block {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--brand-sky-border);
+  border-radius: 10px;
+  background: var(--brand-sky-soft);
+}
+
+.selected-path {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.selected-path strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.selected-path button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--brand-sky);
+  font-size: 13px;
+}
+
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.option-grid button {
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid var(--brand-sky-border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
 .segmented {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -952,6 +1012,23 @@ dd {
   color: var(--text-soft);
   font-size: 18px;
   line-height: 1.35;
+}
+
+.drug-detail {
+  display: grid;
+  gap: 10px;
+}
+
+.drug-detail .field small {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.create-row {
+  color: var(--brand-sky);
+  font-weight: 700;
 }
 
 .profile-hero {

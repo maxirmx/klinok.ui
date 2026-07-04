@@ -16,6 +16,14 @@ import {
   type Role,
   type Visit,
 } from "./data";
+import { createDefaultDappRepository } from "./dapp/repository";
+import {
+  createComplaintRecordFromTemplate,
+  createDrugRecordFromTemplate,
+  createEmptyDrugDraft,
+  getComplaintOptionPath,
+} from "./dapp/templates";
+import type { ComplaintRecord, DrugRecord, DrugRecordDraft } from "./dapp/types";
 
 export const selectedRole = ref<Role>("owner");
 export const phone = ref("+7 (900) 000-00-00");
@@ -30,8 +38,32 @@ export const localVisits = ref<Visit[]>([...visits]);
 export const savedAnalyses = ref<AnalysisDraft[]>([...analyses]);
 export const toast = ref("");
 
+const dappRepository = createDefaultDappRepository();
+
+export const complaintTemplates = ref(dappRepository.listComplaintTemplates());
+export const complaintRecords = ref(dappRepository.listComplaintRecords());
+export const drugTemplates = ref(dappRepository.listDrugTemplates());
+export const drugRecords = ref(dappRepository.listDrugRecords());
+export const selectedComplaintTemplateId = ref(complaintTemplates.value[0]?.id ?? "");
+export const selectedComplaintOptionIds = ref<string[]>([]);
+export const selectedDrugTemplateId = ref(drugTemplates.value[0]?.id ?? "");
+export const drugDraft = reactive<DrugRecordDraft>(createEmptyDrugDraft());
+
 export const selectedRoleLabel = computed(() => {
   return roles.find((role) => role.id === selectedRole.value)?.label ?? "";
+});
+
+export const selectedComplaintTemplate = computed(() => {
+  return complaintTemplates.value.find((template) => template.id === selectedComplaintTemplateId.value) ?? complaintTemplates.value[0];
+});
+
+export const selectedComplaintOptions = computed(() => {
+  const template = selectedComplaintTemplate.value;
+  return template ? getComplaintOptionPath(template, selectedComplaintOptionIds.value) : [];
+});
+
+export const selectedDrugTemplate = computed(() => {
+  return drugTemplates.value.find((template) => template.id === selectedDrugTemplateId.value) ?? drugTemplates.value[0];
 });
 
 export const filteredPets = computed(() => {
@@ -49,13 +81,22 @@ export function applyPetFilters(type: Pet["species"] | "Все", sex: Pet["sex"]
   selectedSex.value = sex;
 }
 
+export function selectComplaintOption(level: number, optionId: string) {
+  selectedComplaintOptionIds.value = [...selectedComplaintOptionIds.value.slice(0, level), optionId];
+}
+
+export function clearComplaintOptions() {
+  selectedComplaintOptionIds.value = [];
+}
+
 export function submitAppointment() {
+  const complaintRecord = createComplaintRecord();
   const id = 22138 + localVisits.value.length;
   localVisits.value = [
     {
       id,
       title: `Заявка #${id}`,
-      complaint: appointment.reason,
+      complaint: complaintRecord.selectedOptionLabels.join(" / ") || complaintRecord.freeText || appointment.reason,
       doctor: appointment.doctor,
       role: "Откликнувшиеся врачи",
       pet: appointment.pet,
@@ -69,6 +110,26 @@ export function submitAppointment() {
   return id;
 }
 
+export function createComplaintRecord(): ComplaintRecord {
+  if (!selectedComplaintTemplate.value) {
+    throw new Error("Complaint template is not available");
+  }
+
+  const record = createComplaintRecordFromTemplate(selectedComplaintTemplate.value, {
+    pet: appointment.pet,
+    urgency: appointment.urgency,
+    date: appointment.date,
+    time: appointment.time,
+    selectedOptionIds: selectedComplaintOptionIds.value,
+    freeText: appointment.reason,
+    details: appointment.details,
+  });
+
+  dappRepository.saveComplaintRecord(record);
+  complaintRecords.value = dappRepository.listComplaintRecords();
+  return record;
+}
+
 export function saveAnalysisDraft() {
   savedAnalyses.value = [
     {
@@ -79,6 +140,50 @@ export function saveAnalysisDraft() {
     },
     ...savedAnalyses.value,
   ];
+}
+
+export function saveDrugDraft(): DrugRecord {
+  if (!selectedDrugTemplate.value) {
+    throw new Error("Drug template is not available");
+  }
+
+  const record = createDrugRecordFromTemplate(selectedDrugTemplate.value, drugDraft);
+  dappRepository.saveDrugRecord(record);
+  drugRecords.value = dappRepository.listDrugRecords();
+  resetDrugDraft();
+  return record;
+}
+
+export function findDrugRecord(id: string) {
+  return drugRecords.value.find((record) => record.id === id) ?? null;
+}
+
+export function resetDrugDraft() {
+  Object.assign(drugDraft, createEmptyDrugDraft());
+}
+
+export function resetDappStateForTests() {
+  dappRepository.reset();
+  complaintTemplates.value = dappRepository.listComplaintTemplates();
+  complaintRecords.value = dappRepository.listComplaintRecords();
+  drugTemplates.value = dappRepository.listDrugTemplates();
+  drugRecords.value = dappRepository.listDrugRecords();
+  selectedComplaintTemplateId.value = complaintTemplates.value[0]?.id ?? "";
+  selectedComplaintOptionIds.value = [];
+  selectedDrugTemplateId.value = drugTemplates.value[0]?.id ?? "";
+  resetDrugDraft();
+}
+
+export function resetPrototypeStateForTests() {
+  selectedRole.value = "owner";
+  petQuery.value = "";
+  applyPetFilters("Все", "Все");
+  darkMode.value = false;
+  Object.assign(appointment, defaultAppointment);
+  Object.assign(analysisDraft, { ...defaultAnalysis, rows: [...defaultAnalysis.rows] });
+  localVisits.value = [...visits];
+  savedAnalyses.value = [...analyses];
+  resetDappStateForTests();
 }
 
 export function showToast(message: string) {
