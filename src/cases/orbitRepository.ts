@@ -4,6 +4,7 @@
 
 import type { AppointmentDraft } from "../data";
 import type { P2PClientConfig } from "../runtimeConfig";
+import { KlinokAccessController } from "./accessController";
 import {
   createParticipantKeyPair,
   decryptReplicatedEventRecord,
@@ -110,7 +111,7 @@ async function createOrbitRuntime(config: P2PClientConfig): Promise<OrbitRuntime
   const [
     { createLibp2p },
     { createHelia },
-    { createOrbitDB, IPFSAccessController },
+    { createOrbitDB, useAccessController },
     { webSockets },
     { bootstrap },
     { identify },
@@ -173,13 +174,14 @@ async function createOrbitRuntime(config: P2PClientConfig): Promise<OrbitRuntime
 
   const createHeliaAny = createHelia as unknown as (init: unknown) => Promise<OrbitRuntime["helia"]>;
   const createOrbitDBAny = createOrbitDB as unknown as (init: unknown) => Promise<OrbitRuntime["orbitdb"]>;
+  useAccessController(KlinokAccessController);
   const helia = await createHeliaAny({ libp2p });
   const orbitdb = await createOrbitDBAny({ ipfs: helia, id: config.identityId });
   const write = config.writeIdentityIds.length ? config.writeIdentityIds : ["*"];
   const dbName = config.databaseAddress || config.databaseName;
   const db = await orbitdb.open(dbName, {
     type: "events",
-    AccessController: IPFSAccessController({ write }),
+    AccessController: KlinokAccessController({ write }),
   });
 
   return { libp2p, helia, orbitdb, db };

@@ -24,6 +24,10 @@ export function getWebSocketListenMultiaddr(wsPort, hasTls) {
   return `/ip4/0.0.0.0/tcp/${wsPort}/${hasTls ? "tls/ws" : "ws"}`;
 }
 
+export function getLibp2pListenMultiaddrs(wsPort, hasTls) {
+  return [getWebSocketListenMultiaddr(wsPort, hasTls)];
+}
+
 export function getTlsFilePaths(env = process.env) {
   const certPath = optionalEnv("KLINOK_P2P_TLS_CERT", env);
   const keyPath = optionalEnv("KLINOK_P2P_TLS_KEY", env);
@@ -39,6 +43,29 @@ export function loadWebSocketTransportOptions(tlsFilePaths) {
       key: readFileSync(tlsFilePaths.keyPath),
     },
   };
+}
+
+function formatSingleError(error) {
+  if (error instanceof Error) {
+    return error.name && error.name !== "Error" ? `${error.name}: ${error.message}` : error.message;
+  }
+
+  return String(error);
+}
+
+export function formatErrorSummary(error) {
+  const nestedErrors =
+    error instanceof AggregateError
+      ? error.errors
+      : error && typeof error === "object" && Array.isArray(error.errors)
+        ? error.errors
+        : [];
+
+  if (nestedErrors.length > 0) {
+    return `${formatSingleError(error)} (${nestedErrors.map(formatSingleError).join("; ")})`;
+  }
+
+  return formatSingleError(error);
 }
 
 export function encodePrivateKey(privateKey) {
