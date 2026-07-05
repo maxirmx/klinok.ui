@@ -3,7 +3,7 @@
 // This file is a part of Klinok ui application
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { backendError, backendReady, resetPrototypeStateForTests, submitAppointment } from "../src/state";
+import { backendError, backendReady, resetPrototypeStateForTests, submitAppointment, todayInputDate } from "../src/state";
 
 describe("backend state guards", () => {
   beforeEach(async () => {
@@ -22,5 +22,16 @@ describe("backend state guards", () => {
     backendError.value = "Failed to dial trusted node.";
 
     await expect(submitAppointment()).rejects.toThrow("Failed to dial trusted node.");
+  });
+
+  it("formats date input defaults from local date parts instead of UTC serialization", () => {
+    const localDate = {
+      getFullYear: () => 2026,
+      getMonth: () => 6,
+      getDate: () => 6,
+      toISOString: () => "2026-07-05T21:30:00.000Z",
+    } as unknown as Date;
+
+    expect(todayInputDate(localDate)).toBe("2026-07-06");
   });
 });

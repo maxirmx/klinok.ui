@@ -1224,6 +1224,147 @@ dd {
   margin-bottom: 8px;
 }
 
+.medical-history {
+  display: grid;
+  gap: 16px;
+}
+
+.medical-pet-header h2,
+.medical-epicrisis h2,
+.medical-entries h2 {
+  margin: 0 0 14px;
+  font-size: 20px;
+}
+
+.medical-header-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.field.compact {
+  min-height: 58px;
+}
+
+.epicrisis-list {
+  display: grid;
+  gap: 10px;
+}
+
+.epicrisis-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) minmax(150px, 0.55fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.epicrisis-row:last-child {
+  border-bottom: 0;
+}
+
+.epicrisis-row span,
+.epicrisis-row small {
+  color: var(--muted);
+}
+
+.medical-entry-form {
+  gap: 14px;
+}
+
+.medical-section {
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.medical-section summary {
+  padding: 14px 16px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.medical-section > label,
+.medical-section > .template-block,
+.medical-section > .medical-inline-grid {
+  margin: 0 16px 14px;
+}
+
+.medical-inline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.medical-entry {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.medical-entry:first-of-type {
+  border-top: 0;
+}
+
+.medical-entry summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.medical-entry summary small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.medical-entry-section {
+  display: grid;
+  gap: 10px;
+  padding: 14px 0 0;
+}
+
+.medical-entry-section header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.medical-entry-section h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.medical-entry-section small {
+  color: var(--muted);
+}
+
+.medical-entry-section dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.medical-entry-section dl div {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.medical-entry-section dt {
+  color: var(--muted);
+}
+
+.medical-entry-section dd {
+  margin: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .mobile-tabs {
   position: absolute;
   right: 0;
@@ -1740,7 +1881,8 @@ dd {
   .list-panel,
   .delete-panel,
   .material-detail,
-  .doctor-profile {
+  .doctor-profile,
+  .medical-history {
     max-width: 920px;
   }
 
@@ -1778,6 +1920,13 @@ dd {
   .form-panel .primary-action,
   .form-panel .segmented,
   .parameter-grid {
+    grid-column: 1 / -1;
+  }
+
+  .medical-entry-form > h2,
+  .medical-entry-form > label,
+  .medical-section,
+  .medical-entry-form > .primary-action {
     grid-column: 1 / -1;
   }
 
@@ -1885,12 +2034,25 @@ dd {
   .content-scroll > .list-panel,
   .content-scroll > .delete-panel,
   .content-scroll > .material-detail,
-  .content-scroll > .doctor-profile {
+  .content-scroll > .doctor-profile,
+  .content-scroll > .medical-history {
     grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 520px) {
+  .medical-header-grid,
+  .medical-inline-grid,
+  .epicrisis-row,
+  .medical-entry-section dl div {
+    grid-template-columns: 1fr;
+  }
+
+  .medical-entry-section header,
+  .medical-entry summary {
+    display: grid;
+  }
+
   .doctor-card {
     grid-template-columns: 72px 1fr;
   }

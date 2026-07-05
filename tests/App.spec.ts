@@ -120,6 +120,33 @@ describe("App", () => {
     expect(wrapper.text()).toContain("Ожидает первичного приема");
   });
 
+  it("renders and saves the medical history general template", async () => {
+    const { wrapper } = await mountAt("/owner/visits/1324312");
+
+    expect(wrapper.text()).toContain("История болезни");
+    expect(wrapper.find("[data-test='medical-pet-header']").text()).toContain("Чарли");
+    expect(wrapper.find("[data-test='medical-epicrisis']").text()).toContain("Жалобы на боль в правой лапе");
+    expect(wrapper.find("[data-test='medical-entry-form']").text()).toContain("Запись на текущую дату");
+    expect(wrapper.find("[data-test='medical-section-habitus']").exists()).toBe(true);
+    expect(wrapper.find("[data-test='medical-section-outcome']").exists()).toBe(true);
+
+    await wrapper.get("[data-test='medical-entry-date']").setValue("2026-06-25");
+    await wrapper.get("[data-test='medical-habitus-weight']").setValue("13.2");
+    await wrapper.get("[data-test='medical-vaccination-date']").setValue("25.06.26");
+    await wrapper.get("[data-test='medical-vaccination-name']").setValue("Рабикан");
+    await wrapper.get("[data-test='medical-chip-number']").setValue("643000009999");
+    await wrapper.get("[data-test='medical-outcome-status']").setValue("Улучшение");
+    await wrapper.get("[data-test='save-medical-entry']").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find("[data-test='medical-pet-header']").text()).toContain("13.2 кг");
+    expect(wrapper.find("[data-test='medical-pet-header']").text()).toContain("643000009999");
+    expect(wrapper.find("[data-test='medical-pet-header']").text()).toContain("25.06.26 Рабикан");
+    expect(wrapper.find("[data-test='medical-epicrisis']").text()).toContain("Улучшение");
+    expect(wrapper.find("[data-test='medical-previous-entries']").text()).toContain("Общие данные / Габитус");
+    expect(wrapper.find("[data-test='medical-previous-entries']").text()).toContain("Константин Константинопольский");
+  });
+
   it("renders owner home before any replicated cases are synced", async () => {
     const repository = createMockCaseRepository({ seedVisits: [], actorId: "owner" });
     await resetBackendForTests(repository);

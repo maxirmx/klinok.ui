@@ -24,6 +24,8 @@ export interface Pet {
   breed: string;
   sex: "Сука" | "Кобель";
   age: number;
+  color?: string;
+  brandMark?: string;
   note: string;
   nextEvent: string;
   chip: string;
@@ -177,6 +179,7 @@ export const pets: Pet[] = [
     breed: "Бигль",
     sex: "Кобель",
     age: 4,
+    color: "трёхцветный",
     note: "Прививки сделаны",
     nextEvent: "Вакцина через 4 дня",
     chip: "643094100001",
@@ -189,6 +192,7 @@ export const pets: Pet[] = [
     breed: "Корги",
     sex: "Кобель",
     age: 3,
+    color: "рыже-белый",
     note: "Контроль правой лапы",
     nextEvent: "Визит через 3 дня",
     chip: "643094100002",
@@ -201,6 +205,7 @@ export const pets: Pet[] = [
     breed: "Мейн-кун",
     sex: "Сука",
     age: 6,
+    color: "чёрный дым",
     note: "Анализы готовы",
     nextEvent: "Повторить анализ",
     chip: "643094100003",
@@ -213,6 +218,8 @@ export const pets: Pet[] = [
     breed: "Сфинкс",
     sex: "Сука",
     age: 2,
+    color: "кремовый",
+    brandMark: "A-42",
     note: "Плановый осмотр",
     nextEvent: "Осмотр 24 июня",
     chip: "643094100004",
