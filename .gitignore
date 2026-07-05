@@ -36,6 +36,7 @@ dist/
 .vite/
 coverage/
 .tmp*/
+.klinok-p2p/
 
 # Local Figma/design handoff extracts
 .design-reference/

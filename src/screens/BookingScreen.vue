@@ -8,7 +8,19 @@ import { RouterLink, useRouter } from "vue-router";
 import AppShell from "../components/AppShell.vue";
 import AppIcon from "../components/AppIcon.vue";
 import { doctors, pets, type AppointmentDraft } from "../data";
-import { appointment, submitAppointment } from "../state";
+import { getNextComplaintOptions } from "../dapp/templates";
+import {
+  appointment,
+  clearComplaintOptions,
+  complaintTemplates,
+  selectedComplaintOptionIds,
+  selectedComplaintOptions,
+  selectedComplaintTemplate,
+  selectedComplaintTemplateId,
+  selectComplaintOption,
+  showToast,
+  submitAppointment,
+} from "../state";
 
 const props = defineProps<{
   scenarioId: string;
@@ -17,10 +29,24 @@ const props = defineProps<{
 const router = useRouter();
 const urgencyOptions: AppointmentDraft["urgency"][] = ["Планово", "Срочно", "Сегодня"];
 const isSuccess = computed(() => props.scenarioId === "owner-booking-success");
+const nextComplaintOptions = computed(() => {
+  return selectedComplaintTemplate.value
+    ? getNextComplaintOptions(selectedComplaintTemplate.value, selectedComplaintOptionIds.value)
+    : [];
+});
+const selectedComplaintPath = computed(() => selectedComplaintOptions.value.map((option) => option.label).join(" / "));
 
-function submit() {
-  submitAppointment();
-  router.push("/owner/booking/success");
+function changeComplaintTemplate() {
+  clearComplaintOptions();
+}
+
+async function submit() {
+  try {
+    await submitAppointment();
+    await router.push("/owner/booking/success");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "Не удалось создать заявку");
+  }
 }
 </script>
 
@@ -68,12 +94,35 @@ function submit() {
         </button>
       </div>
       <label>
-        <span>Выберите причину похода</span>
-        <input v-model="appointment.reason" />
+        <span>Шаблон обращения</span>
+        <select v-model="selectedComplaintTemplateId" data-test="complaint-template" @change="changeComplaintTemplate">
+          <option v-for="template in complaintTemplates" :key="template.id" :value="template.id">{{ template.title }}</option>
+        </select>
+      </label>
+      <div v-if="selectedComplaintTemplate?.mode === 'hierarchical'" class="template-block" data-test="complaint-tree">
+        <span class="field-caption">{{ selectedComplaintTemplate.prompt }}</span>
+        <div v-if="selectedComplaintPath" class="selected-path">
+          <strong>{{ selectedComplaintPath }}</strong>
+          <button type="button" @click="clearComplaintOptions">Сбросить</button>
+        </div>
+        <div v-if="nextComplaintOptions.length" class="option-grid">
+          <button
+            v-for="option in nextComplaintOptions"
+            :key="option.id"
+            type="button"
+            @click="selectComplaintOption(selectedComplaintOptionIds.length, option.id)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </div>
+      <label>
+        <span>{{ selectedComplaintTemplate?.mode === 'freeText' ? selectedComplaintTemplate.prompt : 'Комментарий к обращению' }}</span>
+        <input v-model="appointment.reason" data-test="complaint-free-text" />
       </label>
       <label>
-        <span>Опишите проблему</span>
-        <textarea v-model="appointment.details" />
+        <span>Подробности</span>
+        <textarea v-model="appointment.details" data-test="complaint-details" />
       </label>
       <div class="two-cols">
         <label><span>Выберите дату</span><input v-model="appointment.date" /></label>

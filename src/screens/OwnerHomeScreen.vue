@@ -3,11 +3,14 @@
 // All rights reserved.
 // This file is a part of Klinok ui application
 
+import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import AppShell from "../components/AppShell.vue";
 import AppIcon from "../components/AppIcon.vue";
 import { doctors, events, materialArticles, pets } from "../data";
 import { localVisits } from "../state";
+
+const latestVisit = computed(() => localVisits.value[0] ?? null);
 </script>
 
 <template>
@@ -45,25 +48,30 @@ import { localVisits } from "../state";
         <h2>История контактов</h2>
         <RouterLink to="/owner/visits">Все</RouterLink>
       </div>
-      <RouterLink class="visit-card" :to="`/owner/visits/${localVisits[0].id}`">
+      <RouterLink v-if="latestVisit" class="visit-card" :to="`/owner/visits/${latestVisit.id}`">
         <div class="visit-card-head">
           <div>
-            <h3>{{ localVisits[0].title }}</h3>
-            <p>{{ localVisits[0].complaint }}</p>
+            <h3>{{ latestVisit.title }}</h3>
+            <p>{{ latestVisit.complaint }}</p>
           </div>
-          <span>{{ localVisits[0].tag }}</span>
+          <span>{{ latestVisit.tag }}</span>
         </div>
         <dl>
-          <div><dt>Дата визита:</dt><dd>{{ localVisits[0].date }}</dd></div>
-          <div><dt>Питомец</dt><dd>{{ localVisits[0].pet }}</dd></div>
-          <div><dt>Диагноз</dt><dd>{{ localVisits[0].diagnosis }}</dd></div>
+          <div><dt>Дата визита:</dt><dd>{{ latestVisit.date }}</dd></div>
+          <div><dt>Питомец</dt><dd>{{ latestVisit.pet }}</dd></div>
+          <div><dt>Диагноз</dt><dd>{{ latestVisit.diagnosis }}</dd></div>
         </dl>
         <div class="doctor-mini">
           <span class="avatar black" />
-          <strong>{{ localVisits[0].doctor }}</strong>
-          <small>{{ localVisits[0].role }}</small>
+          <strong>{{ latestVisit.doctor }}</strong>
+          <small>{{ latestVisit.role }}</small>
         </div>
       </RouterLink>
+      <div v-else class="plain-card">
+        <strong>История контактов пока пуста</strong>
+        <span>Создайте первую заявку, и она появится здесь после синхронизации.</span>
+        <RouterLink class="outline-action inline" to="/owner/booking">Создать заявку</RouterLink>
+      </div>
     </section>
 
     <section class="panel">

@@ -14,6 +14,7 @@ describe("scenario registry", () => {
     expect(new Set(paths).size).toBe(paths.length);
     expect(paths).toContain("/auth/role");
     expect(paths).toContain("/owner/home");
+    expect(paths).toContain("/owner/materials/drugs/:id/edit");
     expect(paths).toContain("/owner/profile/delete");
   });
 

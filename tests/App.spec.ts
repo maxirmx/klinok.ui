@@ -10,8 +10,9 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import App from "../src/App.vue";
 import { routes } from "../src/router";
 import { scenarioRegistry } from "../src/scenarios";
-import { applyPetFilters, darkMode, petQuery, selectedRole } from "../src/state";
+import { backendMode, complaintRecords, drugRecords, localVisits, resetBackendForTests, resetPrototypeStateForTests } from "../src/state";
 import { APP_VERSION } from "../src/version";
+import { createInMemoryCaseEventNetwork, createMockCaseRepository } from "../src/cases/mockRepository";
 
 const mountedWrappers: ReturnType<typeof mount>[] = [];
 
@@ -46,11 +47,8 @@ describe("App", () => {
     }
   });
 
-  beforeEach(() => {
-    selectedRole.value = "owner";
-    petQuery.value = "";
-    applyPetFilters("Все", "Все");
-    darkMode.value = false;
+  beforeEach(async () => {
+    await resetPrototypeStateForTests();
   });
 
   it("walks through the auth routes and opens the owner home screen", async () => {
@@ -101,6 +99,59 @@ describe("App", () => {
     expect(wrapper.text()).toContain("Откликнувшиеся врачи");
   });
 
+  it("renders booking, visit list, and visit detail through p2p repository mode", async () => {
+    const network = createInMemoryCaseEventNetwork();
+    const repository = createMockCaseRepository({ seedVisits: [], actorId: "owner", network });
+    await resetBackendForTests(repository, "p2p");
+    const { wrapper, router } = await mountAt("/owner/booking");
+
+    await wrapper.get("button.primary-action.inline").trigger("click");
+    await flushPromises();
+
+    expect(backendMode.value).toBe("p2p");
+    expect(router.currentRoute.value.path).toBe("/owner/booking/success");
+    expect(localVisits.value[0].complaint).toBe("Боль в правой лапе");
+
+    await router.push("/owner/visits");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Боль в правой лапе");
+
+    await router.push(`/owner/visits/${localVisits.value[0].id}`);
+    await flushPromises();
+    expect(wrapper.text()).toContain("Ожидает первичного приема");
+  });
+
+  it("renders owner home in p2p mode before any cases are synced", async () => {
+    const repository = createMockCaseRepository({ seedVisits: [], actorId: "owner" });
+    await resetBackendForTests(repository, "p2p");
+
+    const { wrapper } = await mountAt("/owner/home");
+
+    expect(wrapper.text()).toContain("История контактов пока пуста");
+    expect(wrapper.find('a[href="/owner/booking"]').exists()).toBe(true);
+  });
+
+  it("creates a replicated complaint record from the booking template", async () => {
+    const { wrapper } = await mountAt("/owner/booking");
+
+    await wrapper.findAll("[data-test='complaint-tree'] button").find((button) => button.text() === "Есть проблемы")!.trigger("click");
+    await wrapper.findAll("[data-test='complaint-tree'] button").find((button) => button.text() === "С поведением")!.trigger("click");
+    await wrapper.findAll("[data-test='complaint-tree'] button").find((button) => button.text() === "Снижение активности")!.trigger("click");
+    await wrapper.get("[data-test='complaint-free-text']").setValue("стал тише");
+    await wrapper.get("[data-test='complaint-details']").setValue("после прогулки меньше играет");
+    await wrapper.get("button.primary-action.inline").trigger("click");
+    await flushPromises();
+
+    expect(complaintRecords.value[0]).toMatchObject({
+      templateId: "what-happened-tree",
+      pet: "Чарли",
+      selectedOptionLabels: ["Есть проблемы", "С поведением", "Снижение активности"],
+      freeText: "стал тише",
+      details: "после прогулки меньше играет",
+    });
+    expect(localVisits.value[0].complaint).toBe("Есть проблемы / С поведением / Снижение активности");
+  });
+
   it("supports the add-analysis template flow", async () => {
     const { wrapper, router } = await mountAt("/owner/analysis");
 
@@ -128,6 +179,129 @@ describe("App", () => {
 
     expect(router.currentRoute.value.path).toBe("/owner/profile/faq");
     expect(wrapper.text()).toContain("Как долго хранится история болезни?");
+  });
+
+  it("separates real drugs from mocked disease and template sections", async () => {
+    const { wrapper } = await mountAt("/owner/materials");
+
+    expect(wrapper.get("[data-test='materials-tab-drugs']").classes()).toContain("active");
+    expect(wrapper.find("[data-test='materials-drugs-list']").exists()).toBe(true);
+    expect(wrapper.findAll("[data-test='drug-group-head']").map((row) => row.text())).toEqual(["Обезболивающие"]);
+    expect(wrapper.findAll("[data-test='drug-record-row']").map((row) => row.text())).toEqual(["Мелоксикам", "Парацетамол"]);
+    expect(wrapper.text()).not.toContain("Карпрофен");
+    expect(wrapper.text()).not.toContain("Справочник болезней");
+
+    await wrapper.get("[data-test='materials-search']").setValue("Обезболивающие");
+    expect(wrapper.findAll("[data-test='drug-record-row']").map((row) => row.text())).toEqual(["Мелоксикам", "Парацетамол"]);
+
+    await wrapper.get("[data-test='materials-tab-diseases']").trigger("click");
+    expect(wrapper.find("[data-test='materials-diseases-list']").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Справочник болезней");
+    await wrapper.findAll("[data-test='mock-section-head']").find((row) => row.text().includes("Справочник болезней"))!.trigger("click");
+    expect(wrapper.text()).toContain("Лептоспироз");
+    expect(wrapper.find("[data-test='drug-record-row']").exists()).toBe(false);
+
+    await wrapper.get("[data-test='materials-tab-templates']").trigger("click");
+    expect(wrapper.find("[data-test='materials-templates-list']").exists()).toBe(true);
+    expect(wrapper.text()).toContain("При температуре");
+    expect(wrapper.text()).not.toContain("Лептоспироз");
+    expect(wrapper.find("[data-test='drug-record-row']").exists()).toBe(false);
+  });
+
+  it("creates and displays a replicated drug record from the drug template", async () => {
+    const { wrapper, router } = await mountAt("/owner/materials/drugs/new");
+
+    expect(wrapper.text()).toContain("Новый препарат");
+    expect(wrapper.text()).not.toContain("Запись по шаблону препарата");
+    expect(wrapper.text()).not.toContain("Шаблон препарата");
+    expect(wrapper.text()).not.toContain("Структура справочной записи по действующему веществу.");
+    expect(wrapper.find("[data-test='drug-template']").exists()).toBe(false);
+    expect((wrapper.get("[data-test='drug-group']").element as HTMLSelectElement).value).toBe("");
+    expect(wrapper.get("[data-test='drug-dogDoseSource']").element.tagName).toBe("TEXTAREA");
+    expect(wrapper.get("[data-test='drug-catDoseSource']").element.tagName).toBe("TEXTAREA");
+
+    await wrapper.get("[data-test='drug-activeSubstanceRu']").setValue("Тестовое вещество");
+    await wrapper.get("[data-test='drug-activeSubstanceLatin']").setValue("Substantia test");
+    await wrapper.get("[data-test='drug-tradeNames']").setValue("Название 1, Название 2");
+    await wrapper.get("[data-test='save-drug-record']").trigger("click");
+    await flushPromises();
+
+    const createdRecord = drugRecords.value.find((record) => record.activeSubstanceRu === "Тестовое вещество");
+    expect(createdRecord).toMatchObject({
+      activeSubstanceRu: "Тестовое вещество",
+      activeSubstanceLatin: "Substantia test",
+      groupIds: [],
+      tradeNames: ["Название 1", "Название 2"],
+    });
+    expect(router.currentRoute.value.path).toBe(`/owner/materials/drugs/${createdRecord!.id}`);
+    expect(wrapper.text()).toContain("Тестовое вещество");
+    expect(wrapper.text()).toContain("Источник не указан");
+
+    await router.push("/owner/materials");
+    await flushPromises();
+    expect(wrapper.get("[data-test='materials-tab-drugs']").classes()).toContain("active");
+    expect(wrapper.findAll("[data-test='drug-record-row']").some((row) => row.text().includes("Тестовое вещество"))).toBe(true);
+    expect(wrapper.findAll("[data-test='drug-group-head']").some((row) => row.text().includes("Без группы"))).toBe(true);
+    expect(wrapper.text()).not.toContain("Карпрофен");
+
+    await wrapper.get("[data-test='materials-search']").setValue("Название 2");
+    expect(wrapper.text()).toContain("Тестовое вещество");
+    expect(wrapper.text()).not.toContain("Мелоксикам");
+  });
+
+  it("validates drug dosage sources before saving", async () => {
+    const { wrapper, router } = await mountAt("/owner/materials/drugs/new");
+    const initialCount = drugRecords.value.length;
+
+    await wrapper.get("[data-test='drug-activeSubstanceRu']").setValue("Тестовая дозировка");
+    await wrapper.get("[data-test='drug-dogDoseText']").setValue("5 мг/кг");
+    await wrapper.get("[data-test='save-drug-record']").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/owner/materials/drugs/new");
+    expect(drugRecords.value).toHaveLength(initialCount);
+    expect(wrapper.text()).toContain("Укажите источник дозировки для собак");
+  });
+
+  it("edits a drug record from the detail screen", async () => {
+    const { wrapper, router } = await mountAt("/owner/materials/drugs/drug-meloxicam");
+
+    await wrapper.get("[data-test='edit-drug-record']").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/owner/materials/drugs/drug-meloxicam/edit");
+    expect((wrapper.get("[data-test='drug-activeSubstanceRu']").element as HTMLInputElement).value).toBe("Мелоксикам");
+    expect((wrapper.get("[data-test='drug-group']").element as HTMLSelectElement).value).toBe("drug-group-analgesics");
+
+    await wrapper.get("[data-test='drug-activeSubstanceRu']").setValue("Мелоксикам обновленный");
+    await wrapper.get("[data-test='drug-group']").setValue("");
+    await wrapper.get("[data-test='drug-tradeNames']").setValue("Локсиком");
+    await wrapper.get("[data-test='save-drug-record']").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/owner/materials/drugs/drug-meloxicam");
+    expect(drugRecords.value.find((record) => record.id === "drug-meloxicam")).toMatchObject({
+      activeSubstanceRu: "Мелоксикам обновленный",
+      groupIds: [],
+      tradeNames: ["Локсиком"],
+    });
+    expect(wrapper.text()).toContain("Мелоксикам обновленный");
+    expect(wrapper.text()).toContain("Без группы");
+  });
+
+  it("deletes a drug record after confirmation", async () => {
+    const { wrapper, router } = await mountAt("/owner/materials/drugs/drug-meloxicam");
+
+    await wrapper.get("[data-test='show-delete-drug-confirm']").trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Удалить препарат из справочника?");
+
+    await wrapper.get("[data-test='confirm-delete-drug']").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/owner/materials");
+    expect(drugRecords.value.some((record) => record.id === "drug-meloxicam")).toBe(false);
+    expect(wrapper.findAll("[data-test='drug-record-row']").some((row) => row.text().includes("Мелоксикам"))).toBe(false);
   });
 
   it("shows QA scenario menu only when requested", async () => {
