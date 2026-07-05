@@ -9,6 +9,16 @@ services:
     ports:
       # Direct access only, not routed by Traefik
       - "80:80"
-      - "443:443
+      - "443:443"
     volumes:
       - /home/maxirmx/.certificate:/etc/nginx/certificate:ro
+
+  p2p-blue:
+    image: ghcr.io/maxirmx/klinok.p2p-node:latest
+    restart: always
+    ports:
+      # Direct access only, not routed by Traefik
+      - "8089:8089"
+    volumes:
+      - /home/maxirmx/.certificate:/etc/nginx/certificate:ro
+      - /home/maxirmx/p2p.blue/data:/data:rw

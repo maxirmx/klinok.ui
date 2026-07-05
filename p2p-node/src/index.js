@@ -24,11 +24,18 @@ function splitEnvList(name, fallback = []) {
     .filter(Boolean);
 }
 
+function optionalEnv(name) {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
 const dataDir = process.env.KLINOK_P2P_DATA_DIR ?? ".klinok-p2p";
 const databaseName = process.env.KLINOK_P2P_DB ?? "klinok-cases";
+const databaseAddress = optionalEnv("KLINOK_P2P_DB_ADDRESS");
 const tcpPort = process.env.KLINOK_P2P_TCP_PORT ?? "51240";
-const wsPort = process.env.KLINOK_P2P_WS_PORT ?? "51241";
+const wsPort = process.env.KLINOK_P2P_WS_PORT ?? "8089";
 const identityId = process.env.KLINOK_P2P_IDENTITY ?? "klinok-trusted-node";
+const announceList = splitEnvList("KLINOK_P2P_ANNOUNCE");
 const bootstrapList = splitEnvList("KLINOK_P2P_BOOTSTRAP");
 const writeIdentityIds = splitEnvList("KLINOK_P2P_WRITE_IDENTITIES", ["*"]);
 
@@ -45,6 +52,7 @@ const blockstore = new LevelBlockstore(`${dataDir}/helia-blocks`);
 const libp2p = await createLibp2p({
   addresses: {
     listen: [`/ip4/0.0.0.0/tcp/${tcpPort}`, `/ip4/0.0.0.0/tcp/${wsPort}/ws`],
+    ...(announceList.length > 0 ? { announce: announceList } : {}),
   },
   transports: [tcp(), webSockets()],
   connectionEncrypters: [noise()],
@@ -62,7 +70,7 @@ const orbitdb = await createOrbitDB({
   id: identityId,
   directory: `${dataDir}/orbitdb`,
 });
-const db = await orbitdb.open(databaseName, {
+const db = await orbitdb.open(databaseAddress ?? databaseName, {
   type: "events",
   AccessController: IPFSAccessController({ write: writeIdentityIds }),
 });

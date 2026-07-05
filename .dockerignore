@@ -9,6 +9,7 @@ coverage
 .github
 .vite
 .tmp*
+.klinok-p2p
 *.log
 .env
 .env.*
