@@ -2,7 +2,12 @@
 // All rights reserved.
 // This file is a part of Klinok ui application
 
-import { gossipsub } from "@chainsafe/libp2p-gossipsub";
+import { gossipsub } from "@libp2p/gossipsub";
+import { withBitswap } from "@helia/bitswap";
+import { withHTTP } from "@helia/http";
+import { withLibp2p } from "@helia/libp2p";
+import * as dagCbor from "@ipld/dag-cbor";
+import * as dagJson from "@ipld/dag-json";
 import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
 import { createOrbitDB, useAccessController } from "@orbitdb/core";
@@ -11,8 +16,10 @@ import { identify } from "@libp2p/identify";
 import { mdns } from "@libp2p/mdns";
 import { webSockets } from "@libp2p/websockets";
 import { LevelBlockstore } from "blockstore-level";
-import { createHelia } from "helia";
+import { createHeliaLight } from "helia";
 import { createLibp2p } from "libp2p";
+import * as json from "multiformats/codecs/json";
+import { sha512 } from "multiformats/hashes/sha2";
 import {
   getLibp2pListenMultiaddrs,
   getTlsFilePaths,
@@ -66,7 +73,12 @@ const libp2p = await createLibp2p({
   },
 });
 
-const helia = await createHelia({ libp2p, blockstore });
+const helia = withBitswap(withLibp2p(withHTTP(createHeliaLight({
+  blockstore,
+  codecs: [dagCbor, dagJson, json],
+  hashers: [sha512],
+})), libp2p));
+await helia.start();
 const orbitdb = await createOrbitDB({
   ipfs: helia,
   id: identityId,

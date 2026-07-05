@@ -5,6 +5,7 @@
 import type { AppointmentDraft } from "../data";
 import { isWebSocketTrustedNodeMultiaddr, type P2PClientConfig } from "../runtimeConfig";
 import { KlinokAccessController } from "./accessController";
+import { BROWSER_ORBITDB_DIRECTORY, createBrowserHeliaInit } from "./browserStorage";
 import {
   createParticipantKeyPair,
   decryptReplicatedEventRecord,
@@ -27,7 +28,7 @@ import type { CaseEventInput, CaseRepository, CaseWatchCallback, CreateCaseOptio
 
 interface OrbitRuntime {
   libp2p: unknown;
-  helia: { stop?: () => Promise<void> };
+  helia: { start?: () => Promise<void>; stop?: () => Promise<void> };
   orbitdb: { stop?: () => Promise<void>; open: (name: string, options?: unknown) => Promise<OrbitEventsDb> };
   db: OrbitEventsDb;
 }
@@ -44,6 +45,10 @@ interface OrbitEventsDb {
 }
 
 const KEY_STORAGE_PREFIX = "klinok:p2p:participant:";
+
+function includesPeerId(address: { getComponents: () => Array<{ name: string; value?: string }> }): boolean {
+  return address.getComponents().some((component) => component.name === "p2p" && Boolean(component.value));
+}
 
 function extractOrbitValue(entry: unknown): EncryptedEventRecord | null {
   if (!entry || typeof entry !== "object") return null;
@@ -110,7 +115,14 @@ async function loadRecipients(config: P2PClientConfig, self: ParticipantKeyPair)
 async function createOrbitRuntime(config: P2PClientConfig): Promise<OrbitRuntime> {
   const [
     { createLibp2p },
-    { createHelia },
+    { createHeliaLight },
+    { withBitswap },
+    { withHTTP },
+    { withLibp2p },
+    dagCbor,
+    dagJson,
+    json,
+    { sha512 },
     { createOrbitDB, useAccessController },
     { webSockets },
     { bootstrap },
@@ -122,11 +134,18 @@ async function createOrbitRuntime(config: P2PClientConfig): Promise<OrbitRuntime
   ] = await Promise.all([
     import("libp2p"),
     import("helia"),
+    import("@helia/bitswap"),
+    import("@helia/http"),
+    import("@helia/libp2p"),
+    import("@ipld/dag-cbor"),
+    import("@ipld/dag-json"),
+    import("multiformats/codecs/json"),
+    import("multiformats/hashes/sha2"),
     import("@orbitdb/core"),
     import("@libp2p/websockets"),
     import("@libp2p/bootstrap"),
     import("@libp2p/identify"),
-    import("@chainsafe/libp2p-gossipsub"),
+    import("@libp2p/gossipsub"),
     import("@chainsafe/libp2p-noise"),
     import("@chainsafe/libp2p-yamux"),
     import("@multiformats/multiaddr"),
@@ -139,7 +158,7 @@ async function createOrbitRuntime(config: P2PClientConfig): Promise<OrbitRuntime
     try {
       if (!isWebSocketTrustedNodeMultiaddr(address)) continue;
       const trustedNode = multiaddr(address);
-      if (trustedNode.getPeerId()) {
+      if (includesPeerId(trustedNode)) {
         bootstrapMultiaddrs.push(address);
       } else {
         directDialMultiaddrs.push(trustedNode);
@@ -173,11 +192,26 @@ async function createOrbitRuntime(config: P2PClientConfig): Promise<OrbitRuntime
     }
   }
 
-  const createHeliaAny = createHelia as unknown as (init: unknown) => Promise<OrbitRuntime["helia"]>;
+  const createHeliaLightAny = createHeliaLight as unknown as (init: unknown) => OrbitRuntime["helia"];
+  const withBitswapAny = withBitswap as unknown as (helia: OrbitRuntime["helia"]) => OrbitRuntime["helia"];
+  const withHTTPAny = withHTTP as unknown as (helia: OrbitRuntime["helia"]) => OrbitRuntime["helia"];
+  const withLibp2pAny = withLibp2p as unknown as (
+    helia: OrbitRuntime["helia"],
+    libp2p: unknown,
+  ) => OrbitRuntime["helia"];
   const createOrbitDBAny = createOrbitDB as unknown as (init: unknown) => Promise<OrbitRuntime["orbitdb"]>;
   useAccessController(KlinokAccessController);
-  const helia = await createHeliaAny({ libp2p });
-  const orbitdb = await createOrbitDBAny({ ipfs: helia, id: config.identityId });
+  const heliaInit = await createBrowserHeliaInit({
+    codecs: [dagCbor, dagJson, json],
+    hashers: [sha512],
+  });
+  const helia = withBitswapAny(withLibp2pAny(withHTTPAny(createHeliaLightAny(heliaInit)), libp2p));
+  await helia.start?.();
+  const orbitdb = await createOrbitDBAny({
+    ipfs: helia,
+    id: config.identityId,
+    directory: BROWSER_ORBITDB_DIRECTORY,
+  });
   const write = config.writeIdentityIds.length ? config.writeIdentityIds : ["*"];
   const dbName = config.databaseAddress || config.databaseName;
   const db = await orbitdb.open(dbName, {
