@@ -2,7 +2,8 @@
 // All rights reserved.
 // This file is a part of Klinok ui application
 
-import type { CaseEvent } from "./types";
+import { isCaseEvent } from "./events";
+import type { CaseEvent, ReplicatedEvent } from "./types";
 
 const AES_ALGORITHM = { name: "AES-GCM", length: 256 };
 const RSA_ALGORITHM = {
@@ -33,10 +34,11 @@ export interface CaseKeyEnvelope {
   wrappedKey: string;
 }
 
-export interface EncryptedCaseEventRecord {
+export interface EncryptedEventRecord {
   _id: string;
-  schemaVersion: 1;
-  caseId: string;
+  schemaVersion: 2;
+  eventType: ReplicatedEvent["type"];
+  caseId?: string;
   createdAt: string;
   writerId: string;
   keyring: CaseKeyEnvelope[];
@@ -184,19 +186,20 @@ export async function unwrapCaseKey(
   );
 }
 
-export async function encryptCaseEventWithKeyring(
-  event: CaseEvent,
-  caseKey: CryptoKey,
+export async function encryptReplicatedEventWithKeyring(
+  event: ReplicatedEvent,
+  eventKey: CryptoKey,
   keyring: CaseKeyEnvelope[],
-): Promise<EncryptedCaseEventRecord> {
+): Promise<EncryptedEventRecord> {
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
   const text = new TextEncoder().encode(stableSerialize(event));
-  const encrypted = await getSubtle().encrypt({ name: "AES-GCM", iv }, caseKey, text);
+  const encrypted = await getSubtle().encrypt({ name: "AES-GCM", iv }, eventKey, text);
 
   return {
     _id: event.id,
-    schemaVersion: 1,
-    caseId: event.caseId,
+    schemaVersion: 2,
+    eventType: event.type,
+    ...(isCaseEvent(event) ? { caseId: event.caseId } : {}),
     createdAt: event.createdAt,
     writerId: event.actorId,
     keyring,
@@ -212,15 +215,34 @@ export async function encryptCaseEvent(
   event: CaseEvent,
   caseKey: CryptoKey,
   recipients: ParticipantPublicKey[],
-): Promise<EncryptedCaseEventRecord> {
-  const keyring = await wrapCaseKeyForParticipants(caseKey, recipients);
-  return encryptCaseEventWithKeyring(event, caseKey, keyring);
+): Promise<EncryptedEventRecord> {
+  return encryptReplicatedEvent(event, caseKey, recipients);
+}
+
+export async function encryptReplicatedEvent(
+  event: ReplicatedEvent,
+  eventKey: CryptoKey,
+  recipients: ParticipantPublicKey[],
+): Promise<EncryptedEventRecord> {
+  const keyring = await wrapCaseKeyForParticipants(eventKey, recipients);
+  return encryptReplicatedEventWithKeyring(event, eventKey, keyring);
 }
 
 export async function decryptCaseEventRecord(
-  record: EncryptedCaseEventRecord,
+  record: EncryptedEventRecord,
   participant: Pick<ParticipantKeyPair, "participantId" | "privateKey">,
 ): Promise<CaseEvent> {
+  const event = await decryptReplicatedEventRecord(record, participant);
+  if (!isCaseEvent(event)) {
+    throw new Error(`Encrypted record ${record._id} is not a case event.`);
+  }
+  return event;
+}
+
+export async function decryptReplicatedEventRecord(
+  record: EncryptedEventRecord,
+  participant: Pick<ParticipantKeyPair, "participantId" | "privateKey">,
+): Promise<ReplicatedEvent> {
   const envelope = record.keyring.find((item) => item.participantId === participant.participantId);
   if (!envelope) {
     throw new Error(`No case key envelope for participant ${participant.participantId}.`);
@@ -233,11 +255,11 @@ export async function decryptCaseEventRecord(
     base64ToBytes(record.cipher.text),
   );
 
-  return JSON.parse(new TextDecoder().decode(decrypted)) as CaseEvent;
+  return JSON.parse(new TextDecoder().decode(decrypted)) as ReplicatedEvent;
 }
 
 export async function unwrapCaseKeyFromRecord(
-  record: EncryptedCaseEventRecord,
+  record: EncryptedEventRecord,
   participant: Pick<ParticipantKeyPair, "participantId" | "privateKey">,
 ) {
   const envelope = record.keyring.find((item) => item.participantId === participant.participantId);

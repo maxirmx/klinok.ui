@@ -18,7 +18,20 @@ import {
 } from "./data";
 import { createCaseRepository, type CaseRepository } from "./cases/repository";
 import { caseViewsToVisits, createMockCaseRepository } from "./cases/mockRepository";
+import { createSeedCollections } from "./dapp/seeds";
+import {
+  createComplaintRecordFromTemplate,
+  createDrugDraftFromRecord,
+  createDrugRecordFromTemplate,
+  createEmptyDrugDraft,
+  getComplaintOptionPath,
+  getDrugDraftValidationError,
+  updateDrugRecordFromTemplate,
+} from "./dapp/templates";
+import type { ComplaintRecord, DappCollections, DrugRecord, DrugRecordDraft } from "./dapp/types";
 import { defaultRuntimeConfig, loadRuntimeConfig, type AppRuntimeConfig, type BackendMode } from "./runtimeConfig";
+
+const seedCollections = createSeedCollections();
 
 export const selectedRole = ref<Role>("owner");
 export const phone = ref("+7 (900) 000-00-00");
@@ -35,15 +48,49 @@ export const toast = ref("");
 export const backendMode = ref<BackendMode>("mock");
 export const backendReady = ref(false);
 export const backendError = ref("");
+export const complaintTemplates = ref(seedCollections.complaintTemplates);
+export const complaintRecords = ref(seedCollections.complaintRecords);
+export const drugGroups = ref(seedCollections.drugGroups);
+export const drugTemplates = ref(seedCollections.drugTemplates);
+export const drugRecords = ref(seedCollections.drugRecords);
+export const selectedComplaintTemplateId = ref(complaintTemplates.value[0]?.id ?? "");
+export const selectedComplaintOptionIds = ref<string[]>([]);
+export const selectedDrugTemplateId = ref(drugTemplates.value[0]?.id ?? "");
+export const drugDraft = reactive<DrugRecordDraft>(createEmptyDrugDraft());
 
 let caseRepository: CaseRepository = createMockCaseRepository({ seedVisits: visits });
 let unsubscribeCases: (() => void) | null = null;
+let unsubscribeDapp: (() => void) | null = null;
 
-function subscribeToCases(repository: CaseRepository) {
+function applyDappCollections(collections: DappCollections) {
+  complaintTemplates.value = collections.complaintTemplates;
+  complaintRecords.value = collections.complaintRecords;
+  drugGroups.value = collections.drugGroups;
+  drugTemplates.value = collections.drugTemplates;
+  drugRecords.value = collections.drugRecords;
+
+  if (!complaintTemplates.value.some((template) => template.id === selectedComplaintTemplateId.value)) {
+    selectedComplaintTemplateId.value = complaintTemplates.value[0]?.id ?? "";
+    selectedComplaintOptionIds.value = [];
+  }
+
+  if (!drugTemplates.value.some((template) => template.id === selectedDrugTemplateId.value)) {
+    selectedDrugTemplateId.value = drugTemplates.value[0]?.id ?? "";
+  }
+}
+
+function subscribeToRepository(repository: CaseRepository) {
   unsubscribeCases?.();
+  unsubscribeDapp?.();
+
   unsubscribeCases = repository.watchCases((cases) => {
     localVisits.value = caseViewsToVisits(cases);
   });
+  unsubscribeDapp = repository.watchDappCollections(applyDappCollections);
+}
+
+async function refreshDappCollections() {
+  applyDappCollections(await caseRepository.listDappCollections());
 }
 
 export async function initializeBackend(config?: AppRuntimeConfig) {
@@ -56,14 +103,14 @@ export async function initializeBackend(config?: AppRuntimeConfig) {
     await nextRepository.initialize(runtimeConfig);
     caseRepository = nextRepository;
     backendMode.value = runtimeConfig.backendMode;
-    subscribeToCases(nextRepository);
+    subscribeToRepository(nextRepository);
   } catch (error) {
     const fallback = createMockCaseRepository({ seedVisits: visits });
     await fallback.initialize(defaultRuntimeConfig);
     caseRepository = fallback;
     backendMode.value = "mock";
     backendError.value = error instanceof Error ? error.message : "Failed to initialize backend.";
-    subscribeToCases(fallback);
+    subscribeToRepository(fallback);
   } finally {
     backendReady.value = true;
   }
@@ -71,6 +118,19 @@ export async function initializeBackend(config?: AppRuntimeConfig) {
 
 export const selectedRoleLabel = computed(() => {
   return roles.find((role) => role.id === selectedRole.value)?.label ?? "";
+});
+
+export const selectedComplaintTemplate = computed(() => {
+  return complaintTemplates.value.find((template) => template.id === selectedComplaintTemplateId.value) ?? complaintTemplates.value[0];
+});
+
+export const selectedComplaintOptions = computed(() => {
+  const template = selectedComplaintTemplate.value;
+  return template ? getComplaintOptionPath(template, selectedComplaintOptionIds.value) : [];
+});
+
+export const selectedDrugTemplate = computed(() => {
+  return drugTemplates.value.find((template) => template.id === selectedDrugTemplateId.value) ?? drugTemplates.value[0];
 });
 
 export const filteredPets = computed(() => {
@@ -88,9 +148,45 @@ export function applyPetFilters(type: Pet["species"] | "Все", sex: Pet["sex"]
   selectedSex.value = sex;
 }
 
+export function selectComplaintOption(level: number, optionId: string) {
+  selectedComplaintOptionIds.value = [...selectedComplaintOptionIds.value.slice(0, level), optionId];
+}
+
+export function clearComplaintOptions() {
+  selectedComplaintOptionIds.value = [];
+}
+
+function complaintText(record: ComplaintRecord) {
+  return record.selectedOptionLabels.join(" / ") || record.freeText || appointment.reason;
+}
+
+export function createComplaintRecord(): ComplaintRecord {
+  if (!selectedComplaintTemplate.value) {
+    throw new Error("Complaint template is not available");
+  }
+
+  return createComplaintRecordFromTemplate(selectedComplaintTemplate.value, {
+    pet: appointment.pet,
+    urgency: appointment.urgency,
+    date: appointment.date,
+    time: appointment.time,
+    selectedOptionIds: selectedComplaintOptionIds.value,
+    freeText: appointment.reason,
+    details: appointment.details,
+  });
+}
+
 export async function submitAppointment() {
-  const view = await caseRepository.createCaseFromAppointment({ ...appointment });
+  const complaintRecord = createComplaintRecord();
+  const view = await caseRepository.createCaseFromAppointment(
+    {
+      ...appointment,
+      reason: complaintText(complaintRecord),
+    },
+    { complaintRecord },
+  );
   localVisits.value = caseViewsToVisits(await caseRepository.listCases());
+  await refreshDappCollections();
   return view.id;
 }
 
@@ -106,6 +202,61 @@ export function saveAnalysisDraft() {
   ];
 }
 
+export async function saveDrugDraft(): Promise<DrugRecord> {
+  if (!selectedDrugTemplate.value) {
+    throw new Error("Drug template is not available");
+  }
+  const validationError = getDrugDraftValidationError(drugDraft);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const record = createDrugRecordFromTemplate(selectedDrugTemplate.value, drugDraft);
+  const saved = await caseRepository.saveDrugRecord(record);
+  await refreshDappCollections();
+  resetDrugDraft();
+  return saved;
+}
+
+export async function updateDrugDraft(record: DrugRecord): Promise<DrugRecord> {
+  if (!selectedDrugTemplate.value) {
+    throw new Error("Drug template is not available");
+  }
+  const validationError = getDrugDraftValidationError(drugDraft);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const updatedRecord = updateDrugRecordFromTemplate(selectedDrugTemplate.value, record, drugDraft);
+  const saved = await caseRepository.saveDrugRecord(updatedRecord);
+  await refreshDappCollections();
+  resetDrugDraft();
+  return saved;
+}
+
+export function findDrugRecord(id: string) {
+  return drugRecords.value.find((record) => record.id === id) ?? null;
+}
+
+export function fillDrugDraft(record: DrugRecord) {
+  selectedDrugTemplateId.value = record.templateId;
+  Object.assign(drugDraft, createDrugDraftFromRecord(record));
+}
+
+export function validateDrugDraft() {
+  return getDrugDraftValidationError(drugDraft);
+}
+
+export async function deleteDrugRecord(id: string) {
+  const deleted = await caseRepository.deleteDrugRecord(id);
+  await refreshDappCollections();
+  return deleted;
+}
+
+export function resetDrugDraft() {
+  Object.assign(drugDraft, createEmptyDrugDraft());
+}
+
 export function showToast(message: string) {
   toast.value = message;
   window.setTimeout(() => {
@@ -115,11 +266,33 @@ export function showToast(message: string) {
 
 export async function resetBackendForTests(repository?: CaseRepository, mode: BackendMode = "mock") {
   unsubscribeCases?.();
+  unsubscribeDapp?.();
   unsubscribeCases = null;
+  unsubscribeDapp = null;
   caseRepository = repository ?? createMockCaseRepository({ seedVisits: visits });
   await caseRepository.initialize(defaultRuntimeConfig);
-  subscribeToCases(caseRepository);
+  subscribeToRepository(caseRepository);
   backendMode.value = mode;
   backendReady.value = true;
   backendError.value = "";
+}
+
+export async function resetDappStateForTests() {
+  await resetBackendForTests();
+  selectedComplaintTemplateId.value = complaintTemplates.value[0]?.id ?? "";
+  selectedComplaintOptionIds.value = [];
+  selectedDrugTemplateId.value = drugTemplates.value[0]?.id ?? "";
+  resetDrugDraft();
+}
+
+export async function resetPrototypeStateForTests() {
+  selectedRole.value = "owner";
+  petQuery.value = "";
+  applyPetFilters("Все", "Все");
+  darkMode.value = false;
+  Object.assign(appointment, defaultAppointment);
+  Object.assign(analysisDraft, { ...defaultAnalysis, rows: [...defaultAnalysis.rows] });
+  localVisits.value = [...visits];
+  savedAnalyses.value = [...analyses];
+  await resetDappStateForTests();
 }

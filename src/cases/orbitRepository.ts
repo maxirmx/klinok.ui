@@ -6,20 +6,23 @@ import type { AppointmentDraft } from "../data";
 import type { P2PClientConfig } from "../runtimeConfig";
 import {
   createParticipantKeyPair,
-  decryptCaseEventRecord,
-  encryptCaseEventWithKeyring,
+  decryptReplicatedEventRecord,
+  encryptReplicatedEvent,
+  encryptReplicatedEventWithKeyring,
   exportParticipantKeyPair,
   generateCaseKey,
   importParticipantKeyPair,
   importParticipantPublicKey,
   unwrapCaseKeyFromRecord,
   wrapCaseKeyForParticipants,
-  type EncryptedCaseEventRecord,
+  type EncryptedEventRecord,
   type ParticipantKeyPair,
   type ParticipantPublicKey,
 } from "./crypto";
-import { createCaseEvent, createOwnerRequestEvent, reduceCaseEvents, reduceSingleCase } from "./events";
-import type { CaseEvent, CaseEventInput, CaseRepository, CaseWatchCallback } from "./types";
+import { createCaseEvent, createOwnerRequestEvent, isCaseEvent, reduceCaseEvents, reduceSingleCase } from "./events";
+import { createDappEvent, isDappEvent, reduceDappCollections } from "../dapp/repository";
+import type { DappEvent, DappWatchCallback, DrugRecord } from "../dapp/types";
+import type { CaseEventInput, CaseRepository, CaseWatchCallback, CreateCaseOptions, ReplicatedEvent } from "./types";
 
 interface OrbitRuntime {
   libp2p: unknown;
@@ -30,7 +33,7 @@ interface OrbitRuntime {
 
 interface OrbitEventsDb {
   address: string;
-  add: (record: EncryptedCaseEventRecord) => Promise<unknown>;
+  add: (record: EncryptedEventRecord) => Promise<unknown>;
   iterator: () => AsyncIterable<unknown>;
   close?: () => Promise<void>;
   events?: {
@@ -41,17 +44,21 @@ interface OrbitEventsDb {
 
 const KEY_STORAGE_PREFIX = "klinok:p2p:participant:";
 
-function extractOrbitValue(entry: unknown): EncryptedCaseEventRecord | null {
+function extractOrbitValue(entry: unknown): EncryptedEventRecord | null {
   if (!entry || typeof entry !== "object") return null;
   const candidate = entry as {
-    payload?: { value?: EncryptedCaseEventRecord };
-    value?: EncryptedCaseEventRecord;
+    payload?: { value?: EncryptedEventRecord };
+    value?: EncryptedEventRecord;
     schemaVersion?: number;
   };
 
   const value = candidate.payload?.value ?? candidate.value ?? candidate;
-  if (value && typeof value === "object" && (value as EncryptedCaseEventRecord).schemaVersion === 1) {
-    return value as EncryptedCaseEventRecord;
+  if (
+    value &&
+    typeof value === "object" &&
+    (value as EncryptedEventRecord).schemaVersion === 2
+  ) {
+    return value as EncryptedEventRecord;
   }
 
   return null;
@@ -173,6 +180,8 @@ class OrbitCaseRepository implements CaseRepository {
 
   private readonly listeners = new Set<CaseWatchCallback>();
 
+  private readonly dappListeners = new Set<DappWatchCallback>();
+
   private readonly caseKeys = new Map<string, CryptoKey>();
 
   private updateHandler: (() => void) | null = null;
@@ -194,7 +203,7 @@ class OrbitCaseRepository implements CaseRepository {
   }
 
   async listCases() {
-    const events = await this.listDecryptedEvents();
+    const events = (await this.listDecryptedEvents()).filter(isCaseEvent);
     return reduceCaseEvents(events);
   }
 
@@ -207,12 +216,15 @@ class OrbitCaseRepository implements CaseRepository {
     };
   }
 
-  async createCaseFromAppointment(draft: AppointmentDraft) {
+  async createCaseFromAppointment(draft: AppointmentDraft, options: CreateCaseOptions = {}) {
     const db = this.requireDb();
-    const event = createOwnerRequestEvent(draft, { actorId: this.participant.participantId });
+    const event = createOwnerRequestEvent(draft, {
+      actorId: this.participant.participantId,
+      complaintRecord: options.complaintRecord,
+    });
     const caseKey = await generateCaseKey();
     const keyring = await wrapCaseKeyForParticipants(caseKey, this.recipients);
-    const record = await encryptCaseEventWithKeyring(event, caseKey, keyring);
+    const record = await encryptReplicatedEventWithKeyring(event, caseKey, keyring);
     this.caseKeys.set(event.caseId, caseKey);
     await db.add(record);
     await this.emit();
@@ -238,11 +250,52 @@ class OrbitCaseRepository implements CaseRepository {
       actorId: this.participant.participantId,
       actorRole: input.actorRole ?? "vet",
     });
-    const record = await encryptCaseEventWithKeyring(event, caseKey, existingRecord.keyring);
+    const record = await encryptReplicatedEventWithKeyring(event, caseKey, existingRecord.keyring);
     await db.add(record);
     await this.emit();
 
-    return reduceSingleCase(caseId, [...(await this.listDecryptedEvents()).filter((item) => item.caseId === caseId)]);
+    return reduceSingleCase(caseId, [...(await this.listDecryptedEvents()).filter(isCaseEvent).filter((item) => item.caseId === caseId)]);
+  }
+
+  async listDappCollections() {
+    const events = await this.listDecryptedEvents();
+    return reduceDappCollections({
+      caseEvents: events.filter(isCaseEvent),
+      dappEvents: events.filter(isDappEvent),
+    });
+  }
+
+  watchDappCollections(callback: DappWatchCallback) {
+    this.dappListeners.add(callback);
+    void this.listDappCollections().then(callback);
+
+    return () => {
+      this.dappListeners.delete(callback);
+    };
+  }
+
+  async saveDrugRecord(record: DrugRecord) {
+    const event: DappEvent = createDappEvent({
+      type: "drug.record.saved",
+      payload: { record },
+      actorId: this.participant.participantId,
+      createdAt: record.updatedAt,
+    });
+    await this.addDappEvent(event);
+    await this.emit();
+    return record;
+  }
+
+  async deleteDrugRecord(id: string) {
+    const exists = (await this.listDappCollections()).drugRecords.some((record) => record.id === id);
+    if (!exists) return false;
+    await this.addDappEvent(createDappEvent({
+      type: "drug.record.deleted",
+      payload: { id },
+      actorId: this.participant.participantId,
+    }));
+    await this.emit();
+    return true;
   }
 
   async dispose() {
@@ -264,15 +317,24 @@ class OrbitCaseRepository implements CaseRepository {
   }
 
   private async emit() {
-    const cases = await this.listCases();
+    const events = await this.listDecryptedEvents();
+    const cases = reduceCaseEvents(events.filter(isCaseEvent));
     for (const listener of this.listeners) {
       listener(cases);
+    }
+
+    const collections = reduceDappCollections({
+      caseEvents: events.filter(isCaseEvent),
+      dappEvents: events.filter(isDappEvent),
+    });
+    for (const listener of this.dappListeners) {
+      listener(collections);
     }
   }
 
   private async listRecords() {
     const db = this.requireDb();
-    const records: EncryptedCaseEventRecord[] = [];
+    const records: EncryptedEventRecord[] = [];
     for await (const entry of db.iterator()) {
       const record = extractOrbitValue(entry);
       if (record) {
@@ -282,12 +344,12 @@ class OrbitCaseRepository implements CaseRepository {
     return records;
   }
 
-  private async listDecryptedEvents(): Promise<CaseEvent[]> {
-    const events: CaseEvent[] = [];
+  private async listDecryptedEvents(): Promise<ReplicatedEvent[]> {
+    const events: ReplicatedEvent[] = [];
     for (const record of await this.listRecords()) {
       try {
-        const event = await decryptCaseEventRecord(record, this.participant);
-        if (!this.caseKeys.has(event.caseId)) {
+        const event = await decryptReplicatedEventRecord(record, this.participant);
+        if (isCaseEvent(event) && !this.caseKeys.has(event.caseId)) {
           const caseKey = await unwrapCaseKeyFromRecord(record, this.participant);
           this.caseKeys.set(event.caseId, caseKey);
         }
@@ -301,5 +363,11 @@ class OrbitCaseRepository implements CaseRepository {
 
   private async findFirstRecord(caseId: string) {
     return (await this.listRecords()).find((record) => record.caseId === caseId) ?? null;
+  }
+
+  private async addDappEvent(event: DappEvent) {
+    const eventKey = await generateCaseKey();
+    const record = await encryptReplicatedEvent(event, eventKey, this.recipients);
+    await this.requireDb().add(record);
   }
 }

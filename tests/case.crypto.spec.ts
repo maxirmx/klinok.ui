@@ -7,11 +7,15 @@ import { defaultAppointment } from "../src/data";
 import {
   createParticipantKeyPair,
   decryptCaseEventRecord,
+  decryptReplicatedEventRecord,
   encryptCaseEvent,
+  encryptReplicatedEvent,
   generateCaseKey,
   stableSerialize,
 } from "../src/cases/crypto";
 import { createOwnerRequestEvent } from "../src/cases/events";
+import { createDappEvent } from "../src/dapp/repository";
+import { seedDrugRecords } from "../src/dapp/seeds";
 
 describe("case encryption", () => {
   it("roundtrips encrypted case events for invited participants only", async () => {
@@ -43,5 +47,29 @@ describe("case encryption", () => {
 
     expect(left).toBe(right);
     expect(left).toBe('{"a":{"c":3,"d":4},"b":2}');
+  });
+
+  it("roundtrips generic replicated dApp events", async () => {
+    const [owner, vet] = await Promise.all([
+      createParticipantKeyPair("owner"),
+      createParticipantKeyPair("vet"),
+    ]);
+    const eventKey = await generateCaseKey();
+    const event = createDappEvent({
+      id: "dapp-event-encrypted",
+      type: "drug.record.saved",
+      payload: { record: seedDrugRecords[0] },
+      actorId: "owner",
+      createdAt: "2026-06-24T11:00:00.000Z",
+    });
+
+    const record = await encryptReplicatedEvent(event, eventKey, [owner, vet]);
+
+    expect(record.schemaVersion).toBe(2);
+    expect(record.eventType).toBe("drug.record.saved");
+    expect(record.cipher.text).not.toContain(seedDrugRecords[0].activeSubstanceRu);
+    await expect(decryptReplicatedEventRecord(record, owner)).resolves.toEqual(event);
+    await expect(decryptReplicatedEventRecord(record, vet)).resolves.toEqual(event);
+    await expect(decryptCaseEventRecord(record, owner)).rejects.toThrow("is not a case event");
   });
 });

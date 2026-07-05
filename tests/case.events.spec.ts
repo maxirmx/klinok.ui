@@ -5,6 +5,8 @@
 import { describe, expect, it } from "vitest";
 import { defaultAppointment } from "../src/data";
 import { createCaseEvent, createOwnerRequestEvent, reduceCaseEvents } from "../src/cases/events";
+import { createComplaintRecordFromTemplate } from "../src/dapp/templates";
+import { seedComplaintTemplates } from "../src/dapp/seeds";
 
 describe("case event reducer", () => {
   it("reduces owner and vet events into a stable visit view", () => {
@@ -73,5 +75,37 @@ describe("case event reducer", () => {
 
     expect(view.notes).toEqual(["Первичная заметка."]);
     expect(view.events.map((event) => event.id)).toEqual(["event-1", "event-note"]);
+  });
+
+  it("keeps complaint template records on owner request events", () => {
+    const complaintRecord = createComplaintRecordFromTemplate(
+      seedComplaintTemplates[0],
+      {
+        pet: defaultAppointment.pet,
+        urgency: defaultAppointment.urgency,
+        date: defaultAppointment.date,
+        time: defaultAppointment.time,
+        selectedOptionIds: ["problem", "support", "limp"],
+        freeText: defaultAppointment.reason,
+        details: defaultAppointment.details,
+      },
+      { id: "complaint-case", now: new Date("2026-06-24T10:00:00.000Z") },
+    );
+    const event = createOwnerRequestEvent(
+      { ...defaultAppointment, reason: complaintRecord.selectedOptionLabels.join(" / ") },
+      {
+        actorId: "owner-1",
+        caseId: "case-complaint",
+        eventId: "event-complaint",
+        visitId: 9003,
+        complaintRecord,
+        createdAt: "2026-06-24T10:00:00.000Z",
+      },
+    );
+
+    const [view] = reduceCaseEvents([event]);
+
+    expect(view.complaint).toBe("Есть проблемы / С опороспособностью / Хромота");
+    expect(view.events[0].payload).toMatchObject({ complaintRecord: { id: "complaint-case" } });
   });
 });

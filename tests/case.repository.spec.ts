@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { defaultAppointment } from "../src/data";
 import { defaultRuntimeConfig } from "../src/runtimeConfig";
 import { createInMemoryCaseEventNetwork, createMockCaseRepository } from "../src/cases/mockRepository";
+import { seedDrugRecords } from "../src/dapp/seeds";
 
 describe("case repository sync spike", () => {
   it("syncs cases between two clients through a trusted in-memory node", async () => {
@@ -39,6 +40,8 @@ describe("case repository sync spike", () => {
     await vetRepo.initialize(defaultRuntimeConfig);
 
     const created = await ownerRepo.createCaseFromAppointment(defaultAppointment);
+    const firstNoteAt = new Date(new Date(created.updatedAt).getTime() + 1000).toISOString();
+    const secondNoteAt = new Date(new Date(created.updatedAt).getTime() + 2000).toISOString();
     await Promise.all([
       ownerRepo.appendCaseEvent(created.caseId, {
         id: "owner-note",
@@ -46,7 +49,7 @@ describe("case repository sync spike", () => {
         payload: { note: "Владелец уточнил симптомы." },
         actorId: "owner",
         actorRole: "owner",
-        createdAt: "2026-06-24T10:01:00.000Z",
+        createdAt: firstNoteAt,
       }),
       vetRepo.appendCaseEvent(created.caseId, {
         id: "vet-note",
@@ -54,7 +57,7 @@ describe("case repository sync spike", () => {
         payload: { note: "Врач добавил план осмотра." },
         actorId: "vet",
         actorRole: "vet",
-        createdAt: "2026-06-24T10:02:00.000Z",
+        createdAt: secondNoteAt,
       }),
     ]);
 
@@ -63,5 +66,37 @@ describe("case repository sync spike", () => {
 
     expect(ownerView.notes).toEqual(expect.arrayContaining(["Владелец уточнил симптомы.", "Врач добавил план осмотра."]));
     expect(vetView.notes).toEqual(ownerView.notes);
+  });
+
+  it("syncs drug save and delete events between clients", async () => {
+    const network = createInMemoryCaseEventNetwork();
+    const ownerRepo = createMockCaseRepository({ seedVisits: [], actorId: "owner", network });
+    const vetRepo = createMockCaseRepository({ seedVisits: [], actorId: "vet", network });
+    const vetSnapshots: string[][] = [];
+
+    await ownerRepo.initialize(defaultRuntimeConfig);
+    await vetRepo.initialize(defaultRuntimeConfig);
+    vetRepo.watchDappCollections((collections) => {
+      vetSnapshots.push(collections.drugRecords.map((record) => record.id));
+    });
+
+    const record = {
+      ...seedDrugRecords[0],
+      id: "drug-synced",
+      activeSubstanceRu: "Синхронизированное вещество",
+      updatedAt: "2026-06-24T11:00:00.000Z",
+    };
+
+    await ownerRepo.saveDrugRecord(record);
+
+    expect(vetSnapshots.at(-1)).toContain("drug-synced");
+    expect((await vetRepo.listDappCollections()).drugRecords.find((item) => item.id === "drug-synced")).toMatchObject({
+      activeSubstanceRu: "Синхронизированное вещество",
+    });
+
+    await ownerRepo.deleteDrugRecord("drug-synced");
+
+    expect(vetSnapshots.at(-1)).not.toContain("drug-synced");
+    expect((await vetRepo.listDappCollections()).drugRecords.map((item) => item.id)).not.toContain("drug-synced");
   });
 });

@@ -24,4 +24,6 @@ export type {
   CaseRepository,
   CaseView,
   CaseWatchCallback,
+  CreateCaseOptions,
+  ReplicatedEvent,
 } from "./types";

@@ -7,20 +7,23 @@ import {
   caseViewToVisit,
   createCaseEvent,
   createOwnerRequestEvent,
+  isCaseEvent,
   reduceCaseEvents,
   reduceSingleCase,
   visitToCaseView,
 } from "./events";
-import type { CaseEvent, CaseEventInput, CaseRepository, CaseView, CaseWatchCallback } from "./types";
+import { createDappEvent, isDappEvent, reduceDappCollections } from "../dapp/repository";
+import type { DappEvent, DappWatchCallback, DrugRecord } from "../dapp/types";
+import type { CaseEventInput, CaseRepository, CaseView, CaseWatchCallback, CreateCaseOptions, ReplicatedEvent } from "./types";
 
 type NetworkListener = () => void;
 
 export class InMemoryCaseEventNetwork {
-  private readonly events: CaseEvent[] = [];
+  private readonly events: ReplicatedEvent[] = [];
 
   private readonly listeners = new Set<NetworkListener>();
 
-  constructor(initialEvents: CaseEvent[] = []) {
+  constructor(initialEvents: ReplicatedEvent[] = []) {
     this.events = [...initialEvents];
   }
 
@@ -28,7 +31,7 @@ export class InMemoryCaseEventNetwork {
     return [...this.events];
   }
 
-  append(event: CaseEvent) {
+  append(event: ReplicatedEvent) {
     if (!this.events.some((item) => item.id === event.id)) {
       this.events.push(event);
       this.notify();
@@ -53,7 +56,7 @@ export interface MockCaseRepositoryOptions {
   network?: InMemoryCaseEventNetwork;
 }
 
-export function createInMemoryCaseEventNetwork(initialEvents: CaseEvent[] = []) {
+export function createInMemoryCaseEventNetwork(initialEvents: ReplicatedEvent[] = []) {
   return new InMemoryCaseEventNetwork(initialEvents);
 }
 
@@ -62,19 +65,40 @@ export function createMockCaseRepository(options: MockCaseRepositoryOptions = {}
   const actorId = options.actorId ?? "mock-owner";
   const network = options.network ?? createInMemoryCaseEventNetwork();
   const listeners = new Set<CaseWatchCallback>();
+  const dappListeners = new Set<DappWatchCallback>();
   let unsubscribeNetwork: (() => void) | null = null;
 
+  function listCaseEvents() {
+    return network.listEvents().filter(isCaseEvent);
+  }
+
+  function listDappEvents() {
+    return network.listEvents().filter(isDappEvent);
+  }
+
   function listCaseViews() {
-    const dynamicCases = reduceCaseEvents(network.listEvents());
+    const dynamicCases = reduceCaseEvents(listCaseEvents());
     const dynamicCaseIds = new Set(dynamicCases.map((view) => view.caseId));
     const seededCases = seedViews.filter((view) => !dynamicCaseIds.has(view.caseId));
     return [...dynamicCases, ...seededCases];
+  }
+
+  function listCollections() {
+    return reduceDappCollections({
+      caseEvents: listCaseEvents(),
+      dappEvents: listDappEvents(),
+    });
   }
 
   function emit() {
     const cases = listCaseViews();
     for (const listener of listeners) {
       listener(cases);
+    }
+
+    const collections = listCollections();
+    for (const listener of dappListeners) {
+      listener(collections);
     }
   }
 
@@ -96,17 +120,17 @@ export function createMockCaseRepository(options: MockCaseRepositoryOptions = {}
 
       return () => {
         listeners.delete(callback);
-        if (listeners.size === 0) {
+        if (listeners.size === 0 && dappListeners.size === 0) {
           unsubscribeNetwork?.();
           unsubscribeNetwork = null;
         }
       };
     },
 
-    async createCaseFromAppointment(draft: AppointmentDraft) {
-      const event = createOwnerRequestEvent(draft, { actorId });
+    async createCaseFromAppointment(draft: AppointmentDraft, options: CreateCaseOptions = {}) {
+      const event = createOwnerRequestEvent(draft, { actorId, complaintRecord: options.complaintRecord });
       network.append(event);
-      const view = reduceSingleCase(event.caseId, network.listEvents());
+      const view = reduceSingleCase(event.caseId, listCaseEvents());
       if (!view) {
         throw new Error("Failed to create case view from appointment event.");
       }
@@ -116,7 +140,44 @@ export function createMockCaseRepository(options: MockCaseRepositoryOptions = {}
     async appendCaseEvent(caseId: string, event: CaseEventInput) {
       const nextEvent = createCaseEvent(caseId, event, { actorId, actorRole: "vet" });
       network.append(nextEvent);
-      return reduceSingleCase(caseId, network.listEvents());
+      return reduceSingleCase(caseId, listCaseEvents());
+    },
+
+    async listDappCollections() {
+      return listCollections();
+    },
+
+    watchDappCollections(callback: DappWatchCallback) {
+      dappListeners.add(callback);
+      callback(listCollections());
+
+      unsubscribeNetwork ??= network.subscribe(emit);
+
+      return () => {
+        dappListeners.delete(callback);
+        if (listeners.size === 0 && dappListeners.size === 0) {
+          unsubscribeNetwork?.();
+          unsubscribeNetwork = null;
+        }
+      };
+    },
+
+    async saveDrugRecord(record: DrugRecord) {
+      const event: DappEvent = createDappEvent({
+        type: "drug.record.saved",
+        payload: { record },
+        actorId,
+        createdAt: record.updatedAt,
+      });
+      network.append(event);
+      return record;
+    },
+
+    async deleteDrugRecord(id: string) {
+      const exists = listCollections().drugRecords.some((record) => record.id === id);
+      if (!exists) return false;
+      network.append(createDappEvent({ type: "drug.record.deleted", payload: { id }, actorId }));
+      return true;
     },
   };
 }

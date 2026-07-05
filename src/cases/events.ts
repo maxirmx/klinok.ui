@@ -3,6 +3,7 @@
 // This file is a part of Klinok ui application
 
 import type { AppointmentDraft, Visit } from "../data";
+import type { ComplaintRecord } from "../dapp/types";
 import type { CaseActorRole, CaseEvent, CaseEventInput, CaseView } from "./types";
 
 const DEFAULT_DIAGNOSIS = "Ожидает первичного приема";
@@ -25,6 +26,7 @@ export function createOwnerRequestEvent(
     createdAt?: string;
     eventId?: string;
     visitId?: number;
+    complaintRecord?: ComplaintRecord;
   },
 ): CaseEvent {
   const visitId = options.visitId ?? createVisitId();
@@ -41,8 +43,20 @@ export function createOwnerRequestEvent(
     payload: {
       visitId,
       appointment: { ...appointment },
+      ...(options.complaintRecord ? { complaintRecord: options.complaintRecord } : {}),
     },
   };
+}
+
+export function isCaseEvent(event: unknown): event is CaseEvent {
+  if (!event || typeof event !== "object") return false;
+  const type = (event as { type?: unknown }).type;
+  return (
+    type === "owner.request.created" ||
+    type === "vet.note.added" ||
+    type === "vet.diagnosis.updated" ||
+    type === "vet.recommendation.updated"
+  );
 }
 
 export function createCaseEvent(

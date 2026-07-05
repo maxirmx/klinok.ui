@@ -26,8 +26,8 @@ function splitEnvList(name, fallback = []) {
 
 const dataDir = process.env.KLINOK_P2P_DATA_DIR ?? ".klinok-p2p";
 const databaseName = process.env.KLINOK_P2P_DB ?? "klinok-cases";
-const tcpPort = process.env.KLINOK_P2P_TCP_PORT ?? "0";
-const wsPort = process.env.KLINOK_P2P_WS_PORT ?? "0";
+const tcpPort = process.env.KLINOK_P2P_TCP_PORT ?? "51240";
+const wsPort = process.env.KLINOK_P2P_WS_PORT ?? "51241";
 const identityId = process.env.KLINOK_P2P_IDENTITY ?? "klinok-trusted-node";
 const bootstrapList = splitEnvList("KLINOK_P2P_BOOTSTRAP");
 const writeIdentityIds = splitEnvList("KLINOK_P2P_WRITE_IDENTITIES", ["*"]);
