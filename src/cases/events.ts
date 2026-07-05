@@ -4,14 +4,73 @@
 
 import type { AppointmentDraft, Visit } from "../data";
 import type { ComplaintRecord } from "../dapp/types";
-import type { CaseActorRole, CaseEvent, CaseEventInput, CaseView } from "./types";
+import type {
+  CaseActorRole,
+  CaseEvent,
+  CaseEventInput,
+  CaseView,
+  ClinicalEntry,
+  ClinicalSection,
+  ClinicalSectionId,
+  ClinicalSectionPayloadValue,
+} from "./types";
 
 const DEFAULT_DIAGNOSIS = "Ожидает первичного приема";
 const DEFAULT_RECOMMENDATION = "Дождитесь отклика врача или выберите специалиста из списка.";
 
+export const CLINICAL_SECTION_TITLES: Record<ClinicalSectionId, string> = {
+  complaint: "Что случилось",
+  habitus: "Общие данные / Габитус",
+  therapeutic: "Терапевтический приём",
+  diagnosis: "Диагноз",
+  vaccination: "Вакцинация / чипирование",
+  recommendations: "Рекомендации",
+  laboratory: "Лабораторные исследования",
+  instrumental: "Инструментальные исследования",
+  manipulations: "Манипуляции",
+  outcome: "Исход",
+};
+
+export const CLINICAL_SECTION_ORDER: ClinicalSectionId[] = [
+  "complaint",
+  "habitus",
+  "therapeutic",
+  "diagnosis",
+  "vaccination",
+  "recommendations",
+  "laboratory",
+  "instrumental",
+  "manipulations",
+  "outcome",
+];
+
 function createId(prefix: string) {
   const random = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
   return `${prefix}-${random}`;
+}
+
+function payloadValueText(value: ClinicalSectionPayloadValue | undefined) {
+  if (Array.isArray(value)) return value.filter(Boolean).join(" / ");
+  return value ?? "";
+}
+
+function cloneClinicalSection(section: ClinicalSection): ClinicalSection {
+  return {
+    ...section,
+    payload: { ...section.payload },
+  };
+}
+
+function clinicalEntryFromEvent(event: Extract<CaseEvent, { type: "clinical.entry.saved" }>): ClinicalEntry {
+  return {
+    id: event.payload.entryId ?? `clinical-${event.id}`,
+    caseId: event.caseId,
+    entryDate: event.payload.entryDate,
+    actorId: event.actorId,
+    actorRole: event.actorRole,
+    createdAt: event.createdAt,
+    sections: event.payload.sections.map(cloneClinicalSection),
+  };
 }
 
 export function createVisitId() {
@@ -55,7 +114,8 @@ export function isCaseEvent(event: unknown): event is CaseEvent {
     type === "owner.request.created" ||
     type === "vet.note.added" ||
     type === "vet.diagnosis.updated" ||
-    type === "vet.recommendation.updated"
+    type === "vet.recommendation.updated" ||
+    type === "clinical.entry.saved"
   );
 }
 
@@ -83,6 +143,7 @@ export function visitToCaseView(visit: Visit): CaseView {
     notes: [],
     updatedAt: createdAt,
     events: [],
+    clinicalEntries: [],
   };
 }
 
@@ -117,6 +178,76 @@ export function sortCaseEvents(events: CaseEvent[]) {
   });
 }
 
+export function sortClinicalEntries(entries: ClinicalEntry[]) {
+  return [...entries].sort((left, right) => {
+    const date = right.entryDate.localeCompare(left.entryDate);
+    if (date !== 0) return date;
+    const created = right.createdAt.localeCompare(left.createdAt);
+    if (created !== 0) return created;
+    return right.id.localeCompare(left.id);
+  });
+}
+
+export function findLatestClinicalSection(entries: ClinicalEntry[], sectionId: ClinicalSectionId) {
+  for (const entry of sortClinicalEntries(entries)) {
+    const section = entry.sections.find((item) => item.id === sectionId);
+    if (section) return section;
+  }
+  return null;
+}
+
+export function summarizeClinicalSection(section: ClinicalSection | null | undefined) {
+  if (!section) return "";
+  const payload = section.payload;
+
+  if (section.id === "complaint") {
+    return payloadValueText(payload.selectedOptionLabels) || payloadValueText(payload.freeText) || payloadValueText(payload.details);
+  }
+
+  if (section.id === "habitus") {
+    return [
+      payloadValueText(payload.weightKg) ? `Вес ${payloadValueText(payload.weightKg)} кг` : "",
+      payloadValueText(payload.temperatureC) ? `${payloadValueText(payload.temperatureC)} C` : "",
+      payloadValueText(payload.heartRate) ? `ЧСС ${payloadValueText(payload.heartRate)}` : "",
+    ].filter(Boolean).join(", ");
+  }
+
+  if (section.id === "vaccination") {
+    const vaccine = [payloadValueText(payload.currentVaccineDate), payloadValueText(payload.currentVaccineName)].filter(Boolean).join(" ");
+    const chip = payloadValueText(payload.chipNumber);
+    return [vaccine, chip ? `чип ${chip}` : ""].filter(Boolean).join(", ");
+  }
+
+  if (section.id === "outcome") {
+    return payloadValueText(payload.status);
+  }
+
+  if (section.id === "diagnosis") {
+    return payloadValueText(payload.preliminaryDiagnosis) ||
+      payloadValueText(payload.differentialDiagnoses) ||
+      payloadValueText(payload.concomitantDiagnoses);
+  }
+
+  if (section.id === "recommendations") {
+    return payloadValueText(payload.text);
+  }
+
+  if (section.id === "therapeutic") {
+    return payloadValueText(payload.anamnesisDisease) ||
+      payloadValueText(payload.exam) ||
+      payloadValueText(payload.recommendations) ||
+      payloadValueText(payload.prescriptions);
+  }
+
+  if (section.id === "laboratory") {
+    return [payloadValueText(payload.studyDate), payloadValueText(payload.studyName), payloadValueText(payload.comment)]
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return payloadValueText(payload.text) || Object.values(payload).map(payloadValueText).find(Boolean) || "";
+}
+
 function ensureDraftView(caseId: string, event: CaseEvent): CaseView {
   return {
     id: createVisitId(),
@@ -133,6 +264,7 @@ function ensureDraftView(caseId: string, event: CaseEvent): CaseView {
     notes: [],
     updatedAt: event.createdAt,
     events: [],
+    clinicalEntries: [],
   };
 }
 
@@ -162,6 +294,7 @@ export function reduceSingleCase(caseId: string, events: CaseEvent[]): CaseView 
   for (const event of orderedEvents) {
     if (event.type === "owner.request.created") {
       const { appointment, visitId } = event.payload;
+      const clinicalEntries: ClinicalEntry[] = view?.clinicalEntries ?? [];
       view = {
         id: visitId,
         caseId,
@@ -177,6 +310,7 @@ export function reduceSingleCase(caseId: string, events: CaseEvent[]): CaseView 
         notes: [],
         updatedAt: event.createdAt,
         events: [],
+        clinicalEntries,
       };
     }
 
@@ -192,6 +326,10 @@ export function reduceSingleCase(caseId: string, events: CaseEvent[]): CaseView 
 
     if (event.type === "vet.recommendation.updated") {
       view.recommendation = event.payload.recommendation;
+    }
+
+    if (event.type === "clinical.entry.saved") {
+      view.clinicalEntries = sortClinicalEntries([...view.clinicalEntries, clinicalEntryFromEvent(event)]);
     }
 
     view.updatedAt = event.createdAt;

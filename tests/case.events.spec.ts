@@ -4,7 +4,14 @@
 
 import { describe, expect, it } from "vitest";
 import { defaultAppointment } from "../src/data";
-import { createCaseEvent, createOwnerRequestEvent, reduceCaseEvents } from "../src/cases/events";
+import {
+  createCaseEvent,
+  createOwnerRequestEvent,
+  findLatestClinicalSection,
+  reduceCaseEvents,
+  summarizeClinicalSection,
+} from "../src/cases/events";
+import type { ClinicalSection } from "../src/cases/types";
 import { createComplaintRecordFromTemplate } from "../src/dapp/templates";
 import { seedComplaintTemplates } from "../src/dapp/seeds";
 
@@ -107,5 +114,67 @@ describe("case event reducer", () => {
 
     expect(view.complaint).toBe("Есть проблемы / С опороспособностью / Хромота");
     expect(view.events[0].payload).toMatchObject({ complaintRecord: { id: "complaint-case" } });
+  });
+
+  it("reduces clinical entries newest first and exposes latest header sections", () => {
+    const created = createOwnerRequestEvent(defaultAppointment, {
+      actorId: "owner-1",
+      caseId: "case-medical",
+      eventId: "event-created",
+      visitId: 9010,
+      createdAt: "2026-06-24T10:00:00.000Z",
+    });
+    const olderHabitus: ClinicalSection = {
+      id: "habitus",
+      title: "Общие данные / Габитус",
+      templateStatus: "mocked",
+      authorName: "Врач",
+      filledAt: "2026-06-24T10:10:00.000Z",
+      payload: { weightKg: "10.8", temperatureC: "38.4" },
+    };
+    const newerHabitus: ClinicalSection = {
+      ...olderHabitus,
+      filledAt: "2026-06-25T10:10:00.000Z",
+      payload: { weightKg: "11.2" },
+    };
+    const vaccination: ClinicalSection = {
+      id: "vaccination",
+      title: "Вакцинация / чипирование",
+      templateStatus: "mocked",
+      authorName: "Врач",
+      filledAt: "2026-06-25T10:11:00.000Z",
+      payload: { currentVaccineDate: "25.06.26", currentVaccineName: "Рабикан", chipNumber: "643000009999" },
+    };
+    const outcome: ClinicalSection = {
+      id: "outcome",
+      title: "Исход",
+      templateStatus: "mocked",
+      authorName: "Врач",
+      filledAt: "2026-06-25T10:12:00.000Z",
+      payload: { status: "Улучшение" },
+    };
+    const olderEntry = createCaseEvent("case-medical", {
+      id: "event-old-clinical",
+      type: "clinical.entry.saved",
+      actorId: "vet-1",
+      actorRole: "vet",
+      createdAt: "2026-06-24T10:10:00.000Z",
+      payload: { entryId: "entry-old", entryDate: "2026-06-24", sections: [olderHabitus] },
+    });
+    const newerEntry = createCaseEvent("case-medical", {
+      id: "event-new-clinical",
+      type: "clinical.entry.saved",
+      actorId: "vet-1",
+      actorRole: "vet",
+      createdAt: "2026-06-25T10:10:00.000Z",
+      payload: { entryId: "entry-new", entryDate: "2026-06-25", sections: [newerHabitus, vaccination, outcome] },
+    });
+
+    const [view] = reduceCaseEvents([newerEntry, olderEntry, created]);
+
+    expect(view.clinicalEntries.map((entry) => entry.id)).toEqual(["entry-new", "entry-old"]);
+    expect(findLatestClinicalSection(view.clinicalEntries, "habitus")?.payload.weightKg).toBe("11.2");
+    expect(findLatestClinicalSection(view.clinicalEntries, "vaccination")?.payload.chipNumber).toBe("643000009999");
+    expect(summarizeClinicalSection(outcome)).toBe("Улучшение");
   });
 });

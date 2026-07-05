@@ -12,7 +12,45 @@ export type CaseEventType =
   | "owner.request.created"
   | "vet.note.added"
   | "vet.diagnosis.updated"
-  | "vet.recommendation.updated";
+  | "vet.recommendation.updated"
+  | "clinical.entry.saved";
+
+export type ClinicalTemplateStatus = "implemented" | "mocked";
+
+export type ClinicalSectionId =
+  | "complaint"
+  | "habitus"
+  | "therapeutic"
+  | "diagnosis"
+  | "vaccination"
+  | "recommendations"
+  | "laboratory"
+  | "instrumental"
+  | "manipulations"
+  | "outcome";
+
+export type ClinicalSectionPayloadValue = string | string[];
+
+export type ClinicalSectionPayload = Record<string, ClinicalSectionPayloadValue>;
+
+export interface ClinicalSection {
+  id: ClinicalSectionId;
+  title: string;
+  templateStatus: ClinicalTemplateStatus;
+  authorName: string;
+  filledAt: string;
+  payload: ClinicalSectionPayload;
+}
+
+export interface ClinicalEntry {
+  id: string;
+  caseId: string;
+  entryDate: string;
+  actorId: string;
+  actorRole: CaseActorRole;
+  createdAt: string;
+  sections: ClinicalSection[];
+}
 
 export interface CaseEventBase {
   id: string;
@@ -41,11 +79,18 @@ export interface VetRecommendationUpdatedPayload {
   recommendation: string;
 }
 
+export interface ClinicalEntrySavedPayload {
+  entryId?: string;
+  entryDate: string;
+  sections: ClinicalSection[];
+}
+
 export type CaseEvent =
   | (CaseEventBase & { type: "owner.request.created"; payload: OwnerRequestCreatedPayload })
   | (CaseEventBase & { type: "vet.note.added"; payload: VetNoteAddedPayload })
   | (CaseEventBase & { type: "vet.diagnosis.updated"; payload: VetDiagnosisUpdatedPayload })
-  | (CaseEventBase & { type: "vet.recommendation.updated"; payload: VetRecommendationUpdatedPayload });
+  | (CaseEventBase & { type: "vet.recommendation.updated"; payload: VetRecommendationUpdatedPayload })
+  | (CaseEventBase & { type: "clinical.entry.saved"; payload: ClinicalEntrySavedPayload });
 
 export type ReplicatedEvent = CaseEvent | DappEvent;
 
@@ -66,6 +111,14 @@ export type CaseEventInput =
       actorRole?: CaseActorRole;
       createdAt?: string;
       id?: string;
+    }
+  | {
+      type: "clinical.entry.saved";
+      payload: ClinicalEntrySavedPayload;
+      actorId?: string;
+      actorRole?: CaseActorRole;
+      createdAt?: string;
+      id?: string;
     };
 
 export interface CaseView extends Visit {
@@ -73,6 +126,7 @@ export interface CaseView extends Visit {
   notes: string[];
   updatedAt: string;
   events: CaseEvent[];
+  clinicalEntries: ClinicalEntry[];
 }
 
 export type CaseWatchCallback = (cases: CaseView[]) => void;

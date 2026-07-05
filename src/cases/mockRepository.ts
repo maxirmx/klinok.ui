@@ -78,9 +78,26 @@ export function createMockCaseRepository(options: MockCaseRepositoryOptions = {}
 
   function listCaseViews() {
     const dynamicCases = reduceCaseEvents(listCaseEvents());
+    const seedByCaseId = new Map(seedViews.map((view) => [view.caseId, view]));
+    const mergedDynamicCases = dynamicCases.map((view) => {
+      const seedView = seedByCaseId.get(view.caseId);
+      if (!seedView || view.events.some((event) => event.type === "owner.request.created")) {
+        return view;
+      }
+
+      return {
+        ...seedView,
+        diagnosis: view.diagnosis,
+        recommendation: view.recommendation,
+        notes: view.notes,
+        updatedAt: view.updatedAt,
+        events: view.events,
+        clinicalEntries: view.clinicalEntries,
+      };
+    });
     const dynamicCaseIds = new Set(dynamicCases.map((view) => view.caseId));
     const seededCases = seedViews.filter((view) => !dynamicCaseIds.has(view.caseId));
-    return [...dynamicCases, ...seededCases];
+    return [...mergedDynamicCases, ...seededCases];
   }
 
   function listCollections() {
