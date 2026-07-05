@@ -10,7 +10,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import App from "../src/App.vue";
 import { routes } from "../src/router";
 import { scenarioRegistry } from "../src/scenarios";
-import { backendMode, complaintRecords, drugRecords, localVisits, resetBackendForTests, resetPrototypeStateForTests } from "../src/state";
+import { complaintRecords, drugRecords, localVisits, resetBackendForTests, resetPrototypeStateForTests } from "../src/state";
 import { APP_VERSION } from "../src/version";
 import { createInMemoryCaseEventNetwork, createMockCaseRepository } from "../src/cases/mockRepository";
 
@@ -99,16 +99,15 @@ describe("App", () => {
     expect(wrapper.text()).toContain("Откликнувшиеся врачи");
   });
 
-  it("renders booking, visit list, and visit detail through p2p repository mode", async () => {
+  it("renders booking, visit list, and visit detail through an injected replicated repository", async () => {
     const network = createInMemoryCaseEventNetwork();
     const repository = createMockCaseRepository({ seedVisits: [], actorId: "owner", network });
-    await resetBackendForTests(repository, "p2p");
+    await resetBackendForTests(repository);
     const { wrapper, router } = await mountAt("/owner/booking");
 
     await wrapper.get("button.primary-action.inline").trigger("click");
     await flushPromises();
 
-    expect(backendMode.value).toBe("p2p");
     expect(router.currentRoute.value.path).toBe("/owner/booking/success");
     expect(localVisits.value[0].complaint).toBe("Боль в правой лапе");
 
@@ -121,9 +120,9 @@ describe("App", () => {
     expect(wrapper.text()).toContain("Ожидает первичного приема");
   });
 
-  it("renders owner home in p2p mode before any cases are synced", async () => {
+  it("renders owner home before any replicated cases are synced", async () => {
     const repository = createMockCaseRepository({ seedVisits: [], actorId: "owner" });
-    await resetBackendForTests(repository, "p2p");
+    await resetBackendForTests(repository);
 
     const { wrapper } = await mountAt("/owner/home");
 

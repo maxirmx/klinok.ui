@@ -4,7 +4,7 @@
 
 import type { AppointmentDraft, Visit } from "../data";
 import type { ComplaintRecord, DappCollections, DappEvent, DappWatchCallback, DrugRecord } from "../dapp/types";
-import type { AppRuntimeConfig, P2PClientConfig } from "../runtimeConfig";
+import type { AppRuntimeConfig } from "../runtimeConfig";
 
 export type CaseActorRole = "owner" | "vet" | "company" | "system";
 
@@ -92,8 +92,4 @@ export interface CaseRepository {
   saveDrugRecord(record: DrugRecord): Promise<DrugRecord>;
   deleteDrugRecord(id: string): Promise<boolean>;
   dispose?(): Promise<void>;
-}
-
-export interface CaseRepositoryFactoryOptions {
-  p2pConfig?: P2PClientConfig;
 }

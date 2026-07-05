@@ -131,8 +131,24 @@ async function createOrbitRuntime(config: P2PClientConfig): Promise<OrbitRuntime
     import("@multiformats/multiaddr"),
   ]);
 
-  const peerDiscovery = config.trustedNodeMultiaddrs.length
-    ? [bootstrap({ list: config.trustedNodeMultiaddrs })]
+  const bootstrapMultiaddrs: string[] = [];
+  const directDialMultiaddrs: ReturnType<typeof multiaddr>[] = [];
+
+  for (const address of config.trustedNodeMultiaddrs) {
+    try {
+      const trustedNode = multiaddr(address);
+      if (trustedNode.getPeerId()) {
+        bootstrapMultiaddrs.push(address);
+      } else {
+        directDialMultiaddrs.push(trustedNode);
+      }
+    } catch {
+      // Invalid runtime config entries are ignored; other trusted nodes may still be usable.
+    }
+  }
+
+  const peerDiscovery = bootstrapMultiaddrs.length
+    ? [bootstrap({ list: bootstrapMultiaddrs, tagTTL: Infinity })]
     : [];
 
   const libp2p = await createLibp2p({
@@ -147,9 +163,9 @@ async function createOrbitRuntime(config: P2PClientConfig): Promise<OrbitRuntime
     },
   });
 
-  for (const address of config.trustedNodeMultiaddrs) {
+  for (const address of directDialMultiaddrs) {
     try {
-      await libp2p.dial(multiaddr(address));
+      await libp2p.dial(address);
     } catch {
       // Bootstrap discovery may still connect later; explicit dial is best-effort for the spike.
     }

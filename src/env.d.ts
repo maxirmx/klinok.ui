@@ -2,6 +2,8 @@
 // All rights reserved.
 // This file is a part of Klinok ui application
 
+/// <reference types="vite/client" />
+
 declare module "*.vue" {
   import type { DefineComponent } from "vue";
   const component: DefineComponent<object, object, unknown>;

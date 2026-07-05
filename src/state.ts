@@ -29,7 +29,7 @@ import {
   updateDrugRecordFromTemplate,
 } from "./dapp/templates";
 import type { ComplaintRecord, DappCollections, DrugRecord, DrugRecordDraft } from "./dapp/types";
-import { defaultRuntimeConfig, loadRuntimeConfig, type AppRuntimeConfig, type BackendMode } from "./runtimeConfig";
+import { defaultRuntimeConfig, loadRuntimeConfig, type AppRuntimeConfig } from "./runtimeConfig";
 
 const seedCollections = createSeedCollections();
 
@@ -45,7 +45,6 @@ export const analysisDraft = reactive<AnalysisDraft>({ ...defaultAnalysis, rows:
 export const localVisits = ref<Visit[]>([...visits]);
 export const savedAnalyses = ref<AnalysisDraft[]>([...analyses]);
 export const toast = ref("");
-export const backendMode = ref<BackendMode>("mock");
 export const backendReady = ref(false);
 export const backendError = ref("");
 export const complaintTemplates = ref(seedCollections.complaintTemplates);
@@ -58,9 +57,44 @@ export const selectedComplaintOptionIds = ref<string[]>([]);
 export const selectedDrugTemplateId = ref(drugTemplates.value[0]?.id ?? "");
 export const drugDraft = reactive<DrugRecordDraft>(createEmptyDrugDraft());
 
-let caseRepository: CaseRepository = createMockCaseRepository({ seedVisits: visits });
 let unsubscribeCases: (() => void) | null = null;
 let unsubscribeDapp: (() => void) | null = null;
+
+function createUnavailableCaseRepository(message: string): CaseRepository {
+  const unavailable = () => new Error(message);
+
+  return {
+    async initialize() {},
+    async listCases() {
+      return [];
+    },
+    watchCases(callback) {
+      callback([]);
+      return () => {};
+    },
+    async createCaseFromAppointment() {
+      throw unavailable();
+    },
+    async appendCaseEvent() {
+      throw unavailable();
+    },
+    async listDappCollections() {
+      return createSeedCollections();
+    },
+    watchDappCollections(callback) {
+      callback(createSeedCollections());
+      return () => {};
+    },
+    async saveDrugRecord() {
+      throw unavailable();
+    },
+    async deleteDrugRecord() {
+      throw unavailable();
+    },
+  };
+}
+
+let caseRepository: CaseRepository = createUnavailableCaseRepository("Backend is not initialized.");
 
 function applyDappCollections(collections: DappCollections) {
   complaintTemplates.value = collections.complaintTemplates;
@@ -99,18 +133,14 @@ export async function initializeBackend(config?: AppRuntimeConfig) {
   const runtimeConfig = config ?? (await loadRuntimeConfig());
 
   try {
-    const nextRepository = await createCaseRepository(runtimeConfig, visits);
+    const nextRepository = await createCaseRepository(runtimeConfig);
     await nextRepository.initialize(runtimeConfig);
     caseRepository = nextRepository;
-    backendMode.value = runtimeConfig.backendMode;
     subscribeToRepository(nextRepository);
   } catch (error) {
-    const fallback = createMockCaseRepository({ seedVisits: visits });
-    await fallback.initialize(defaultRuntimeConfig);
-    caseRepository = fallback;
-    backendMode.value = "mock";
     backendError.value = error instanceof Error ? error.message : "Failed to initialize backend.";
-    subscribeToRepository(fallback);
+    caseRepository = createUnavailableCaseRepository(backendError.value);
+    subscribeToRepository(caseRepository);
   } finally {
     backendReady.value = true;
   }
@@ -264,7 +294,7 @@ export function showToast(message: string) {
   }, 1800);
 }
 
-export async function resetBackendForTests(repository?: CaseRepository, mode: BackendMode = "mock") {
+export async function resetBackendForTests(repository?: CaseRepository) {
   unsubscribeCases?.();
   unsubscribeDapp?.();
   unsubscribeCases = null;
@@ -272,7 +302,6 @@ export async function resetBackendForTests(repository?: CaseRepository, mode: Ba
   caseRepository = repository ?? createMockCaseRepository({ seedVisits: visits });
   await caseRepository.initialize(defaultRuntimeConfig);
   subscribeToRepository(caseRepository);
-  backendMode.value = mode;
   backendReady.value = true;
   backendError.value = "";
 }
