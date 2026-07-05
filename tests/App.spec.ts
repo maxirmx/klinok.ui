@@ -10,8 +10,9 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import App from "../src/App.vue";
 import { routes } from "../src/router";
 import { scenarioRegistry } from "../src/scenarios";
-import { applyPetFilters, darkMode, petQuery, selectedRole } from "../src/state";
+import { applyPetFilters, backendMode, darkMode, localVisits, petQuery, resetBackendForTests, selectedRole } from "../src/state";
 import { APP_VERSION } from "../src/version";
+import { createInMemoryCaseEventNetwork, createMockCaseRepository } from "../src/cases/mockRepository";
 
 const mountedWrappers: ReturnType<typeof mount>[] = [];
 
@@ -46,7 +47,8 @@ describe("App", () => {
     }
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await resetBackendForTests();
     selectedRole.value = "owner";
     petQuery.value = "";
     applyPetFilters("Все", "Все");
@@ -99,6 +101,38 @@ describe("App", () => {
     expect(router.currentRoute.value.path).toBe("/owner/booking/success");
     expect(wrapper.text()).toContain("Заявка создана");
     expect(wrapper.text()).toContain("Откликнувшиеся врачи");
+  });
+
+  it("renders booking, visit list, and visit detail through p2p repository mode", async () => {
+    const network = createInMemoryCaseEventNetwork();
+    const repository = createMockCaseRepository({ seedVisits: [], actorId: "owner", network });
+    await resetBackendForTests(repository, "p2p");
+    const { wrapper, router } = await mountAt("/owner/booking");
+
+    await wrapper.get("button.primary-action.inline").trigger("click");
+    await flushPromises();
+
+    expect(backendMode.value).toBe("p2p");
+    expect(router.currentRoute.value.path).toBe("/owner/booking/success");
+    expect(localVisits.value[0].complaint).toBe("Боль в правой лапе");
+
+    await router.push("/owner/visits");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Боль в правой лапе");
+
+    await router.push(`/owner/visits/${localVisits.value[0].id}`);
+    await flushPromises();
+    expect(wrapper.text()).toContain("Ожидает первичного приема");
+  });
+
+  it("renders owner home in p2p mode before any cases are synced", async () => {
+    const repository = createMockCaseRepository({ seedVisits: [], actorId: "owner" });
+    await resetBackendForTests(repository, "p2p");
+
+    const { wrapper } = await mountAt("/owner/home");
+
+    expect(wrapper.text()).toContain("История контактов пока пуста");
+    expect(wrapper.find('a[href="/owner/booking"]').exists()).toBe(true);
   });
 
   it("supports the add-analysis template flow", async () => {

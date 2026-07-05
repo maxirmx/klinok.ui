@@ -1,4 +1,19 @@
 {
   "apiUrl": "http://localhost:8080/api",
-  "enableLog": true
+  "enableLog": true,
+  "backendMode": "p2p",
+  "p2p": {
+    "databaseName": "klinok-cases",
+    "identityId": "klinok-browser-owner",
+    "participantId": "owner-demo",
+    "trustedNodeMultiaddrs": [
+  "/ip4/10.0.85.2/tcp/55879/p2p/12D3KooWNCLi41btU26BfenSqwvzGmb7emb7ynHRuWoYdBsHUyKd",
+  "/ip4/192.168.11.140/tcp/55879/p2p/12D3KooWNCLi41btU26BfenSqwvzGmb7emb7ynHRuWoYdBsHUyKd",
+  "/ip4/127.0.0.1/tcp/55879/p2p/12D3KooWNCLi41btU26BfenSqwvzGmb7emb7ynHRuWoYdBsHUyKd",
+  "/ip4/172.25.96.1/tcp/55879/p2p/12D3KooWNCLi41btU26BfenSqwvzGmb7emb7ynHRuWoYdBsHUyKd",
+  "/ip4/172.26.208.1/tcp/55879/p2p/12D3KooWNCLi41btU26BfenSqwvzGmb7emb7ynHRuWoYdBsHUyKd"
+    ],
+    "writeIdentityIds": ["*"],
+    "participantPublicKeys": {}
+  }
 }

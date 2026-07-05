@@ -18,8 +18,8 @@ const router = useRouter();
 const urgencyOptions: AppointmentDraft["urgency"][] = ["Планово", "Срочно", "Сегодня"];
 const isSuccess = computed(() => props.scenarioId === "owner-booking-success");
 
-function submit() {
-  submitAppointment();
+async function submit() {
+  await submitAppointment();
   router.push("/owner/booking/success");
 }
 </script>

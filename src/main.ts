@@ -5,6 +5,9 @@
 import { createApp } from "vue";
 import App from "./App.vue";
 import { createAppRouter } from "./router";
+import { initializeBackend } from "./state";
 import "./styles.css";
+
+void initializeBackend();
 
 createApp(App).use(createAppRouter()).mount("#app");
