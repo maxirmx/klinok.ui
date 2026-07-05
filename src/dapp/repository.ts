@@ -16,6 +16,7 @@ export interface DappRepository {
   listDrugTemplates(): DappCollections["drugTemplates"];
   listDrugRecords(): DrugRecord[];
   saveDrugRecord(record: DrugRecord): void;
+  deleteDrugRecord(id: string): boolean;
   reset(collections?: DappCollections): void;
 }
 
@@ -58,6 +59,14 @@ export class InMemoryDappRepository implements DappRepository {
   saveDrugRecord(record: DrugRecord) {
     this.collections.drugRecords = upsertById(this.collections.drugRecords, record);
     this.persist();
+  }
+
+  deleteDrugRecord(id: string) {
+    const nextRecords = this.collections.drugRecords.filter((record) => record.id !== id);
+    if (nextRecords.length === this.collections.drugRecords.length) return false;
+    this.collections.drugRecords = nextRecords;
+    this.persist();
+    return true;
   }
 
   reset(collections: DappCollections = createSeedCollections()) {

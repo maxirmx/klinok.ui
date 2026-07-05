@@ -19,9 +19,12 @@ import {
 import { createDefaultDappRepository } from "./dapp/repository";
 import {
   createComplaintRecordFromTemplate,
+  createDrugDraftFromRecord,
   createDrugRecordFromTemplate,
   createEmptyDrugDraft,
+  getDrugDraftValidationError,
   getComplaintOptionPath,
+  updateDrugRecordFromTemplate,
 } from "./dapp/templates";
 import type { ComplaintRecord, DrugRecord, DrugRecordDraft } from "./dapp/types";
 
@@ -146,6 +149,10 @@ export function saveDrugDraft(): DrugRecord {
   if (!selectedDrugTemplate.value) {
     throw new Error("Drug template is not available");
   }
+  const validationError = getDrugDraftValidationError(drugDraft);
+  if (validationError) {
+    throw new Error(validationError);
+  }
 
   const record = createDrugRecordFromTemplate(selectedDrugTemplate.value, drugDraft);
   dappRepository.saveDrugRecord(record);
@@ -154,8 +161,41 @@ export function saveDrugDraft(): DrugRecord {
   return record;
 }
 
+export function updateDrugDraft(record: DrugRecord): DrugRecord {
+  if (!selectedDrugTemplate.value) {
+    throw new Error("Drug template is not available");
+  }
+  const validationError = getDrugDraftValidationError(drugDraft);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const updatedRecord = updateDrugRecordFromTemplate(selectedDrugTemplate.value, record, drugDraft);
+  dappRepository.saveDrugRecord(updatedRecord);
+  drugRecords.value = dappRepository.listDrugRecords();
+  resetDrugDraft();
+  return updatedRecord;
+}
+
 export function findDrugRecord(id: string) {
   return drugRecords.value.find((record) => record.id === id) ?? null;
+}
+
+export function fillDrugDraft(record: DrugRecord) {
+  selectedDrugTemplateId.value = record.templateId;
+  Object.assign(drugDraft, createDrugDraftFromRecord(record));
+}
+
+export function validateDrugDraft() {
+  return getDrugDraftValidationError(drugDraft);
+}
+
+export function deleteDrugRecord(id: string) {
+  const deleted = dappRepository.deleteDrugRecord(id);
+  if (deleted) {
+    drugRecords.value = dappRepository.listDrugRecords();
+  }
+  return deleted;
 }
 
 export function resetDrugDraft() {

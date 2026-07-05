@@ -27,6 +27,10 @@ interface RecordCreationOptions {
   now?: Date;
 }
 
+interface RecordUpdateOptions {
+  now?: Date;
+}
+
 function createId(prefix: string, date: Date) {
   const stamp = date.toISOString().replace(/[-:.TZ]/g, "");
   return `${prefix}-${stamp}-${Math.random().toString(36).slice(2, 8)}`;
@@ -127,6 +131,13 @@ export function splitTradeNames(value: string) {
     .filter(Boolean);
 }
 
+export function getDrugDraftValidationError(draft: DrugRecordDraft) {
+  if (!trim(draft.activeSubstanceRu)) return "Укажите действующее вещество";
+  if (trim(draft.dogDoseText) && !trim(draft.dogDoseSource)) return "Укажите источник дозировки для собак";
+  if (trim(draft.catDoseText) && !trim(draft.catDoseSource)) return "Укажите источник дозировки для кошек";
+  return "";
+}
+
 export function createDrugRecordFromTemplate(
   template: DrugTemplate,
   draft: DrugRecordDraft,
@@ -148,5 +159,20 @@ export function createDrugRecordFromTemplate(
     catDose: { text: trim(draft.catDoseText), source: trim(draft.catDoseSource) },
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
+  };
+}
+
+export function updateDrugRecordFromTemplate(
+  template: DrugTemplate,
+  record: DrugRecord,
+  draft: DrugRecordDraft,
+  options: RecordUpdateOptions = {},
+): DrugRecord {
+  return {
+    ...createDrugRecordFromTemplate(template, draft, {
+      id: record.id,
+      now: options.now,
+    }),
+    createdAt: record.createdAt,
   };
 }

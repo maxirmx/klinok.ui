@@ -8,8 +8,10 @@ import { seedComplaintTemplates, seedDrugTemplates } from "../src/dapp/seeds";
 import {
   createComplaintRecordFromTemplate,
   createDrugRecordFromTemplate,
+  getDrugDraftValidationError,
   getComplaintOptionPath,
   splitTradeNames,
+  updateDrugRecordFromTemplate,
 } from "../src/dapp/templates";
 
 describe("dApp template records", () => {
@@ -73,6 +75,74 @@ describe("dApp template records", () => {
     });
   });
 
+  it("validates required drug fields and dosage sources", () => {
+    const validDraft = {
+      activeSubstanceRu: "Вещество",
+      activeSubstanceLatin: "",
+      pharmacyType: "vet" as const,
+      tradeNames: "",
+      pharmacokinetics: "",
+      pharmacodynamics: "",
+      dogDoseText: "",
+      dogDoseSource: "",
+      catDoseText: "",
+      catDoseSource: "",
+    };
+
+    expect(getDrugDraftValidationError({ ...validDraft, activeSubstanceRu: " " })).toBe("Укажите действующее вещество");
+    expect(getDrugDraftValidationError({ ...validDraft, dogDoseText: "5 мг/кг" })).toBe("Укажите источник дозировки для собак");
+    expect(getDrugDraftValidationError({ ...validDraft, catDoseText: "2 мг/кг" })).toBe("Укажите источник дозировки для кошек");
+    expect(getDrugDraftValidationError({ ...validDraft, dogDoseText: "5 мг/кг", dogDoseSource: "Справочник" })).toBe("");
+  });
+
+  it("updates drug records while preserving identity and creation time", () => {
+    const template = seedDrugTemplates[0];
+    const record = createDrugRecordFromTemplate(
+      template,
+      {
+        activeSubstanceRu: "Вещество",
+        activeSubstanceLatin: "Substantia",
+        pharmacyType: "vet",
+        tradeNames: "Старое",
+        pharmacokinetics: "",
+        pharmacodynamics: "",
+        dogDoseText: "",
+        dogDoseSource: "",
+        catDoseText: "",
+        catDoseSource: "",
+      },
+      { id: "drug-update", now: new Date("2026-06-22T21:03:28.000Z") },
+    );
+
+    const updated = updateDrugRecordFromTemplate(
+      template,
+      record,
+      {
+        activeSubstanceRu: "Обновленное вещество",
+        activeSubstanceLatin: "Substantia renovata",
+        pharmacyType: "human",
+        tradeNames: "Новое, Дополнительное",
+        pharmacokinetics: "Кратко",
+        pharmacodynamics: "Кратко",
+        dogDoseText: "5 мг/кг",
+        dogDoseSource: "Справочник",
+        catDoseText: "",
+        catDoseSource: "",
+      },
+      { now: new Date("2026-06-23T10:00:00.000Z") },
+    );
+
+    expect(updated).toMatchObject({
+      id: "drug-update",
+      activeSubstanceRu: "Обновленное вещество",
+      pharmacyType: "human",
+      tradeNames: ["Новое", "Дополнительное"],
+      dogDose: { text: "5 мг/кг", source: "Справочник" },
+      createdAt: "2026-06-22T21:03:28.000Z",
+      updatedAt: "2026-06-23T10:00:00.000Z",
+    });
+  });
+
   it("persists complaint and drug records through the repository boundary", () => {
     const repository = new InMemoryDappRepository();
     const complaint = createComplaintRecordFromTemplate(
@@ -110,5 +180,8 @@ describe("dApp template records", () => {
 
     expect(repository.listComplaintRecords().map((item) => item.id)).toContain("complaint-repo");
     expect(repository.listDrugRecords().map((item) => item.id)).toContain("drug-repo");
+    expect(repository.deleteDrugRecord("drug-repo")).toBe(true);
+    expect(repository.listDrugRecords().map((item) => item.id)).not.toContain("drug-repo");
+    expect(repository.deleteDrugRecord("drug-repo")).toBe(false);
   });
 });

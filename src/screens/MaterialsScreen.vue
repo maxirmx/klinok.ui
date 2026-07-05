@@ -3,21 +3,25 @@
 // All rights reserved.
 // This file is a part of Klinok ui application
 
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import AppShell from "../components/AppShell.vue";
 import AppIcon from "../components/AppIcon.vue";
 import { materialArticles, materials, templates } from "../data";
 import {
+  deleteDrugRecord,
   drugDraft,
   drugRecords,
   drugTemplates,
+  fillDrugDraft,
   findDrugRecord,
   resetDrugDraft,
   saveDrugDraft,
   selectedDrugTemplate,
   selectedDrugTemplateId,
   showToast,
+  updateDrugDraft,
+  validateDrugDraft,
 } from "../state";
 
 const props = defineProps<{
@@ -28,15 +32,25 @@ const route = useRoute();
 const router = useRouter();
 const query = ref("");
 const mode = ref<"guide" | "templates">("guide");
+const confirmDelete = ref(false);
 const isDrugCreate = computed(() => props.scenarioId === "owner-drug-create");
 const isDrugDetail = computed(() => props.scenarioId === "owner-drug-detail");
+const isDrugEdit = computed(() => props.scenarioId === "owner-drug-edit");
 const drugRecord = computed(() => {
-  if (!isDrugDetail.value) return null;
+  if (!isDrugDetail.value && !isDrugEdit.value) return null;
   return findDrugRecord(String(route.params.id ?? ""));
 });
+const isDrugForm = computed(() => isDrugCreate.value || (isDrugEdit.value && Boolean(drugRecord.value)));
+const drugFormTitle = computed(() => (isDrugEdit.value ? "Редактировать препарат" : "Новый препарат"));
+const drugFormSubtitle = computed(() =>
+  isDrugEdit.value ? "Редактирование записи по шаблону препарата" : "Запись по шаблону препарата",
+);
+const drugFormBackTo = computed(() =>
+  isDrugEdit.value && drugRecord.value ? `/owner/materials/drugs/${drugRecord.value.id}` : "/owner/materials",
+);
 
 const article = computed(() => {
-  if (isDrugCreate.value || isDrugDetail.value) return null;
+  if (isDrugCreate.value || isDrugDetail.value || isDrugEdit.value) return null;
   const id = String(route.params.id ?? "");
   return materialArticles.find((item) => item.id === id) ?? null;
 });
@@ -52,12 +66,20 @@ function toggleSection(title: string) {
 
 const visibleSections = computed(() => {
   const value = query.value.trim().toLowerCase();
-  if (!value) return materials.map((s) => ({ ...s, open: openState.value[s.title] ?? s.open }));
+  if (!value) {
+    return materials
+      .map((section) => ({
+        ...section,
+        items: visibleMaterialItems(section),
+        open: openState.value[section.title] ?? section.open,
+      }))
+      .filter((section) => section.items.length > 0);
+  }
   return materials
     .map((section) => ({
       ...section,
       open: true,
-      items: section.items.filter((item) => item.toLowerCase().includes(value)),
+      items: visibleMaterialItems(section).filter((item) => item.toLowerCase().includes(value)),
     }))
     .filter((section) => section.items.length > 0);
 });
@@ -70,10 +92,16 @@ const visibleDrugRecords = computed(() => {
       record.activeSubstanceRu,
       record.activeSubstanceLatin,
       record.pharmacyType,
+      pharmacyTypeLabel(record.pharmacyType),
       ...record.tradeNames,
     ].some((item) => item.toLowerCase().includes(value));
   });
 });
+
+function visibleMaterialItems(section: { title: string; items: string[] }) {
+  if (section.title === "Справочник препаратов") return [];
+  return section.items;
+}
 
 function articlePath(title: string): string | null {
   const drugByTitle = drugRecords.value.find((item) => item.activeSubstanceRu.toLowerCase() === title.toLowerCase());
@@ -90,20 +118,71 @@ function sourceLabel(source: string) {
   return source || "Источник не указан";
 }
 
-function createDrugRecord() {
-  if (!drugDraft.activeSubstanceRu.trim()) {
-    showToast("Укажите действующее вещество");
-    return;
+function showValidationError() {
+  const error = validateDrugDraft();
+  if (error) {
+    showToast(error);
+    return true;
   }
+  return false;
+}
+
+function createDrugRecord() {
+  if (showValidationError()) return;
 
   const record = saveDrugDraft();
   showToast("Препарат создан");
   router.push(`/owner/materials/drugs/${record.id}`);
 }
+
+function updateDrugRecord() {
+  if (!drugRecord.value || showValidationError()) return;
+
+  const record = updateDrugDraft(drugRecord.value);
+  showToast("Препарат сохранен");
+  router.push(`/owner/materials/drugs/${record.id}`);
+}
+
+function submitDrugRecord() {
+  if (isDrugEdit.value) {
+    updateDrugRecord();
+    return;
+  }
+  createDrugRecord();
+}
+
+function requestDrugDelete() {
+  confirmDelete.value = true;
+}
+
+function cancelDrugDelete() {
+  confirmDelete.value = false;
+}
+
+function confirmDrugDelete() {
+  if (!drugRecord.value) return;
+  const deleted = deleteDrugRecord(drugRecord.value.id);
+  showToast(deleted ? "Препарат удален" : "Препарат не найден");
+  router.push("/owner/materials");
+}
+
+watch(
+  () => [props.scenarioId, route.params.id],
+  () => {
+    confirmDelete.value = false;
+    if (isDrugCreate.value) {
+      resetDrugDraft();
+    }
+    if (isDrugEdit.value && drugRecord.value) {
+      fillDrugDraft(drugRecord.value);
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
-  <AppShell v-if="isDrugCreate" title="Новый препарат" subtitle="Запись по шаблону препарата" back-to="/owner/materials">
+  <AppShell v-if="isDrugForm" :title="drugFormTitle" :subtitle="drugFormSubtitle" :back-to="drugFormBackTo">
     <section class="form-panel panel">
       <h2>Шаблон препарата</h2>
       <p class="body-copy">{{ selectedDrugTemplate?.description }}</p>
@@ -126,7 +205,9 @@ function createDrugRecord() {
         <input v-else v-model="drugDraft[field.id]" :data-test="`drug-${field.id}`" />
       </label>
       <div class="action-row">
-        <button class="primary-action inline" data-test="save-drug-record" @click="createDrugRecord">Создать запись</button>
+        <button class="primary-action inline" data-test="save-drug-record" @click="submitDrugRecord">
+          {{ isDrugEdit ? "Сохранить изменения" : "Создать запись" }}
+        </button>
         <button class="outline-action" type="button" @click="resetDrugDraft">Очистить</button>
       </div>
     </section>
@@ -135,7 +216,7 @@ function createDrugRecord() {
   <AppShell
     v-else-if="drugRecord"
     :title="drugRecord.activeSubstanceRu"
-    :subtitle="`${drugRecord.templateTitle} · ${pharmacyTypeLabel(drugRecord.pharmacyType)}`"
+    :subtitle="pharmacyTypeLabel(drugRecord.pharmacyType)"
     back-to="/owner/materials"
   >
     <section class="panel material-detail drug-detail" data-test="drug-detail">
@@ -159,11 +240,28 @@ function createDrugRecord() {
         <strong>{{ drugRecord.catDose.text || "Дозировка не указана" }}</strong>
         <small>{{ sourceLabel(drugRecord.catDose.source) }}</small>
       </div>
+      <div class="action-row">
+        <RouterLink class="primary-action inline" :to="`/owner/materials/drugs/${drugRecord.id}/edit`" data-test="edit-drug-record">
+          Редактировать
+        </RouterLink>
+        <button class="outline-action danger-outline" type="button" data-test="show-delete-drug-confirm" @click="requestDrugDelete">
+          Удалить
+        </button>
+      </div>
+      <div v-if="confirmDelete" class="delete-confirm" data-test="delete-drug-confirm">
+        <p>Удалить препарат из справочника?</p>
+        <div class="action-row">
+          <button class="primary-action danger" type="button" data-test="confirm-delete-drug" @click="confirmDrugDelete">
+            Подтвердить удаление
+          </button>
+          <button class="outline-action" type="button" @click="cancelDrugDelete">Отмена</button>
+        </div>
+      </div>
       <RouterLink class="primary-action inline" to="/owner/materials/drugs/new">Создать еще препарат</RouterLink>
     </section>
   </AppShell>
 
-  <AppShell v-else-if="isDrugDetail" title="Препарат не найден" subtitle="Запись отсутствует" back-to="/owner/materials">
+  <AppShell v-else-if="isDrugDetail || isDrugEdit" title="Препарат не найден" subtitle="Запись отсутствует" back-to="/owner/materials">
     <section class="panel success-state">
       <span><AppIcon name="search" /></span>
       <h2>Запись не найдена</h2>
@@ -188,7 +286,7 @@ function createDrugRecord() {
       </div>
       <label class="search-input materials-search">
         <AppIcon name="search" />
-        <input v-model="query" placeholder="Поиск" />
+        <input v-model="query" placeholder="Поиск" data-test="materials-search" />
       </label>
 
       <div v-if="mode === 'guide'" class="accordion">

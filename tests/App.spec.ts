@@ -164,6 +164,65 @@ describe("App", () => {
     expect(router.currentRoute.value.path).toBe(`/owner/materials/drugs/${drugRecords.value[0].id}`);
     expect(wrapper.text()).toContain("Тестовое вещество");
     expect(wrapper.text()).toContain("Источник не указан");
+
+    await router.push("/owner/materials");
+    await flushPromises();
+    expect(wrapper.findAll("[data-test='drug-record-row']").some((row) => row.text().includes("Тестовое вещество"))).toBe(true);
+
+    await wrapper.get("[data-test='materials-search']").setValue("Название 2");
+    expect(wrapper.text()).toContain("Тестовое вещество");
+    expect(wrapper.text()).not.toContain("Мелоксикам");
+  });
+
+  it("validates drug dosage sources before saving", async () => {
+    const { wrapper, router } = await mountAt("/owner/materials/drugs/new");
+    const initialCount = drugRecords.value.length;
+
+    await wrapper.get("[data-test='drug-activeSubstanceRu']").setValue("Тестовая дозировка");
+    await wrapper.get("[data-test='drug-dogDoseText']").setValue("5 мг/кг");
+    await wrapper.get("[data-test='save-drug-record']").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/owner/materials/drugs/new");
+    expect(drugRecords.value).toHaveLength(initialCount);
+    expect(wrapper.text()).toContain("Укажите источник дозировки для собак");
+  });
+
+  it("edits a drug record from the detail screen", async () => {
+    const { wrapper, router } = await mountAt("/owner/materials/drugs/drug-meloxicam");
+
+    await wrapper.get("[data-test='edit-drug-record']").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/owner/materials/drugs/drug-meloxicam/edit");
+    expect((wrapper.get("[data-test='drug-activeSubstanceRu']").element as HTMLInputElement).value).toBe("Мелоксикам");
+
+    await wrapper.get("[data-test='drug-activeSubstanceRu']").setValue("Мелоксикам обновленный");
+    await wrapper.get("[data-test='drug-tradeNames']").setValue("Локсиком");
+    await wrapper.get("[data-test='save-drug-record']").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/owner/materials/drugs/drug-meloxicam");
+    expect(drugRecords.value.find((record) => record.id === "drug-meloxicam")).toMatchObject({
+      activeSubstanceRu: "Мелоксикам обновленный",
+      tradeNames: ["Локсиком"],
+    });
+    expect(wrapper.text()).toContain("Мелоксикам обновленный");
+  });
+
+  it("deletes a drug record after confirmation", async () => {
+    const { wrapper, router } = await mountAt("/owner/materials/drugs/drug-meloxicam");
+
+    await wrapper.get("[data-test='show-delete-drug-confirm']").trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Удалить препарат из справочника?");
+
+    await wrapper.get("[data-test='confirm-delete-drug']").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/owner/materials");
+    expect(drugRecords.value.some((record) => record.id === "drug-meloxicam")).toBe(false);
+    expect(wrapper.findAll("[data-test='drug-record-row']").some((row) => row.text().includes("Мелоксикам"))).toBe(false);
   });
 
   it("shows QA scenario menu only when requested", async () => {

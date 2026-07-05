@@ -247,6 +247,17 @@ export const scenarioRegistry: ScenarioRegistryEntry[] = [
     implemented: true,
   },
   {
+    id: "owner-drug-edit",
+    title: "Редактировать препарат",
+    role: "owner",
+    path: "/owner/materials/drugs/:id/edit",
+    kind: "flow",
+    figmaNodeId: "issue:14",
+    exportName: "GitHub issue #14",
+    component: "MaterialsScreen",
+    implemented: true,
+  },
+  {
     id: "owner-material-detail",
     title: "Материал справочника",
     role: "owner",

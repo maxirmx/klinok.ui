@@ -1328,6 +1328,27 @@ dd {
   gap: 10px;
 }
 
+.outline-action.danger-outline {
+  border-color: var(--danger);
+  background: transparent;
+  color: var(--danger);
+}
+
+.delete-confirm {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(199, 54, 47, 0.24);
+  border-radius: 10px;
+}
+
+.delete-confirm p {
+  margin: 0;
+  color: var(--danger);
+  font-size: 15px;
+  line-height: 1.35;
+}
+
 .article-list {
   display: grid;
   gap: 10px;
