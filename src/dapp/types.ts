@@ -94,9 +94,106 @@ export interface DrugRecord {
   updatedAt: string;
 }
 
+export type MedicalSectionId =
+  | "what-happened"
+  | "habitus"
+  | "therapeutic"
+  | "diagnosis"
+  | "vaccination"
+  | "recommendations"
+  | "labs"
+  | "instrumental"
+  | "manipulations"
+  | "outcome";
+
+export type MedicalFieldType = "text" | "textarea" | "select";
+
+export interface MedicalSectionTemplateField {
+  id: string;
+  label: string;
+  type: MedicalFieldType;
+  options?: string[];
+}
+
+export interface MedicalSectionTemplate {
+  id: MedicalSectionId;
+  title: string;
+  sortOrder: number;
+  fields: MedicalSectionTemplateField[];
+  suggestions?: string[];
+  options?: ComplaintOptionNode[];
+  repeatable?: boolean;
+}
+
+export interface MedicalLabIndicator {
+  id: string;
+  name: string;
+  result: string;
+  unit: string;
+  reference: string;
+}
+
+export interface MedicalLabStudy {
+  id: string;
+  date: string;
+  studyName: string;
+  labName: string;
+  technician: string;
+  equipment: string;
+  indicators: MedicalLabIndicator[];
+  comments: string;
+}
+
+export interface MedicalHistorySection {
+  id: MedicalSectionId;
+  title: string;
+  author: string;
+  values: Record<string, string>;
+  selectedOptionIds?: string[];
+  selectedOptionLabels?: string[];
+  labStudies?: MedicalLabStudy[];
+}
+
+export interface MedicalHistoryEntry {
+  id: string;
+  petId: number;
+  date: string;
+  author: string;
+  sections: MedicalHistorySection[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MedicalHistoryEntryDraft {
+  petId: number;
+  date: string;
+  whatHappenedOptionIds: string[];
+  whatHappenedText: string;
+  habitus: Record<"weight" | "temperature" | "heartRate" | "respiratoryRate" | "bloodPressure", string>;
+  therapeutic: Record<"diseaseAnamnesis" | "lifeAnamnesis" | "exam" | "recommendations" | "prescriptions", string>;
+  diagnosis: Record<"preliminary" | "differential" | "concomitant", string>;
+  vaccination: Record<
+    "previousDate" | "previousVaccine" | "complications" | "currentVaccine" | "batch" | "expiresAt" | "chipNumber" | "injectionSite",
+    string
+  >;
+  recommendations: string;
+  labStudies: MedicalLabStudy[];
+  instrumental: string;
+  manipulations: string;
+  outcome: string;
+}
+
+export interface MedicalHistorySummary {
+  chipNumber: string;
+  latestVaccination: string;
+  weight: string;
+}
+
 export interface DappCollections {
   complaintTemplates: ComplaintTemplate[];
   complaintRecords: ComplaintRecord[];
+  medicalSectionTemplates: MedicalSectionTemplate[];
+  medicalHistoryEntries: MedicalHistoryEntry[];
   drugGroups: DrugGroup[];
   drugTemplates: DrugTemplate[];
   drugRecords: DrugRecord[];

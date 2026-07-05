@@ -23,10 +23,15 @@ export interface Pet {
   species: "Собака" | "Кошка";
   breed: string;
   sex: "Сука" | "Кобель";
+  sexStatus: "Интактный самец" | "Интактная самка" | "Кастрированный самец" | "Кастрированная самка";
   age: number;
+  birthDate?: string;
+  birthYear?: string;
+  color: string;
   note: string;
   nextEvent: string;
   chip: string;
+  tattoo?: string;
   weight: string;
 }
 
@@ -176,10 +181,14 @@ export const pets: Pet[] = [
     species: "Собака",
     breed: "Бигль",
     sex: "Кобель",
+    sexStatus: "Интактный самец",
     age: 4,
+    birthDate: "10.04.22",
+    color: "Трехцветный",
     note: "Прививки сделаны",
     nextEvent: "Вакцина через 4 дня",
     chip: "643094100001",
+    tattoo: "A-102",
     weight: "12.4 кг",
   },
   {
@@ -188,7 +197,10 @@ export const pets: Pet[] = [
     species: "Собака",
     breed: "Корги",
     sex: "Кобель",
+    sexStatus: "Кастрированный самец",
     age: 3,
+    birthDate: "15.03.23",
+    color: "Рыже-белый",
     note: "Контроль правой лапы",
     nextEvent: "Визит через 3 дня",
     chip: "643094100002",
@@ -200,7 +212,10 @@ export const pets: Pet[] = [
     species: "Кошка",
     breed: "Мейн-кун",
     sex: "Сука",
+    sexStatus: "Интактная самка",
     age: 6,
+    birthYear: "2020",
+    color: "Голубой мрамор",
     note: "Анализы готовы",
     nextEvent: "Повторить анализ",
     chip: "643094100003",
@@ -212,7 +227,10 @@ export const pets: Pet[] = [
     species: "Кошка",
     breed: "Сфинкс",
     sex: "Сука",
+    sexStatus: "Кастрированная самка",
     age: 2,
+    birthDate: "08.09.23",
+    color: "Кремовый",
     note: "Плановый осмотр",
     nextEvent: "Осмотр 24 июня",
     chip: "643094100004",

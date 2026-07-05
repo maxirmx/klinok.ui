@@ -1114,6 +1114,174 @@ dd {
   white-space: normal;
 }
 
+.medical-patient,
+.medical-epicrisis,
+.medical-previous {
+  display: grid;
+  gap: 14px;
+}
+
+.medical-patient-title {
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.medical-patient-title h2,
+.medical-epicrisis h2,
+.medical-previous h2,
+.medical-entry-form h2 {
+  margin: 0;
+}
+
+.medical-patient-title p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+}
+
+.medical-patient-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.medical-epicrisis-list,
+.medical-entry-body,
+.medical-saved-labs {
+  display: grid;
+  gap: 10px;
+}
+
+.medical-epicrisis-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) minmax(120px, auto);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.medical-epicrisis-row:first-child {
+  border-top: 0;
+}
+
+.medical-epicrisis-row span,
+.medical-epicrisis-row small,
+.medical-entry-section small,
+.medical-saved-labs span,
+.medical-saved-labs small {
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+
+.medical-entry-form {
+  align-items: stretch;
+}
+
+.medical-entry-form > h2,
+.medical-form-section,
+.medical-save {
+  grid-column: 1 / -1;
+}
+
+.medical-form-section {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.medical-form-section h3,
+.medical-entry-section h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.medical-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.medical-grid label,
+.medical-form-section > label,
+.medical-lab-editor > label {
+  display: grid;
+  gap: 8px;
+}
+
+.compact-chips {
+  gap: 8px;
+}
+
+.medical-lab-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.medical-lab-table {
+  display: grid;
+  gap: 6px;
+}
+
+.medical-lab-head,
+.medical-lab-row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr 0.55fr 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.medical-lab-head {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.medical-inline-action {
+  min-height: 46px;
+}
+
+.medical-comparison-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.medical-entry-section {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.medical-entry-section p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.medical-entry-section dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.medical-entry-section dt {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.medical-entry-section dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.medical-saved-labs article {
+  display: grid;
+  gap: 4px;
+}
+
 .settings-row {
   min-height: 58px;
   display: grid;
@@ -1739,10 +1907,14 @@ dd {
   .visit-document,
   .list-panel,
   .delete-panel,
-  .material-detail,
-  .doctor-profile {
-    max-width: 920px;
-  }
+	  .material-detail,
+	  .doctor-profile,
+	  .medical-patient,
+	  .medical-epicrisis,
+	  .medical-entry-form,
+	  .medical-previous {
+	    max-width: 920px;
+	  }
 
   .pet-row,
   .event-grid {
@@ -1881,16 +2053,34 @@ dd {
   .content-scroll > .form-panel,
   .content-scroll > .profile-hero,
   .content-scroll > .profile-info,
-  .content-scroll > .visit-document,
-  .content-scroll > .list-panel,
-  .content-scroll > .delete-panel,
-  .content-scroll > .material-detail,
-  .content-scroll > .doctor-profile {
-    grid-column: 1 / -1;
-  }
+	  .content-scroll > .visit-document,
+	  .content-scroll > .list-panel,
+	  .content-scroll > .delete-panel,
+	  .content-scroll > .material-detail,
+	  .content-scroll > .doctor-profile,
+	  .content-scroll > .medical-patient,
+	  .content-scroll > .medical-epicrisis,
+	  .content-scroll > .medical-entry-form,
+	  .content-scroll > .medical-previous {
+	    grid-column: 1 / -1;
+	  }
 }
 
 @media (max-width: 520px) {
+  .medical-patient-grid,
+  .medical-grid,
+  .medical-epicrisis-row {
+    grid-template-columns: 1fr;
+  }
+
+  .medical-lab-head {
+    display: none;
+  }
+
+  .medical-lab-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .doctor-card {
     grid-template-columns: 72px 1fr;
   }

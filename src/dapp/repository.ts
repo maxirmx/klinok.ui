@@ -4,7 +4,15 @@
 
 import { createSeedCollections } from "./seeds";
 import { normalizeDrugGroupIds } from "./templates";
-import type { ComplaintRecord, DappCollections, DrugGroup, DrugRecord, DrugTemplate } from "./types";
+import type {
+  ComplaintRecord,
+  DappCollections,
+  DrugGroup,
+  DrugRecord,
+  DrugTemplate,
+  MedicalHistoryEntry,
+  MedicalSectionTemplate,
+} from "./types";
 
 const STORAGE_KEY = "klinok.dapp.collections.v1";
 
@@ -14,6 +22,9 @@ export interface DappRepository {
   listComplaintTemplates(): DappCollections["complaintTemplates"];
   listComplaintRecords(): ComplaintRecord[];
   saveComplaintRecord(record: ComplaintRecord): void;
+  listMedicalSectionTemplates(): DappCollections["medicalSectionTemplates"];
+  listMedicalHistoryEntries(): MedicalHistoryEntry[];
+  saveMedicalHistoryEntry(record: MedicalHistoryEntry): void;
   listDrugGroups(): DappCollections["drugGroups"];
   listDrugTemplates(): DappCollections["drugTemplates"];
   listDrugRecords(): DrugRecord[];
@@ -81,12 +92,22 @@ function normalizeDrugTemplates(items: unknown, fallback: DrugTemplate[]) {
   });
 }
 
+function normalizeMedicalSectionTemplates(items: unknown, fallback: MedicalSectionTemplate[]) {
+  return normalizeList(items, fallback);
+}
+
+function normalizeMedicalHistoryEntries(items: unknown, fallback: MedicalHistoryEntry[]) {
+  return normalizeList(items, fallback);
+}
+
 export function normalizeDappCollections(collections: Partial<DappCollections> = {}): DappCollections {
   const seed = createSeedCollections();
   const merged = { ...seed, ...collections };
   return {
     complaintTemplates: normalizeList(merged.complaintTemplates, seed.complaintTemplates),
     complaintRecords: normalizeList(merged.complaintRecords, seed.complaintRecords),
+    medicalSectionTemplates: normalizeMedicalSectionTemplates(merged.medicalSectionTemplates, seed.medicalSectionTemplates),
+    medicalHistoryEntries: normalizeMedicalHistoryEntries(merged.medicalHistoryEntries, seed.medicalHistoryEntries),
     drugGroups: normalizeDrugGroups(merged.drugGroups, seed.drugGroups),
     drugTemplates: normalizeDrugTemplates(merged.drugTemplates, seed.drugTemplates),
     drugRecords: normalizeDrugRecords(merged.drugRecords, seed.drugRecords),
@@ -110,6 +131,19 @@ export class InMemoryDappRepository implements DappRepository {
 
   saveComplaintRecord(record: ComplaintRecord) {
     this.collections.complaintRecords = upsertById(this.collections.complaintRecords, record);
+    this.persist();
+  }
+
+  listMedicalSectionTemplates() {
+    return cloneList(this.collections.medicalSectionTemplates);
+  }
+
+  listMedicalHistoryEntries() {
+    return cloneList(this.collections.medicalHistoryEntries);
+  }
+
+  saveMedicalHistoryEntry(record: MedicalHistoryEntry) {
+    this.collections.medicalHistoryEntries = upsertById(this.collections.medicalHistoryEntries, record);
     this.persist();
   }
 

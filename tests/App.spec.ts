@@ -10,7 +10,8 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import App from "../src/App.vue";
 import { routes } from "../src/router";
 import { scenarioRegistry } from "../src/scenarios";
-import { complaintRecords, drugRecords, resetPrototypeStateForTests } from "../src/state";
+import { medicalOutcomeOptions } from "../src/dapp/medical";
+import { complaintRecords, drugRecords, medicalHistoryEntries, resetPrototypeStateForTests } from "../src/state";
 import { APP_VERSION } from "../src/version";
 
 const mountedWrappers: ReturnType<typeof mount>[] = [];
@@ -85,6 +86,56 @@ describe("App", () => {
 
     expect(wrapper.text()).toContain("Чарли");
     expect(wrapper.text()).not.toContain("Шарик");
+    expect(wrapper.text()).toContain("Мои питомцы");
+    expect(wrapper.text()).not.toContain("История болезни");
+  });
+
+  it("renders the issue #4 medical history page for a pet", async () => {
+    const { wrapper } = await mountAt("/owner/pets/2");
+
+    expect(wrapper.text()).toContain("История болезни");
+    expect(wrapper.get("[data-test='medical-patient-header']").text()).toContain("Чарли");
+    expect(wrapper.get("[data-test='medical-patient-header']").text()).toContain("Кастрированный самец");
+    expect(wrapper.get("[data-test='medical-patient-header']").text()).toContain("Nobivac Rabies, 18.06.25");
+    expect(wrapper.get("[data-test='medical-epicrisis']").text()).toContain("Эпикриз");
+    expect(wrapper.get("[data-test='medical-current-entry']").text()).toContain("Текущая запись");
+    expect(wrapper.findAll("[data-test='medical-entry-head']").map((row) => row.text())[0]).toContain("18.06.25");
+    expect(wrapper.get("[data-test='medical-lab-comparison']").text()).toContain("Лейкоциты");
+
+    const outcomeOptions = wrapper
+      .findAll("[data-test='medical-outcome'] option")
+      .map((option) => option.text())
+      .slice(1);
+    expect(outcomeOptions).toEqual(medicalOutcomeOptions);
+  });
+
+  it("saves a current medical history entry with templates and lab rows", async () => {
+    const { wrapper } = await mountAt("/owner/pets/2");
+
+    await wrapper.get("[data-test='medical-date']").setValue("20.06.25");
+    await wrapper.findAll("[data-test='medical-what-option']").find((button) => button.text() === "Есть проблемы")!.trigger("click");
+    await flushPromises();
+    await wrapper.findAll("[data-test='medical-what-option']").find((button) => button.text() === "С опороспособностью")!.trigger("click");
+    await flushPromises();
+    await wrapper.findAll("[data-test='medical-what-option']").find((button) => button.text() === "Хромота")!.trigger("click");
+    await wrapper.get("[data-test='medical-what-text']").setValue("снова хромает после прогулки");
+    await wrapper.get("[data-test='medical-habitus-weight']").setValue("11.2 кг");
+    await wrapper.get("[data-test='medical-outcome']").setValue("Улучшение");
+    await wrapper.get("[data-test='medical-lab-date']").setValue("20.06.25");
+    await wrapper.get("[data-test='medical-lab-study-name']").setValue("Общий анализ крови");
+    await wrapper.get("[data-test='medical-lab-indicator-name']").setValue("Лейкоциты");
+    await wrapper.get("[data-test='medical-lab-indicator-result']").setValue("8.4");
+    await wrapper.get("[data-test='save-medical-entry']").trigger("click");
+    await flushPromises();
+
+    expect(medicalHistoryEntries.value[0]).toMatchObject({
+      petId: 2,
+      date: "20.06.25",
+    });
+    expect(medicalHistoryEntries.value[0].sections.map((section) => section.id)).toContain("what-happened");
+    expect(wrapper.findAll("[data-test='medical-entry-head']").map((row) => row.text())[0]).toContain("20.06.25");
+    expect(wrapper.get("[data-test='medical-epicrisis']").text()).toContain("Улучшение");
+    expect(wrapper.get("[data-test='medical-lab-comparison']").text()).toContain("8.4");
   });
 
   it("submits booking and navigates to the success state", async () => {

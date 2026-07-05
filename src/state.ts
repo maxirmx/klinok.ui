@@ -17,6 +17,7 @@ import {
   type Visit,
 } from "./data";
 import { createDefaultDappRepository } from "./dapp/repository";
+import { createMedicalHistoryEntryFromDraft } from "./dapp/medical";
 import {
   createComplaintRecordFromTemplate,
   createDrugDraftFromRecord,
@@ -26,7 +27,7 @@ import {
   getComplaintOptionPath,
   updateDrugRecordFromTemplate,
 } from "./dapp/templates";
-import type { ComplaintRecord, DrugRecord, DrugRecordDraft } from "./dapp/types";
+import type { ComplaintRecord, DrugRecord, DrugRecordDraft, MedicalHistoryEntry, MedicalHistoryEntryDraft } from "./dapp/types";
 
 export const selectedRole = ref<Role>("owner");
 export const phone = ref("+7 (900) 000-00-00");
@@ -45,6 +46,8 @@ const dappRepository = createDefaultDappRepository(showToast);
 
 export const complaintTemplates = ref(dappRepository.listComplaintTemplates());
 export const complaintRecords = ref(dappRepository.listComplaintRecords());
+export const medicalSectionTemplates = ref(dappRepository.listMedicalSectionTemplates());
+export const medicalHistoryEntries = ref(dappRepository.listMedicalHistoryEntries());
 export const drugGroups = ref(dappRepository.listDrugGroups());
 export const drugTemplates = ref(dappRepository.listDrugTemplates());
 export const drugRecords = ref(dappRepository.listDrugRecords());
@@ -134,6 +137,24 @@ export function createComplaintRecord(): ComplaintRecord {
   return record;
 }
 
+export function saveMedicalHistoryDraft(draft: MedicalHistoryEntryDraft): MedicalHistoryEntry {
+  const whatHappenedTemplate = complaintTemplates.value.find((template) => template.id === "what-happened-tree") ?? complaintTemplates.value[0];
+  if (!whatHappenedTemplate) {
+    throw new Error("Complaint template is not available");
+  }
+
+  const record = createMedicalHistoryEntryFromDraft(medicalSectionTemplates.value, whatHappenedTemplate, draft, {
+    author: "Алексей Прохоров",
+  });
+  dappRepository.saveMedicalHistoryEntry(record);
+  medicalHistoryEntries.value = dappRepository.listMedicalHistoryEntries();
+  return record;
+}
+
+export function findMedicalHistoryEntriesForPet(petId: number) {
+  return medicalHistoryEntries.value.filter((entry) => entry.petId === petId);
+}
+
 export function saveAnalysisDraft() {
   savedAnalyses.value = [
     {
@@ -207,6 +228,8 @@ export function resetDappStateForTests() {
   dappRepository.reset();
   complaintTemplates.value = dappRepository.listComplaintTemplates();
   complaintRecords.value = dappRepository.listComplaintRecords();
+  medicalSectionTemplates.value = dappRepository.listMedicalSectionTemplates();
+  medicalHistoryEntries.value = dappRepository.listMedicalHistoryEntries();
   drugGroups.value = dappRepository.listDrugGroups();
   drugTemplates.value = dappRepository.listDrugTemplates();
   drugRecords.value = dappRepository.listDrugRecords();

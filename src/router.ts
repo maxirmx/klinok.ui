@@ -7,6 +7,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router"
 import AuthScreen from "./screens/AuthScreen.vue";
 import OwnerHomeScreen from "./screens/OwnerHomeScreen.vue";
 import PetsScreen from "./screens/PetsScreen.vue";
+import MedicalHistoryScreen from "./screens/MedicalHistoryScreen.vue";
 import VisitsScreen from "./screens/VisitsScreen.vue";
 import BookingScreen from "./screens/BookingScreen.vue";
 import DoctorsScreen from "./screens/DoctorsScreen.vue";
@@ -20,6 +21,7 @@ const componentMap: Record<ScenarioComponentName, Component> = {
   AuthScreen,
   OwnerHomeScreen,
   PetsScreen,
+  MedicalHistoryScreen,
   VisitsScreen,
   BookingScreen,
   DoctorsScreen,

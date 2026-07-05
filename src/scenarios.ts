@@ -8,6 +8,7 @@ export type ScenarioComponentName =
   | "AuthScreen"
   | "OwnerHomeScreen"
   | "PetsScreen"
+  | "MedicalHistoryScreen"
   | "VisitsScreen"
   | "BookingScreen"
   | "DoctorsScreen"
@@ -105,13 +106,13 @@ export const scenarioRegistry: ScenarioRegistryEntry[] = [
   },
   {
     id: "owner-pet-detail",
-    title: "Карточка питомца",
+    title: "История болезни",
     role: "owner",
     path: "/owner/pets/:id",
     kind: "screen",
-    figmaNodeId: "zip:owner-pet-detail",
-    exportName: "Главный экран-1.png",
-    component: "PetsScreen",
+    figmaNodeId: "issue:4",
+    exportName: "GitHub issue #4",
+    component: "MedicalHistoryScreen",
     implemented: true,
   },
   {
