@@ -26,7 +26,7 @@
     "@orbitdb/core": "^2.1.0",
     "blockstore-level": "^2.0.3",
     "events": "^3.3.0",
-    "helia": "^4.2.6",
+    "helia": "^7.0.5",
     "libp2p": "^2.8.12",
     "vue": "^3.5.16",
     "vue-router": "^4.6.4"
