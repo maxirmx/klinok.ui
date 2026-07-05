@@ -194,12 +194,14 @@ describe("dApp template records", () => {
 
   it("normalizes older persisted drug data without groups", () => {
     const collections = createSeedCollections();
-    const { groupIds: _groupIds, ...legacyDrugRecord } = collections.drugRecords[0];
+    const legacyDrugRecord: Partial<(typeof collections.drugRecords)[number]> = { ...collections.drugRecords[0] };
+    delete legacyDrugRecord.groupIds;
     const legacyDrugTemplates = collections.drugTemplates.map((template) => ({
       ...template,
       fields: template.fields.map((field) => {
         if (field.id !== "dogDoseSource" && field.id !== "catDoseSource") return field;
-        const { multiline: _multiline, ...legacyField } = field;
+        const legacyField: Partial<typeof field> = { ...field };
+        delete legacyField.multiline;
         return legacyField;
       }),
     }));
