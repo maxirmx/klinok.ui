@@ -17,7 +17,12 @@ const RSA_ALGORITHM = {
 
 export function decodePrivateJwkBase64(value) {
   const json = Buffer.from(value.replace(/\s+/g, ""), "base64").toString("utf8");
-  return JSON.parse(json);
+
+  try {
+    return JSON.parse(json);
+  } catch {
+    throw new Error("Shared participant private key secret must decode to valid JSON.");
+  }
 }
 
 export function encodePrivateJwkBase64(privateKey) {

@@ -78,6 +78,37 @@ describe("shared participant key scripts", () => {
     }
   });
 
+  it("fails invalid build secrets without logging decoded key material", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "klinok-shared-key-"));
+    const secretPath = join(tempDir, "secret.base64");
+    const outputPath = join(tempDir, "shared-participant-key.json");
+    const leakedKeyMaterial = "leaked-private-key-fragment";
+    const malformedDecodedJwk = `{"kty":"RSA","dq":"${leakedKeyMaterial}\nrest"}`;
+
+    try {
+      writeFileSync(secretPath, Buffer.from(malformedDecodedJwk, "utf8").toString("base64"));
+
+      const failure = await execFileAsync(process.execPath, [
+        "scripts/write-shared-participant-key-overlay.js",
+        "--secret-file",
+        secretPath,
+        "--output",
+        outputPath,
+      ]).catch((error: unknown) => error as { code?: number; stderr?: string; stdout?: string });
+
+      expect(failure).toMatchObject({ code: 1 });
+      expect(failure.stderr).toContain("Invalid shared participant key secret");
+      expect(failure.stderr).toContain("KLINOK_DEMO_PARTICIPANT_PRIVATE_KEY_B64");
+      expect(failure.stderr).not.toContain(leakedKeyMaterial);
+      expect(failure.stderr).not.toContain("<anonymous_script>");
+      expect(failure.stderr).not.toContain("Bad control character");
+      expect(failure.stdout).toBe("");
+      expect(existsSync(outputPath)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("fails when required build overlay generation has no secret file", async () => {
     await expect(
       execFileAsync(process.execPath, [
