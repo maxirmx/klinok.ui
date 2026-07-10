@@ -10,7 +10,7 @@ coverage
 .vite
 .tmp*
 .klinok-p2p
-public/shared-participant-key*.json
+.klinok-auth
 *.log
 .env
 .env.*

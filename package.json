@@ -1,28 +1,43 @@
 {
   "name": "klinok",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.5.0",
   "type": "module",
+  "workspaces": [
+    "auth-node",
+    "p2p-node",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "vue-tsc --noEmit && vite build",
+    "build:protocol": "npm run build --workspace @klinok/protocol",
+    "build:auth": "npm run build --workspace @klinok/auth-node",
+    "build:p2p": "npm run build --workspace @klinok/p2p-node",
+    "build:ui": "npm run build:protocol && vue-tsc --noEmit && vite build",
+    "build": "npm run build:ui && npm run build:auth && npm run build:p2p",
     "preview": "vite preview --host 127.0.0.1",
-    "p2p:node": "node p2p-node/src/index.js",
-    "p2p:key:generate": "node scripts/generate-shared-participant-key.js",
-    "p2p:key:write-build": "node scripts/write-shared-participant-key-overlay.js --secret-file /run/secrets/klinok_demo_participant_private_key_b64 --optional",
-    "test": "vitest run --run",
+    "p2p:node": "npm run start --workspace @klinok/p2p-node",
+    "auth:node": "npm run start --workspace @klinok/auth-node",
+    "auth:provision": "npm run provision --workspace @klinok/auth-node",
+    "pretest": "npm run build:protocol",
+    "test": "vitest run --run && npm test --workspace @klinok/protocol && npm test --workspace @klinok/auth-node",
     "lint": "eslint . --ext .vue,.ts,.js,.jsx,.cjs,.mjs --fix",
     "lint:check": "eslint . --ext .vue,.ts,.js,.jsx,.cjs,.mjs",
-    "coverage": "vitest run --coverage"
+    "precoverage": "npm run build:protocol",
+    "coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:compose": "sh scripts/compose-smoke.sh"
   },
   "dependencies": {
     "@chainsafe/libp2p-noise": "^17.0.0",
     "@chainsafe/libp2p-yamux": "^8.0.1",
+    "@fontsource/montserrat": "^5.2.8",
     "@helia/bitswap": "^4.0.5",
     "@helia/http": "^4.0.4",
     "@helia/libp2p": "^1.0.5",
     "@ipld/dag-cbor": "^10.0.1",
     "@ipld/dag-json": "^11.0.0",
+    "@klinok/protocol": "*",
     "@libp2p/bootstrap": "^12.0.25",
     "@libp2p/gossipsub": "^16.0.3",
     "@libp2p/identify": "^4.1.8",
@@ -43,6 +58,10 @@
   "overrides": {
     "glob": "^13.0.6"
   },
+  "allowScripts": {
+    "classic-level@3.0.0": true,
+    "node-datachannel@0.32.3": true
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@typescript-eslint/eslint-plugin": "^8.61.0",
@@ -50,8 +69,10 @@
     "@vitejs/plugin-vue": "^6.0.7",
     "@vitest/coverage-v8": "^4.1.9",
     "@vue/test-utils": "^2.4.11",
+    "@playwright/test": "^1.55.0",
     "eslint": "^9.39.4",
     "eslint-plugin-vue": "^9.33.0",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^28.1.0",
     "typescript": "^5.8.3",
     "vite": "^8.0.16",

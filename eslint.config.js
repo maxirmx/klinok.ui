@@ -69,6 +69,7 @@ export default [
       '.DS_Store',
       '__MACOSX',
       'dist/**',
+      '**/dist/**',
       'dist-ssr/**',
       'coverage/**',
       '*.local',
@@ -131,7 +132,7 @@ export default [
     }
   },
   {
-    files: ['*.config.{js,mjs,cjs,ts}', 'eslint.config.js', 'vite.config.ts', 'vitest.config.ts', 'p2p-node/**/*.js', 'scripts/**/*.js'],
+    files: ['*.config.{js,mjs,cjs,ts}', 'eslint.config.js', 'vite.config.ts', 'vitest.config.ts', 'p2p-node/**/*.{js,ts}', 'auth-node/**/*.{js,ts}', 'scripts/**/*.js'],
     languageOptions: {
       globals: nodeGlobals
     },

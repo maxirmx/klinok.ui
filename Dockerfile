@@ -4,18 +4,14 @@
 # This file is a part of Klinok ui application
 
 # Stage for building the frontend
-FROM node:26.3.0-alpine3.24 AS build
+FROM node:24.18.0-alpine3.24 AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY . .
-RUN --mount=type=secret,id=klinok_demo_participant_private_key_b64,target=/run/secrets/klinok_demo_participant_private_key_b64 \
-    node scripts/write-shared-participant-key-overlay.js \
-    --secret-file /run/secrets/klinok_demo_participant_private_key_b64 \
-    --optional
-RUN npm run build
+RUN npm run build:ui
 
 # Stage for running nginx with static files
 FROM nginx:1.31.1-alpine AS final

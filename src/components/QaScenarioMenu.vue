@@ -16,10 +16,11 @@ const route = useRoute();
 const selectedRole = ref<ScenarioRole | "all">("all");
 const roles: { id: ScenarioRole | "all"; label: string }[] = [
   { id: "all", label: "Все" },
-  { id: "auth", label: "Auth" },
-  { id: "owner", label: "Owner" },
-  { id: "vet", label: "Vet" },
-  { id: "company", label: "Legal" },
+  { id: "auth", label: "Вход" },
+  { id: "owner", label: "Владелец" },
+  { id: "doctor", label: "Врач" },
+  { id: "administrator", label: "Администратор" },
+  { id: "shared", label: "Общие" },
 ];
 
 const scenarios = computed(() => {

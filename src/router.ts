@@ -1,61 +1,51 @@
-// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
-// All rights reserved.
-// This file is a part of Klinok ui application
-
 import type { Component } from "vue";
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
+import type { Role } from "@klinok/protocol";
 import AuthScreen from "./screens/AuthScreen.vue";
-import OwnerHomeScreen from "./screens/OwnerHomeScreen.vue";
-import PetsScreen from "./screens/PetsScreen.vue";
-import VisitsScreen from "./screens/VisitsScreen.vue";
-import BookingScreen from "./screens/BookingScreen.vue";
-import DoctorsScreen from "./screens/DoctorsScreen.vue";
-import AnalysisScreen from "./screens/AnalysisScreen.vue";
-import MaterialsScreen from "./screens/MaterialsScreen.vue";
-import ProfileScreen from "./screens/ProfileScreen.vue";
-import RoleLandingScreen from "./screens/RoleLandingScreen.vue";
+import RoleStatusScreen from "./screens/RoleStatusScreen.vue";
+import WorkspaceScreen from "./screens/WorkspaceScreen.vue";
+import { appState, bootstrapApp } from "./appStore";
 import { scenarioRegistry, type ScenarioComponentName } from "./scenarios";
 
-const componentMap: Record<ScenarioComponentName, Component> = {
-  AuthScreen,
-  OwnerHomeScreen,
-  PetsScreen,
-  VisitsScreen,
-  BookingScreen,
-  DoctorsScreen,
-  AnalysisScreen,
-  MaterialsScreen,
-  ProfileScreen,
-  RoleLandingScreen,
+const components: Record<ScenarioComponentName, Component> = { AuthScreen, RoleStatusScreen, WorkspaceScreen };
+const roleByScenario: Partial<Record<string, Role>> = {
+  "owner-home": "owner",
+  "doctor-home": "doctor",
+  "administrator-home": "administrator",
 };
 
-const scenarioRoutes: RouteRecordRaw[] = scenarioRegistry
-  .filter((scenario) => scenario.implemented)
-  .map((scenario) => ({
+export const routes: RouteRecordRaw[] = [
+  { path: "/", redirect: "/roles" },
+  ...scenarioRegistry.map((scenario) => ({
     path: scenario.path,
     name: scenario.id,
-    component: componentMap[scenario.component],
-    props: { scenarioId: scenario.id },
+    component: components[scenario.component],
+    props: { scenarioId: scenario.id, role: roleByScenario[scenario.id] },
     meta: {
+      public: scenario.role === "auth",
+      role: roleByScenario[scenario.id],
       title: scenario.title,
-      role: scenario.role,
-      figmaNodeId: scenario.figmaNodeId,
-      exportName: scenario.exportName,
     },
-  }));
-
-export const routes: RouteRecordRaw[] = [
-  { path: "/", redirect: "/auth/role" },
-  ...scenarioRoutes,
-  { path: "/:pathMatch(.*)*", redirect: "/auth/role" },
+  })),
+  { path: "/:pathMatch(.*)*", redirect: "/roles" },
 ];
 
 export function createAppRouter() {
-  return createRouter({
-    history: createWebHistory(),
-    routes,
-    scrollBehavior() {
-      return { top: 0 };
-    },
+  const router = createRouter({ history: createWebHistory(), routes, scrollBehavior: () => ({ top: 0 }) });
+  router.beforeEach(async (to) => {
+    await bootstrapApp();
+    if (to.meta.public) {
+      if (appState.session.authenticated && to.path === "/auth/login") return "/roles";
+      return true;
+    }
+    if (!appState.session.authenticated) return { path: "/auth/login", query: { continue: to.fullPath } };
+    if (appState.keyRecoveryRequired || appState.devicePending) return to.path === "/roles" ? true : "/roles";
+    const role = to.meta.role as Role | undefined;
+    if (!role) return true;
+    const approved = appState.control.roles.find((request) => request.role === role && request.status === "approved");
+    if (!approved) return "/roles";
+    if (appState.activeRole !== role) return { path: "/roles", query: { switch: role, continue: to.fullPath } };
+    return true;
   });
+  return router;
 }

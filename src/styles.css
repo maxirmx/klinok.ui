@@ -30,7 +30,7 @@ This file is a part of Klinok ui application
   --blue: var(--brand-sky);
   --danger: #c7362f;
   --radius: 10px;
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Arial, sans-serif;
+  --font: "Montserrat", Arial, sans-serif;
   color: var(--text);
   background: var(--bg);
   font-family: var(--font);
@@ -190,7 +190,7 @@ a {
 
 .auth-heading p,
 .welcome-card p {
-  max-width: 285px;
+  max-width: 325px;
   margin: 0 auto;
   color: var(--text-soft);
   font-size: 16px;
@@ -260,30 +260,6 @@ label > span {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
-}
-
-.otp-row {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-}
-
-.otp-row input {
-  width: 54px;
-  height: 54px;
-  border: 0;
-  border-radius: 10px;
-  background: rgba(30, 40, 51, 0.05);
-  color: var(--text);
-  font-size: 28px;
-  text-align: center;
-}
-
-.timer {
-  margin: -8px 0 0;
-  color: var(--text-soft);
-  font-size: 13px;
-  text-align: center;
 }
 
 .welcome-card,
@@ -2093,4 +2069,57 @@ dd {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Operational registration and role system */
+.app-loading { min-height: 100vh; display: grid; place-items: center; color: #667085; font-size: 1rem; }
+.operational-form { width: min(100%, 520px); max-height: calc(100vh - 48px); justify-self: center; overflow: auto; padding: 8px; }
+.form-stack { display: grid; gap: 16px; }
+.form-stack > label, .request-row label { display: grid; gap: 7px; color: #344054; font-size: .9rem; }
+.form-stack input:not([type="checkbox"]), .form-stack select, .form-stack textarea, .request-row input {
+  width: 100%; border: 1px solid #d0d5dd; border-radius: 12px; padding: 12px 14px; background: #fff; color: #101828; font: inherit;
+}
+.form-stack textarea { min-height: 120px; resize: vertical; }
+.form-stack input:focus-visible, .form-stack select:focus-visible, .form-stack textarea:focus-visible, .request-row input:focus-visible {
+  outline: 3px solid rgba(33,150,83,.25); border-color: #219653;
+}
+.role-checkboxes { display: grid; gap: 10px; border: 1px solid #e4e7ec; border-radius: 14px; padding: 14px; }
+.role-checkboxes label, .consent-stack > label { display: flex; align-items: flex-start; gap: 10px; }
+.form-alert { padding: 12px 14px; border-radius: 12px; margin: 0 0 16px; }
+.form-alert.error, .field-error { color: #b42318; background: #fef3f2; }
+.form-alert.success { color: #067647; background: #ecfdf3; }
+.field-error { padding: 8px; border-radius: 8px; }
+.status-page, .workspace-page { min-height: 100vh; padding: 28px clamp(18px,4vw,64px) 64px; background: #f8faf9; }
+.workspace-header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 20px; max-width: 1320px; margin: 0 auto 28px; }
+.workspace-header h1 { margin: 0; font-size: clamp(1.5rem,3vw,2.1rem); }
+.workspace-header p { margin: 4px 0 0; color: #667085; }
+.workspace-header nav { display: flex; gap: 10px; }
+.role-status-grid, .workspace-grid { max-width: 1320px; margin: 0 auto; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; }
+.role-status-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.wide-panel { grid-column: 1 / -1; }
+.critical-panel { max-width: 1320px; margin: 0 auto 20px; border-color: #fda29b; }
+.role-status-card { display: grid; gap: 20px; align-content: space-between; }
+.role-status-card > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.status-badge { display: inline-flex; width: fit-content; padding: 5px 10px; border-radius: 999px; background: #f2f4f7; color: #475467; font-size: .8rem; font-weight: 700; }
+.status-badge.approved { background: #dcfae6; color: #067647; }
+.status-badge.pending { background: #fef0c7; color: #93370d; }
+.status-badge.rejected, .status-badge.revoked, .status-badge.suspended { background: #fee4e2; color: #b42318; }
+.request-row, .pet-operational-card, .record-card, .list-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid #eaecf0; }
+.request-row { grid-template-columns: minmax(220px,1fr) minmax(220px,.8fr) auto; }
+.request-row strong, .request-row span, .request-row small, .pet-operational-card strong, .pet-operational-card span, .pet-operational-card small, .list-row strong, .list-row span, .list-row small { display: block; }
+.request-row span, .pet-operational-card span, .list-row span { color: #475467; }
+.request-row small, .pet-operational-card small, .list-row small { color: #98a2b3; }
+.record-card p { white-space: pre-wrap; color: #344054; }
+.row-actions { display: flex; gap: 8px; }
+.danger-row { color: #b42318; }
+@media (max-width: 900px) {
+  .role-status-grid, .workspace-grid { grid-template-columns: 1fr; }
+  .wide-panel { grid-column: auto; }
+  .request-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .workspace-header { grid-template-columns: 1fr; }
+  .workspace-header .brand-logo { max-width: 150px; }
+  .workspace-header nav { flex-wrap: wrap; }
+  .status-page, .workspace-page { padding: 18px 14px 48px; }
 }

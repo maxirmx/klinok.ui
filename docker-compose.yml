@@ -1,0 +1,69 @@
+services:
+  ui:
+    build: .
+    depends_on:
+      auth:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    environment:
+      KLINOK_TRUSTED_NODE: ${KLINOK_TRUSTED_NODE:-/ip4/127.0.0.1/tcp/8089/ws}
+      KLINOK_AUTH_ATTESTATION_PUBLIC_KEY: ${KLINOK_AUTH_ATTESTATION_PUBLIC_KEY:-null}
+      KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY: ${KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY:-null}
+    volumes:
+      - ./config/nginx.local.conf:/etc/nginx/conf.d/default.conf:ro
+
+  auth:
+    build:
+      context: .
+      dockerfile: auth-node/Dockerfile
+    environment:
+      KLINOK_PUBLIC_ORIGIN: http://localhost:8080
+      KLINOK_AUTH_COOKIE_SECURE: "false"
+      KLINOK_AUTH_DATA_DIR: /data
+      KLINOK_AUTH_CONTROL_OBSERVER_ENABLED: "true"
+      KLINOK_P2P_TRUSTED_NODES: ${KLINOK_P2P_TRUSTED_NODES:-/dns4/p2p/tcp/8089/ws}
+      KLINOK_CONTROL_DB: klinok-control-v1
+      KLINOK_SMTP_HOST: mail
+      KLINOK_SMTP_PORT: 1025
+      KLINOK_SMTP_FROM: Клинок <noreply@klinok.local>
+    volumes:
+      - auth-v1:/data
+    networks:
+      default:
+        aliases:
+          - auth-blue
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/healthz').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  p2p:
+    build:
+      context: .
+      dockerfile: p2p-node/Dockerfile
+    environment:
+      KLINOK_CONTROL_DB: klinok-control-v1
+      KLINOK_MEDICAL_DB: klinok-medical-v3
+      KLINOK_P2P_ANNOUNCE: /dns4/p2p/tcp/8089/ws
+      KLINOK_AUTH_ATTESTATION_PUBLIC_KEY: ${KLINOK_AUTH_ATTESTATION_PUBLIC_KEY:-}
+      KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY: ${KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY:-}
+    ports:
+      - "8089:8089"
+    volumes:
+      - p2p-v1:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "const socket=require('node:net').connect(8089,'127.0.0.1',()=>{socket.end();process.exit(0)});socket.setTimeout(3000,()=>process.exit(1));socket.on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mail:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8025:8025"
+
+volumes:
+  auth-v1:
+  p2p-v1:

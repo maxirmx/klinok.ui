@@ -1,3 +1,21 @@
 {
-  "enableLog": true
+  "enableLog": false,
+  "authBaseUrl": "",
+  "legal": {
+    "personalDataConsent": {
+      "version": "2026-07-10",
+      "href": "/legal/personal-data-consent"
+    },
+    "userAgreement": {
+      "version": "2026-07-10",
+      "href": "/legal/user-agreement"
+    }
+  },
+  "p2p": {
+    "enabled": true,
+    "controlDatabaseName": "klinok-control-v1",
+    "medicalDatabaseName": "klinok-medical-v3",
+    "trustedNodeMultiaddrs": ["/dns4/klinok.sw.consulting/tcp/8089/tls/ws"],
+    "bootstrapAccountId": "bootstrap-administrator"
+  }
 }

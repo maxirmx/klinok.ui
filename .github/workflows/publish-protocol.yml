@@ -1,0 +1,31 @@
+name: publish-protocol
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6.0.3
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: '26.3.0'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm test --workspace @klinok/protocol
+      - run: npm run build --workspace @klinok/protocol
+      - name: Set package version from tag
+        run: npm version "${GITHUB_REF_NAME#v}" --workspace @klinok/protocol --no-git-tag-version
+      - name: Publish protocol package
+        run: npm publish --workspace @klinok/protocol
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

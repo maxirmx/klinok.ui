@@ -1,0 +1,190 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { ClassicLevel } from "classic-level";
+import type {
+  CredentialStatus,
+  DeviceCertificate,
+  DeviceEnrollmentDto,
+  PendingOperationDto,
+  RegistrationSetupDto,
+} from "@klinok/protocol";
+
+export interface AuthAccount {
+  accountId: string;
+  email: string;
+  passwordHash: string;
+  credentialStatus: CredentialStatus;
+  verificationState: "pending" | "verified";
+  createdAt: string;
+  updatedAt: string;
+  failureTimes: string[];
+  lockedUntil?: string;
+  setup?: RegistrationSetupDto;
+  devices: DeviceCertificate[];
+  enrollments: DeviceEnrollmentDto[];
+  pendingOperations: PendingOperationDto[];
+  sessionDigests: string[];
+  immutableBootstrap?: boolean;
+}
+
+export interface AuthSessionRecord {
+  digest: string;
+  accountId: string;
+  csrfToken: string;
+  deviceId?: string;
+  createdAt: string;
+  lastSeenAt: string;
+  absoluteExpiresAt: string;
+}
+
+export interface SingleUseTokenRecord {
+  digest: string;
+  accountId: string;
+  kind: "verification" | "password_reset";
+  expiresAt: string;
+  usedAt?: string;
+}
+
+function isNotFound(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "LEVEL_NOT_FOUND");
+}
+
+export class AuthStore {
+  private readonly db: ClassicLevel<string, unknown>;
+
+  constructor(private readonly dataDir: string) {
+    this.db = new ClassicLevel(join(dataDir, "leveldb"), { valueEncoding: "json" });
+  }
+
+  async open(): Promise<void> {
+    await mkdir(this.dataDir, { recursive: true });
+    await this.db.open();
+  }
+
+  async close(): Promise<void> {
+    await this.db.close();
+  }
+
+  private async get<T>(key: string): Promise<T | null> {
+    try {
+      return await this.db.get(key) as T;
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+  }
+
+  async getAccount(accountId: string): Promise<AuthAccount | null> {
+    return this.get<AuthAccount>(`account:${accountId}`);
+  }
+
+  async getAccountByEmail(email: string): Promise<AuthAccount | null> {
+    const accountId = await this.get<string>(`email:${email}`);
+    return accountId ? this.getAccount(accountId) : null;
+  }
+
+  async createAccount(account: AuthAccount): Promise<void> {
+    await this.db.batch()
+      .put(`account:${account.accountId}`, account)
+      .put(`email:${account.email}`, account.accountId)
+      .write();
+  }
+
+  async putAccount(account: AuthAccount, previousEmail?: string): Promise<void> {
+    const batch = this.db.batch().put(`account:${account.accountId}`, account).put(`email:${account.email}`, account.accountId);
+    if (previousEmail && previousEmail !== account.email) batch.del(`email:${previousEmail}`);
+    await batch.write();
+  }
+
+  async releaseEmail(email: string): Promise<void> {
+    await this.db.del(`email:${email}`);
+  }
+
+  async putToken(token: SingleUseTokenRecord): Promise<void> {
+    await this.db.put(`token:${token.kind}:${token.digest}`, token);
+  }
+
+  async getToken(kind: SingleUseTokenRecord["kind"], digest: string): Promise<SingleUseTokenRecord | null> {
+    return this.get<SingleUseTokenRecord>(`token:${kind}:${digest}`);
+  }
+
+  async useToken(token: SingleUseTokenRecord, usedAt: string): Promise<void> {
+    await this.db.put(`token:${token.kind}:${token.digest}`, { ...token, usedAt });
+  }
+
+  async putSession(session: AuthSessionRecord): Promise<void> {
+    await this.db.put(`session:${session.digest}`, session);
+  }
+
+  async putSessionForAccount(session: AuthSessionRecord, account: AuthAccount): Promise<void> {
+    const updated = {
+      ...account,
+      sessionDigests: [...new Set([...account.sessionDigests, session.digest])],
+      updatedAt: session.lastSeenAt,
+    };
+    await this.db.batch()
+      .put(`session:${session.digest}`, session)
+      .put(`account:${account.accountId}`, updated)
+      .write();
+  }
+
+  async replaceSessionForAccount(previousDigest: string, session: AuthSessionRecord, account: AuthAccount): Promise<AuthAccount> {
+    const updated = {
+      ...account,
+      sessionDigests: [...new Set(account.sessionDigests.filter((digest) => digest !== previousDigest).concat(session.digest))],
+      updatedAt: session.lastSeenAt,
+    };
+    await this.db.batch()
+      .del(`session:${previousDigest}`)
+      .put(`session:${session.digest}`, session)
+      .put(`account:${account.accountId}`, updated)
+      .write();
+    return updated;
+  }
+
+  async getSession(digest: string): Promise<AuthSessionRecord | null> {
+    return this.get<AuthSessionRecord>(`session:${digest}`);
+  }
+
+  async deleteSession(digest: string): Promise<void> {
+    await this.db.del(`session:${digest}`);
+  }
+
+  async deleteSessionForAccount(digest: string, account: AuthAccount): Promise<AuthAccount> {
+    const updated = { ...account, sessionDigests: account.sessionDigests.filter((value) => value !== digest) };
+    await this.db.batch().del(`session:${digest}`).put(`account:${account.accountId}`, updated).write();
+    return updated;
+  }
+
+  async revokeAccountSessions(account: AuthAccount): Promise<AuthAccount> {
+    const batch = this.db.batch();
+    for (const digest of account.sessionDigests) batch.del(`session:${digest}`);
+    const updated = { ...account, sessionDigests: [], updatedAt: new Date().toISOString() };
+    batch.put(`account:${account.accountId}`, updated);
+    await batch.write();
+    return updated;
+  }
+
+  async deleteCredentialAccount(account: AuthAccount): Promise<AuthAccount> {
+    const updated: AuthAccount = {
+      ...account,
+      credentialStatus: "deleted",
+      setup: undefined,
+      pendingOperations: [],
+      sessionDigests: [],
+      updatedAt: new Date().toISOString(),
+    };
+    const batch = this.db.batch().del(`email:${account.email}`).put(`account:${account.accountId}`, updated);
+    for (const digest of account.sessionDigests) batch.del(`session:${digest}`);
+    await batch.write();
+    return updated;
+  }
+
+  async hasMarker(id: string): Promise<boolean> {
+    return (await this.get<{ id: string }>(`marker:${id}`)) !== null;
+  }
+
+  async putMarker(id: string): Promise<void> {
+    await this.db.put(`marker:${id}`, { id, createdAt: new Date().toISOString() });
+  }
+}

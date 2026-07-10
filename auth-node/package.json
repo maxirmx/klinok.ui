@@ -1,0 +1,46 @@
+{
+  "name": "@klinok/auth-node",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts",
+    "provision": "node dist/provision.js",
+    "test": "vitest run --run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@chainsafe/libp2p-noise": "^17.0.0",
+    "@chainsafe/libp2p-yamux": "^8.0.1",
+    "@fastify/cookie": "^11.0.2",
+    "@helia/bitswap": "^4.0.5",
+    "@helia/http": "^4.0.4",
+    "@helia/libp2p": "^1.0.5",
+    "@ipld/dag-cbor": "^10.0.1",
+    "@ipld/dag-json": "^11.0.0",
+    "@klinok/protocol": "*",
+    "@libp2p/bootstrap": "^12.0.25",
+    "@libp2p/gossipsub": "^16.0.3",
+    "@libp2p/identify": "^4.1.8",
+    "@libp2p/websockets": "^10.1.15",
+    "@multiformats/multiaddr": "^13.0.3",
+    "@orbitdb/core": "^4.0.0",
+    "argon2": "^0.44.0",
+    "blockstore-level": "^4.0.1",
+    "classic-level": "^3.0.0",
+    "fastify": "^5.4.0",
+    "helia": "^7.0.5",
+    "libp2p": "^3.3.4",
+    "multiformats": "^14.0.4",
+    "nodemailer": "^9.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^7.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.9"
+  }
+}

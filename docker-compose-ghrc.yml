@@ -1,21 +1,56 @@
-# Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
-# All rights reserved.
-# This file is a part of Klinok application
-
 services:
   ui-blue:
     image: ghcr.io/maxirmx/klinok.ui:latest
     restart: always
+    depends_on:
+      auth-blue:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      KLINOK_CONTROL_DB: klinok-control-v1
+      KLINOK_MEDICAL_DB: klinok-medical-v3
+      KLINOK_TRUSTED_NODE: /dns4/klinok.sw.consulting/tcp/8089/tls/ws
+      KLINOK_BOOTSTRAP_ACCOUNT_ID: bootstrap-administrator
+      KLINOK_AUTH_ATTESTATION_PUBLIC_KEY: ${KLINOK_AUTH_ATTESTATION_PUBLIC_KEY}
+      KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY: ${KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY}
     volumes:
       - /home/maxirmx/.certificate:/etc/nginx/certificate:ro
+
+  auth-blue:
+    image: ghcr.io/maxirmx/klinok.auth-node:latest
+    restart: always
+    environment:
+      KLINOK_PUBLIC_ORIGIN: https://klinok.sw.consulting
+      KLINOK_AUTH_COOKIE_SECURE: "true"
+      KLINOK_AUTH_DATA_DIR: /data
+      KLINOK_AUTH_CONTROL_OBSERVER_ENABLED: "true"
+      KLINOK_P2P_TRUSTED_NODES: /dns4/klinok.sw.consulting/tcp/8089/tls/ws
+      KLINOK_CONTROL_DB: klinok-control-v1
+      KLINOK_SMTP_HOST: ${KLINOK_SMTP_HOST}
+      KLINOK_SMTP_PORT: ${KLINOK_SMTP_PORT:-587}
+      KLINOK_SMTP_SECURE: ${KLINOK_SMTP_SECURE:-true}
+      KLINOK_SMTP_USER: ${KLINOK_SMTP_USER}
+      KLINOK_SMTP_PASSWORD: ${KLINOK_SMTP_PASSWORD}
+      KLINOK_SMTP_FROM: ${KLINOK_SMTP_FROM}
+    volumes:
+      - /home/maxirmx/klinok.auth.v1/data:/data:rw
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/healthz').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   p2p-blue:
     image: ghcr.io/maxirmx/klinok.p2p-node:latest
     restart: always
     environment:
+      KLINOK_CONTROL_DB: klinok-control-v1
+      KLINOK_MEDICAL_DB: klinok-medical-v3
+      KLINOK_BOOTSTRAP_ACCOUNT_ID: bootstrap-administrator
+      KLINOK_AUTH_ATTESTATION_PUBLIC_KEY: ${KLINOK_AUTH_ATTESTATION_PUBLIC_KEY}
+      KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY: ${KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY}
       KLINOK_P2P_ANNOUNCE: /dns4/klinok.sw.consulting/tcp/8089/tls/ws
       KLINOK_P2P_TLS_CERT: /etc/nginx/certificate/s.crt
       KLINOK_P2P_TLS_KEY: /etc/nginx/certificate/s.key
@@ -23,4 +58,9 @@ services:
       - "8089:8089"
     volumes:
       - /home/maxirmx/.certificate:/etc/nginx/certificate:ro
-      - /home/maxirmx/p2p.blue/data:/data:rw
+      - /home/maxirmx/klinok.p2p.v1/data:/data:rw
+    healthcheck:
+      test: ["CMD", "node", "-e", "const socket=require('node:net').connect(8089,'127.0.0.1',()=>{socket.end();process.exit(0)});socket.setTimeout(3000,()=>process.exit(1));socket.on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5

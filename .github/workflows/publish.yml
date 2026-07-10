@@ -51,11 +51,6 @@ jobs:
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.description=Klinok UI container
 
-      - name: Require demo participant key secret
-        env:
-          KLINOK_DEMO_PARTICIPANT_PRIVATE_KEY_B64: ${{ secrets.KLINOK_DEMO_PARTICIPANT_PRIVATE_KEY_B64 }}
-        run: test -n "$KLINOK_DEMO_PARTICIPANT_PRIVATE_KEY_B64"
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v7.2.0
         with:
@@ -65,5 +60,3 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
-          secrets: |
-            klinok_demo_participant_private_key_b64=${{ secrets.KLINOK_DEMO_PARTICIPANT_PRIVATE_KEY_B64 }}
