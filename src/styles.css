@@ -2075,6 +2075,33 @@ dd {
 .app-loading { min-height: 100vh; display: grid; place-items: center; color: #667085; font-size: 1rem; }
 .operational-form { width: min(100%, 520px); max-height: calc(100vh - 48px); justify-self: center; overflow: auto; padding: 8px; }
 .form-stack { display: grid; gap: 16px; }
+.auth-login-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+}
+.auth-text-link {
+  width: fit-content;
+  color: var(--accent);
+  font-size: .9rem;
+  font-weight: 600;
+  line-height: 1.5;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  transition: color 150ms ease, text-decoration-thickness 150ms ease;
+}
+.auth-text-link:hover {
+  color: var(--accent-strong);
+  text-decoration-thickness: 2px;
+}
+.auth-text-link:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
 .form-stack > label, .request-row label { display: grid; gap: 7px; color: #344054; font-size: .9rem; }
 .form-stack input:not([type="checkbox"]), .form-stack select, .form-stack textarea, .request-row input {
   width: 100%; border: 1px solid #d0d5dd; border-radius: 12px; padding: 12px 14px; background: #fff; color: #101828; font: inherit;

@@ -108,8 +108,10 @@ onMounted(async () => {
           <label><span>Электронная почта</span><input v-model="email" type="email" autocomplete="email" required /></label>
           <label><span>Пароль</span><input v-model="password" type="password" autocomplete="current-password" required /></label>
           <button class="primary-action" :disabled="appState.busy">Войти</button>
-          <RouterLink to="/auth/forgot-password">Забыли пароль?</RouterLink>
-          <RouterLink to="/auth/register">Создать аккаунт</RouterLink>
+          <nav class="auth-login-links" aria-label="Дополнительные действия">
+            <RouterLink class="auth-text-link" to="/auth/forgot-password">Забыли пароль?</RouterLink>
+            <RouterLink class="auth-text-link" to="/auth/register">Создать аккаунт</RouterLink>
+          </nav>
         </form>
 
         <form v-else-if="mode === 'register'" class="form-stack" @submit.prevent="continueRegistration">
@@ -125,7 +127,7 @@ onMounted(async () => {
             <label><input type="checkbox" :checked="registration.requestedRoles.includes('administrator')" @change="toggleRole('administrator')" /> Администратор</label>
           </fieldset>
           <button class="primary-action">Продолжить</button>
-          <RouterLink to="/auth/login">Уже есть аккаунт</RouterLink>
+          <RouterLink class="auth-text-link" to="/auth/login">Уже есть аккаунт</RouterLink>
         </form>
 
         <form v-else-if="mode === 'consent'" class="form-stack consent-stack" @submit.prevent="submitRegistration">
@@ -137,7 +139,7 @@ onMounted(async () => {
           </label>
           <label><input v-model="ageConfirmed" type="checkbox" required /> <span>Мне исполнилось 18 лет.</span></label>
           <button class="primary-action" :disabled="appState.busy">Зарегистрироваться</button>
-          <RouterLink to="/auth/register">Вернуться к данным</RouterLink>
+          <RouterLink class="auth-text-link" to="/auth/register">Вернуться к данным</RouterLink>
         </form>
 
         <div v-else-if="mode === 'verify'" class="form-stack">
@@ -148,7 +150,7 @@ onMounted(async () => {
         <form v-else-if="mode === 'forgot'" class="form-stack" @submit.prevent="submitForgot">
           <label><span>Электронная почта</span><input v-model="email" type="email" autocomplete="email" required /></label>
           <button class="primary-action">Отправить письмо</button>
-          <RouterLink to="/auth/login">Вернуться ко входу</RouterLink>
+          <RouterLink class="auth-text-link" to="/auth/login">Вернуться ко входу</RouterLink>
         </form>
 
         <form v-else class="form-stack" @submit.prevent="submitReset">
@@ -156,7 +158,7 @@ onMounted(async () => {
           <label><span>Повторите пароль</span><input v-model="confirmPassword" type="password" autocomplete="new-password" required /></label>
           <p v-if="confirmPassword && password !== confirmPassword" class="field-error" role="alert">Пароли не совпадают.</p>
           <button class="primary-action" :disabled="password !== confirmPassword">Изменить пароль</button>
-          <RouterLink to="/auth/login">Вернуться ко входу</RouterLink>
+          <RouterLink class="auth-text-link" to="/auth/login">Вернуться ко входу</RouterLink>
         </form>
       </div>
     </section>
