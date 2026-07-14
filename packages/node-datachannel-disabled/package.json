@@ -1,0 +1,20 @@
+{
+  "name": "node-datachannel",
+  "version": "0.32.3",
+  "private": true,
+  "description": "Заглушка Node WebRTC для Klinok, использующего только WebSocket-транспорт",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    },
+    "./polyfill": {
+      "types": "./polyfill.d.ts",
+      "import": "./polyfill.js",
+      "default": "./polyfill.js"
+    }
+  },
+  "sideEffects": false
+}
