@@ -8,6 +8,7 @@ FROM node:24.18.0-alpine3.24 AS build
 WORKDIR /app
 
 COPY package*.json ./
+COPY packages/node-datachannel-disabled/package.json packages/node-datachannel-disabled/package.json
 RUN npm ci --ignore-scripts
 
 COPY . .
