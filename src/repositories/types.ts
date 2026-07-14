@@ -6,7 +6,6 @@ import type {
   Role,
   RoleRequest,
   SignedEvent,
-  TemplateVersion,
 } from "@klinok/protocol";
 
 export interface PetProfile {
@@ -41,7 +40,6 @@ export interface ControlSnapshot {
   roles: RoleRequest[];
   allRoles: RoleRequest[];
   devices: DeviceCertificate[];
-  templates: TemplateVersion[];
   pendingQueue: RoleRequest[];
   notifications: Array<{ id: string; title: string; message: string; createdAt: string }>;
   events: SignedEvent[];

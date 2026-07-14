@@ -75,6 +75,10 @@ export class AuthClient {
     });
   }
 
+  rejectEnrollment(id: string) {
+    return this.request<{ rejected: true }>(`/api/auth/device-enrollments/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
   revokeDevice(id: string, nextKeys?: { signingPublicKey: JsonWebKey; encryptionPublicKey: JsonWebKey }) {
     return this.request<{ revoked: true; rotateUserKeys: boolean; certificate?: DeviceCertificate; revokedDeviceIds: string[] }>(
       `/api/auth/devices/${encodeURIComponent(id)}`,

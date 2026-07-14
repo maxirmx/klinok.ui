@@ -154,6 +154,6 @@ Argon2, SMTP и аттестационным ключом. Первый уров
 
 - Roles are `administrator`, `doctor`, and `owner`; users explicitly select one active role for every route and signed write.
 - Profiles and medical records are encrypted with AES-GCM. Keys are wrapped with RSA-OAEP-256 and event envelopes are signed with ECDSA P-256.
-- Administrators manage accounts, roles, dictionaries, and templates but receive no medical key envelopes.
+- Administrators manage accounts and roles but receive no medical key envelopes.
 - Revoking pet access rotates the key for future records; historical data already decrypted by a recipient cannot be clawed back.
 - Legal document text, versions, retention schedules, SMTP, credentials, and persistent volumes are deployment-owned configuration.

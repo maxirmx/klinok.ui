@@ -30,9 +30,9 @@ async function register(page: Page, request: APIRequestContext, input: {
   await page.getByLabel("Фамилия").fill(input.lastName);
   await page.getByLabel("Электронная почта").fill(input.email);
   await page.getByLabel(/Пароль —/).fill(password);
+  await page.getByLabel("Повторите пароль").fill(password);
   if (input.role === "doctor") {
-    await page.getByLabel("Владелец животного").uncheck();
-    await page.getByLabel("Врач").check();
+    await page.getByLabel("Ветеринар").check();
   }
   await page.getByRole("button", { name: "Продолжить" }).click();
   await page.getByLabel(/отдельно принимаю/).check();
@@ -47,9 +47,8 @@ async function register(page: Page, request: APIRequestContext, input: {
 async function login(page: Page, email: string, accountPassword = password) {
   await page.goto("/auth/login");
   await page.getByLabel("Электронная почта").fill(email);
-  await page.getByLabel("Пароль").fill(accountPassword);
+  await page.getByLabel("Пароль", { exact: true }).fill(accountPassword);
   await page.getByRole("button", { name: "Войти" }).click();
-  await expect(page).toHaveURL(/\/roles/);
 }
 
 async function accountId(page: Page): Promise<string> {
@@ -82,11 +81,13 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   const doctorPage = await newPage(await browser.newContext(), "doctor");
   await register(doctorPage, request, { firstName: "Анна", lastName: "Врач", email: doctorEmail, role: "doctor" });
   await login(doctorPage, doctorEmail);
+  await expect(doctorPage).toHaveURL(/\/roles/);
   const doctorAccountId = await accountId(doctorPage);
   await expect(doctorPage.getByText("Ожидает решения")).toBeVisible();
 
   const administratorPage = await newPage(await browser.newContext(), "administrator");
   await login(administratorPage, process.env.KLINOK_E2E_BOOTSTRAP_EMAIL ?? "administrator@example.ru", process.env.KLINOK_E2E_BOOTSTRAP_PASSWORD ?? "bootstrap-password-2026");
+  await expect(administratorPage).toHaveURL(/\/roles/);
   await expect(administratorPage.getByText(/Ключи этого аккаунта отсутствуют/)).toBeVisible();
   const recoveryBundle = process.env.KLINOK_E2E_RECOVERY_BUNDLE;
   if (!recoveryBundle) throw new Error("KLINOK_E2E_RECOVERY_BUNDLE is required for the composed E2E test.");
@@ -111,7 +112,6 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   const ownerPage = await newPage(await browser.newContext(), "owner");
   await register(ownerPage, request, { firstName: "Ольга", lastName: "Владелец", email: ownerEmail, role: "owner" });
   await login(ownerPage, ownerEmail);
-  await ownerPage.getByRole("button", { name: "Использовать роль" }).click();
   await expect(ownerPage).toHaveURL(/\/owner\/home/);
   await ownerPage.getByLabel("Кличка").fill("Шарик");
   await ownerPage.getByLabel("Порода").fill("Бигль");

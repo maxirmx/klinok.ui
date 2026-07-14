@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import type { PetGrantAction, Role, TemplateVersion } from "@klinok/protocol";
-import BrandLogo from "../components/BrandLogo.vue";
+import type { PetGrantAction, Role } from "@klinok/protocol";
+import WorkspaceShell from "../components/WorkspaceShell.vue";
 import { appState, decideRole, getConfig, getRepository, logout } from "../appStore";
 
 defineProps<{ role: Role; scenarioId: string }>();
@@ -12,7 +12,6 @@ const petDraft = reactive({ name: "", species: "Собака", breed: "", sex: "
 const recordDraft = reactive({ recordId: "", petId: "", title: "", text: "", addendumTo: "" });
 const grantDraft = reactive({ petId: "", doctorAccountId: "", read: true, write: true, delegate: false });
 const delegationDraft = reactive({ parentGrantId: "", doctorAccountId: "", read: true, write: false, delegate: false });
-const templateTitle = ref("");
 const decisionReason = ref("");
 const adminSearch = ref("");
 const actionError = ref("");
@@ -33,6 +32,11 @@ const filteredAccounts = computed(() => {
       .some((value) => value?.toLocaleLowerCase("ru").includes(query)));
 });
 const auditEvents = computed(() => appState.control.events.filter((event) => event.eventType.startsWith("audit.")));
+
+async function signOut() {
+  await logout();
+  await router.replace("/auth/login");
+}
 
 function formatProfileName(profile?: { firstName: string; patronymic?: string; lastName: string } | null) {
   return [profile?.firstName, profile?.patronymic, profile?.lastName].filter(Boolean).join(" ");
@@ -86,32 +90,15 @@ async function delegateGrant() {
   await action(() => getRepository()!.medical.delegateGrant(delegationDraft.parentGrantId, delegationDraft.doctorAccountId, actions));
 }
 
-async function createTemplate() {
-  const previous = appState.control.templates.find((item) => item.title === templateTitle.value);
-  const template: TemplateVersion = {
-    templateId: previous?.templateId ?? crypto.randomUUID(), version: (previous?.version ?? 0) + 1,
-    title: templateTitle.value, status: "published", updatedAt: new Date().toISOString(),
-  };
-  await action(() => getRepository()!.control.saveTemplate(template));
-  templateTitle.value = "";
-}
 </script>
 
 <template>
-  <main class="workspace-page">
-    <header class="workspace-header">
-      <BrandLogo variant="full" size="compact" />
-      <div><h1>{{ roleLabels[role] }}</h1><p>{{ formatProfileName(appState.control.profile) }}</p></div>
-      <nav>
-        <button class="link-action" @click="router.push('/roles')">Сменить роль</button>
-        <button class="link-action" @click="logout()">Выйти</button>
-      </nav>
-    </header>
+  <WorkspaceShell :role="role" :title="roleLabels[role]" :profile-name="formatProfileName(appState.control.profile)" @sign-out="signOut">
     <p v-if="actionError || appState.error" class="form-alert error" role="alert">{{ actionError || appState.error }}</p>
 
     <template v-if="role === 'administrator'">
       <section class="workspace-grid">
-        <article class="panel wide-panel">
+        <article id="administrator-requests" class="panel wide-panel" data-workspace-section>
           <h2>Заявки на роли</h2>
           <label><span>Поиск по заявкам и аккаунтам</span><input v-model="adminSearch" type="search" /></label>
           <p v-if="!appState.control.pendingQueue.length">Новых заявок нет.</p>
@@ -131,7 +118,7 @@ async function createTemplate() {
           </div>
         </article>
 
-        <article class="panel wide-panel">
+        <article id="administrator-accounts" class="panel wide-panel" data-workspace-section>
           <h2>Аккаунты</h2>
           <div v-for="profile in filteredAccounts" :key="profile.accountId" class="request-row">
             <div>
@@ -147,18 +134,7 @@ async function createTemplate() {
           </div>
         </article>
 
-        <article class="panel">
-          <h2>Справочники и шаблоны</h2>
-          <form class="form-stack" @submit.prevent="createTemplate">
-            <label><span>Название шаблона</span><input v-model="templateTitle" required /></label>
-            <button class="primary-action">Опубликовать версию</button>
-          </form>
-          <div v-for="template in appState.control.templates" :key="`${template.templateId}-${template.version}`" class="list-row">
-            <strong>{{ template.title }}</strong><span>Версия {{ template.version }}</span><small>{{ template.status }}</small>
-          </div>
-        </article>
-
-        <article class="panel">
+        <article id="administrator-conflicts" class="panel" data-workspace-section>
           <h2>Конфликты авторизации</h2>
           <p v-if="!appState.conflicts.length">Конфликтов нет.</p>
           <div v-for="conflict in appState.conflicts" :key="conflict.eventId" class="list-row danger-row">
@@ -166,7 +142,7 @@ async function createTemplate() {
           </div>
         </article>
 
-        <article class="panel wide-panel">
+        <article id="administrator-journal" class="panel wide-panel" data-workspace-section>
           <h2>Журнал ролей</h2>
           <div v-for="request in appState.control.allRoles" :key="`${request.accountId}-${request.role}`" class="list-row">
             <strong>{{ request.accountId }}</strong><span>{{ request.role }} · {{ request.status }}</span><small>{{ request.decidedAt || request.requestedAt }}</small>
@@ -181,7 +157,7 @@ async function createTemplate() {
 
     <template v-else-if="role === 'owner'">
       <section class="workspace-grid">
-        <article class="panel">
+        <article id="owner-add-pet" class="panel" data-workspace-section>
           <h2>Добавить питомца</h2>
           <form class="form-stack" @submit.prevent="createPet">
             <label><span>Кличка</span><input v-model="petDraft.name" required /></label>
@@ -193,7 +169,7 @@ async function createTemplate() {
           </form>
         </article>
 
-        <article class="panel wide-panel">
+        <article id="owner-pets" class="panel wide-panel" data-workspace-section>
           <h2>Мои питомцы</h2>
           <p v-if="!appState.medical.pets.length">Питомцев пока нет.</p>
           <div v-for="pet in appState.medical.pets" :key="pet.petId" class="pet-operational-card">
@@ -202,7 +178,7 @@ async function createTemplate() {
           </div>
         </article>
 
-        <article class="panel">
+        <article id="owner-grant-access" class="panel" data-workspace-section>
           <h2>Предоставить врачу доступ</h2>
           <form class="form-stack" @submit.prevent="grantDoctor">
             <label><span>Питомец</span><select v-model="grantDraft.petId" required><option value="" disabled>Выберите</option><option v-for="pet in appState.medical.pets" :key="pet.petId" :value="pet.petId">{{ pet.name }}</option></select></label>
@@ -213,7 +189,7 @@ async function createTemplate() {
           </form>
         </article>
 
-        <article class="panel">
+        <article id="owner-active-access" class="panel" data-workspace-section>
           <h2>Действующие доступы</h2>
           <div v-for="grant in appState.medical.grants" :key="grant.grantId" class="list-row">
             <strong>{{ grant.granteeAccountId }}</strong><span>{{ grant.actions.join(', ') }}</span>
@@ -222,7 +198,7 @@ async function createTemplate() {
           </div>
         </article>
 
-        <article class="panel wide-panel">
+        <article id="owner-records" class="panel wide-panel" data-workspace-section>
           <h2>Медицинские записи</h2>
           <div v-for="record in appState.medical.records" :key="record.recordId" class="record-card">
             <div><strong>{{ record.title }}</strong><p>{{ record.text }}</p><small>Редакция {{ record.revision }}</small></div>
@@ -231,22 +207,17 @@ async function createTemplate() {
           </div>
         </article>
 
-        <article class="panel wide-panel">
-          <h2>Справочники</h2>
-          <p>В режиме владельца справочники доступны только для чтения.</p>
-          <div v-for="template in appState.control.templates" :key="template.templateId" class="list-row"><strong>{{ template.title }}</strong><span>Версия {{ template.version }}</span></div>
-        </article>
       </section>
     </template>
 
     <template v-else>
       <section class="workspace-grid">
-        <article class="panel wide-panel">
+        <article id="doctor-pets" class="panel wide-panel" data-workspace-section>
           <h2>Доступные питомцы</h2>
           <div v-for="pet in appState.medical.pets" :key="pet.petId" class="pet-operational-card"><strong>{{ pet.name }}</strong><span>{{ pet.species }} · {{ pet.breed }}</span></div>
           <p v-if="!appState.medical.pets.length">Владельцы ещё не предоставили доступ.</p>
         </article>
-        <article class="panel">
+        <article id="doctor-new-record" class="panel" data-workspace-section>
           <h2>Новая медицинская запись</h2>
           <form class="form-stack" @submit.prevent="saveRecord">
             <label><span>Питомец</span><select v-model="recordDraft.petId" required><option value="" disabled>Выберите</option><option v-for="pet in appState.medical.pets" :key="pet.petId" :value="pet.petId">{{ pet.name }}</option></select></label>
@@ -256,7 +227,7 @@ async function createTemplate() {
             <button class="primary-action">{{ recordDraft.recordId ? 'Сохранить изменения' : 'Сохранить черновик' }}</button>
           </form>
         </article>
-        <article class="panel">
+        <article id="doctor-delegation" class="panel" data-workspace-section>
           <h2>Делегировать доступ врачу</h2>
           <form class="form-stack" @submit.prevent="delegateGrant">
             <label><span>Исходный доступ</span><select v-model="delegationDraft.parentGrantId" required><option value="" disabled>Выберите</option><option v-for="grant in appState.medical.grants.filter(item => item.status === 'active' && item.actions.includes('delegate') && item.granteeAccountId === appState.session.accountId)" :key="grant.grantId" :value="grant.grantId">{{ grant.petId }}</option></select></label>
@@ -266,7 +237,7 @@ async function createTemplate() {
             <button class="primary-action">Делегировать</button>
           </form>
         </article>
-        <article class="panel wide-panel">
+        <article id="doctor-records" class="panel wide-panel" data-workspace-section>
           <h2>Медицинские записи</h2>
           <div v-for="record in appState.medical.records" :key="record.recordId" class="record-card">
             <div><strong>{{ record.title }}</strong><p>{{ record.text }}</p><small>Редакция {{ record.revision }}</small></div>
@@ -276,5 +247,5 @@ async function createTemplate() {
         </article>
       </section>
     </template>
-  </main>
+  </WorkspaceShell>
 </template>

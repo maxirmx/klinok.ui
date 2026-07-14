@@ -220,18 +220,19 @@ describe("auth-node", () => {
     const firstEnrollment = await app.inject({
       method: "POST", url: "/api/auth/device-enrollments",
       headers: { origin: "https://klinok.test", cookie: first.cookie, "x-csrf-token": first.csrf },
-      payload: { deviceId: "device-1", orbitIdentityId: "orbit-1", signingPublicKey, encryptionPublicKey },
+      payload: { deviceId: "device-1", deviceName: "Домашний ноутбук", orbitIdentityId: "orbit-1", signingPublicKey, encryptionPublicKey },
     });
-    expect(firstEnrollment.json().certificate).toMatchObject({ deviceId: "device-1", status: "active" });
+    expect(firstEnrollment.json().certificate).toMatchObject({ deviceId: "device-1", deviceName: "Домашний ноутбук", status: "active" });
 
     const secondLoginResponse = await app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" }, payload: { email: registration.email, password: registration.password } });
     const second = { cookie: secondLoginResponse.headers["set-cookie"]!, csrf: secondLoginResponse.json().csrfToken as string };
     const secondEnrollment = await app.inject({
       method: "POST", url: "/api/auth/device-enrollments",
       headers: { origin: "https://klinok.test", cookie: second.cookie, "x-csrf-token": second.csrf },
-      payload: { deviceId: "device-2", orbitIdentityId: "orbit-2", ephemeralPublicKey: { kty: "EC", crv: "P-256", x: "x", y: "y" } },
+      payload: { deviceId: "device-2", deviceName: "Телефон Максима", orbitIdentityId: "orbit-2", ephemeralPublicKey: { kty: "EC", crv: "P-256", x: "x", y: "y" } },
     });
     expect(secondEnrollment.json().enrollment.status).toBe("pending");
+    expect(secondEnrollment.json().enrollment.deviceName).toBe("Телефон Максима");
     const enrollmentId = secondEnrollment.json().enrollment.enrollmentId as string;
     const approval = await app.inject({
       method: "POST", url: `/api/auth/device-enrollments/${enrollmentId}/approve`,
@@ -240,8 +241,21 @@ describe("auth-node", () => {
     });
     expect(approval.statusCode).toBe(200);
     const secondSession = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: second.cookie } });
-    expect(secondSession.json().device).toMatchObject({ deviceId: "device-2", status: "active" });
+    expect(secondSession.json().device).toMatchObject({ deviceId: "device-2", deviceName: "Телефон Максима", status: "active" });
     expect(secondSession.json().enrollments).toEqual(expect.arrayContaining([expect.objectContaining({ enrollmentId, encryptedKeyBundle: "encrypted-for-device-2" })]));
+
+    const thirdLoginResponse = await app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" }, payload: { email: registration.email, password: registration.password } });
+    const third = { cookie: thirdLoginResponse.headers["set-cookie"]!, csrf: thirdLoginResponse.json().csrfToken as string };
+    const thirdEnrollment = await app.inject({
+      method: "POST", url: "/api/auth/device-enrollments",
+      headers: { origin: "https://klinok.test", cookie: third.cookie, "x-csrf-token": third.csrf },
+      payload: { deviceId: "device-3", deviceName: "Старый запрос", orbitIdentityId: "orbit-3", ephemeralPublicKey: { kty: "EC", crv: "P-256", x: "x", y: "y" } },
+    });
+    const rejected = await app.inject({
+      method: "DELETE", url: `/api/auth/device-enrollments/${thirdEnrollment.json().enrollment.enrollmentId}`,
+      headers: { origin: "https://klinok.test", cookie: first.cookie, "x-csrf-token": first.csrf },
+    });
+    expect(rejected.json()).toEqual({ rejected: true });
 
     const rotatedSigning = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
     const rotatedEncryption = await crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["wrapKey", "unwrapKey"]);

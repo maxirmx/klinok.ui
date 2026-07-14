@@ -184,11 +184,6 @@ function capabilityResult(event: SignedEvent, state: ProtocolState): Verificatio
       ? { accepted: true }
       : { accepted: false, code: "PROFILE_REWRAP_FORBIDDEN", message: "Only Administrators may rewrap profile keys." };
   }
-  if (event.eventType.startsWith("template.")) {
-    return hasActiveRoleProof(state, event, "administrator")
-      ? { accepted: true }
-      : { accepted: false, code: "TEMPLATE_WRITE_FORBIDDEN", message: "Only Administrators may change templates." };
-  }
   if (["audit.", "notification.", "email."].some((prefix) => event.eventType.startsWith(prefix))) {
     const transition = event.parents.map((parent) => state.events.get(parent)).find((parent) => parent?.eventType.startsWith("role."));
     return transition && transition.operationId === event.operationId && transition.actorAccountId === event.actorAccountId && transition.aggregateId === event.aggregateId

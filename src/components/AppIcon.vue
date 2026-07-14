@@ -20,6 +20,8 @@ defineProps<{
     | "moon"
     | "eye"
     | "eye-off"
+    | "pets"
+    | "medical-tools"
     | "calendar"
     | "star"
     | "check"
@@ -79,6 +81,19 @@ defineProps<{
     <g v-else-if="name === 'eye-off'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
       <path d="M4.2 7.2C3.3 8.1 2.8 9 2.8 9s3.3 5.4 9.2 5.4c1.2 0 2.3-.2 3.2-.5M8.1 5.9c1.1-.4 2.4-.6 3.9-.6 5.9 0 9.2 5.4 9.2 5.4s-.7 1.1-1.9 2.3" />
       <path d="M9.7 9.7a3.2 3.2 0 0 0 4.6 4.6M3.5 3.5l17 17" />
+    </g>
+    <g v-else-if="name === 'pets'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.45">
+      <path d="m2.6 9.1.8-4 2.8 2 2.7-2 .8 4v3.2a3.55 3.55 0 0 1-7.1 0V9.1Z" />
+      <path d="M4.8 11.2h.1M7.5 11.2h.1M5.6 13.1h1.1M2.7 12.8.8-.2M9.6 12.8l-.8-.2" />
+      <path d="M15.1 7.8a4.2 4.2 0 0 1 4.3 0l1.8-1.2.2 4.2v2.1a4.15 4.15 0 0 1-8.3 0v-2.1l.2-4.2 1.8 1.2Z" />
+      <path d="M16 11.2h.1M18.9 11.2h.1M17.1 13.2h.8M16.8 15.1c.5.4 1.2.4 1.7 0" />
+    </g>
+    <g v-else-if="name === 'medical-tools'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.55">
+      <path d="M3.8 3.5h6.6l3 3v13.8H3.8V3.5Z" />
+      <path d="M10.4 3.5v3.3h3M6.2 11h4.7M8.55 8.7v4.7" />
+      <path d="M16.2 5.2v5.1a2.4 2.4 0 0 0 4.8 0V5.2M16.2 5.2h1.3M19.7 5.2H21" />
+      <path d="M18.6 12.7v2.1a3.4 3.4 0 0 1-3.4 3.4h-1.8" />
+      <circle cx="12.2" cy="18.2" r="1.2" />
     </g>
     <g v-else-if="name === 'calendar'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
       <path d="M6.2 5.5h11.6a1.9 1.9 0 0 1 1.9 1.9v10.4a1.9 1.9 0 0 1-1.9 1.9H6.2a1.9 1.9 0 0 1-1.9-1.9V7.4a1.9 1.9 0 0 1 1.9-1.9Z" />

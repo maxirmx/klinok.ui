@@ -45,6 +45,7 @@ interface RegistrationBody {
 
 interface DeviceBody {
   deviceId: string;
+  deviceName?: string;
   orbitIdentityId: string;
   signingPublicKey?: JsonWebKey;
   encryptionPublicKey?: JsonWebKey;
@@ -523,11 +524,14 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
       (hasActiveDevices && !request.body.ephemeralPublicKey)) {
       return error(reply, 400, "DEVICE_INVALID", "Данные устройства неполны.");
     }
+    const deviceName = request.body.deviceName?.trim() || `Устройство ${request.body.deviceId.slice(0, 8)}`;
+    if (deviceName.length > 80) return error(reply, 400, "DEVICE_NAME_INVALID", "Название устройства не должно превышать 80 символов.");
     const enrollment: DeviceEnrollmentDto = {
       enrollmentId: randomUUID(),
       operationId: randomUUID(),
       accountId: current.account.accountId,
       deviceId: request.body.deviceId,
+      deviceName,
       orbitIdentityId: request.body.orbitIdentityId,
       status: hasActiveDevices ? "pending" : "active",
       ...(request.body.signingPublicKey ? { signingPublicKey: request.body.signingPublicKey } : {}),
@@ -550,7 +554,7 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
         operationId: enrollment.operationId,
         kind: "device",
         createdAt: enrollment.createdAt,
-        payload: { deviceId: enrollment.deviceId },
+        payload: { deviceId: enrollment.deviceId, deviceName: enrollment.deviceName },
       }],
       updatedAt: now().toISOString(),
     });
@@ -584,6 +588,25 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return { certificate };
   });
 
+  app.delete<{ Params: { id: string } }>("/api/auth/device-enrollments/:id", {
+    config: { rateLimit: { max: options.config.rateLimit.sensitiveMutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply);
+    if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId, true)) return;
+    if (!current.session.deviceId || !current.account.devices.some((device) => device.deviceId === current.session.deviceId && device.status === "active")) {
+      return error(reply, 403, "ACTIVE_DEVICE_REQUIRED", "Отклонить устройство можно только с действующего устройства.");
+    }
+    const enrollment = current.account.enrollments.find((item) => item.enrollmentId === request.params.id && item.status === "pending");
+    if (!enrollment) return error(reply, 404, "ENROLLMENT_NOT_FOUND", "Запрос устройства не найден.");
+    await store.putAccount({
+      ...current.account,
+      enrollments: current.account.enrollments.filter((item) => item.enrollmentId !== enrollment.enrollmentId),
+      updatedAt: now().toISOString(),
+    });
+    return { rejected: true };
+  });
+
   app.delete<{ Params: { id: string }; Body: { signingPublicKey?: JsonWebKey; encryptionPublicKey?: JsonWebKey } }>("/api/auth/devices/:id", {
     config: { rateLimit: { max: options.config.rateLimit.sensitiveMutationIpPerMinute, timeWindow: 60_000 } },
   }, async (request, reply) => {
@@ -601,6 +624,7 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     if (canRotate) {
       rotatedCertificate = await attestation.certificate({
         enrollmentId: randomUUID(), operationId: randomUUID(), accountId: current.account.accountId, deviceId: currentDevice.deviceId,
+        ...(currentDevice.deviceName ? { deviceName: currentDevice.deviceName } : {}),
         orbitIdentityId: currentDevice.orbitIdentityId, status: "active",
         signingPublicKey: request.body.signingPublicKey!, encryptionPublicKey: request.body.encryptionPublicKey!,
         userKeyVersion: currentDevice.userKeyVersion + 1, createdAt: now().toISOString(),

@@ -10,7 +10,6 @@ import {
   type Role,
   type RoleStatus,
   type SignedEvent,
-  type TemplateVersion,
   type UserKeySet,
 } from "@klinok/protocol";
 import { EventFactory } from "./eventFactory";
@@ -286,15 +285,6 @@ export class ControlRepository {
     }
   }
 
-  async saveTemplate(template: TemplateVersion): Promise<void> {
-    const parent = this.events.findLast((event) => event.eventType.startsWith("template.") && event.aggregateId === template.templateId)?.eventId;
-    await this.append(await this.factory.create({
-      database: "control", eventType: "template.saved", aggregateId: template.templateId,
-      metadata: { templateId: template.templateId, version: template.version, status: template.status }, cleartext: template,
-      parents: parent ? [parent] : [], recipients: [...this.signed.state.devices.values()].filter((device) => device.status === "active"),
-    }));
-  }
-
   async deleteAccount(operationId: string): Promise<void> {
     if (this.events.some((event) => event.eventType === "account.deleted" && event.operationId === operationId)) return;
     const parent = this.events.findLast((event) => event.eventType === "profile.updated" && event.aggregateId === this.context.accountId)?.eventId;
@@ -331,7 +321,6 @@ export class ControlRepository {
   private async buildSnapshot(): Promise<ControlSnapshot> {
     let profile: AccountProfile | null = null;
     const profiles = new Map<string, AccountProfile>();
-    const templates: TemplateVersion[] = [];
     const notifications: ControlSnapshot["notifications"] = [];
     for (const event of this.events) {
       if (event.eventType === "profile.updated" || event.eventType === "profile.key.rewrapped") {
@@ -340,10 +329,6 @@ export class ControlRepository {
           profiles.set(value.accountId, value);
           if (event.aggregateId === this.context.accountId) profile = value;
         }
-      }
-      if (event.eventType === "template.saved") {
-        const value = await this.decrypt<TemplateVersion>(event);
-        if (value) templates.push(value);
       }
       if (event.eventType === "notification.role-transition" && event.aggregateId === this.context.accountId) {
         notifications.push({ id: event.eventId, title: "Статус роли изменён", message: String(event.metadata.status ?? ""), createdAt: event.createdAt });
@@ -356,7 +341,6 @@ export class ControlRepository {
       roles: roles.filter((role) => role.accountId === this.context.accountId),
       allRoles: roles,
       devices: [...this.signed.state.devices.values()].filter((device) => device.accountId === this.context.accountId),
-      templates: templates.sort((a, b) => b.version - a.version),
       pendingQueue: roles.filter((role) => role.status === "pending"),
       notifications,
       events: [...this.events],

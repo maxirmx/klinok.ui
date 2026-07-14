@@ -5,6 +5,7 @@ import AuthScreen from "./screens/AuthScreen.vue";
 import RoleStatusScreen from "./screens/RoleStatusScreen.vue";
 import WorkspaceScreen from "./screens/WorkspaceScreen.vue";
 import { appState, bootstrapApp } from "./appStore";
+import { roleHomePath } from "./roleNavigation";
 import { scenarioRegistry, type ScenarioComponentName } from "./scenarios";
 
 const components: Record<ScenarioComponentName, Component> = { AuthScreen, RoleStatusScreen, WorkspaceScreen };
@@ -15,7 +16,7 @@ const roleByScenario: Partial<Record<string, Role>> = {
 };
 
 export const routes: RouteRecordRaw[] = [
-  { path: "/", redirect: "/roles" },
+  { path: "/", redirect: "/auth/login" },
   ...scenarioRegistry.map((scenario) => ({
     path: scenario.path,
     name: scenario.id,
@@ -35,7 +36,10 @@ export function createAppRouter() {
   router.beforeEach(async (to) => {
     await bootstrapApp();
     if (to.meta.public) {
-      if (appState.session.authenticated && to.path === "/auth/login") return "/roles";
+      if (appState.session.authenticated && to.path === "/auth/login") {
+        if (appState.keyRecoveryRequired || appState.devicePending) return "/roles";
+        return roleHomePath(appState.activeRole);
+      }
       return true;
     }
     if (!appState.session.authenticated) return { path: "/auth/login", query: { continue: to.fullPath } };

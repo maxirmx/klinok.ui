@@ -63,6 +63,7 @@ export interface ActiveRoleContext {
 
 export interface DeviceCertificate {
   deviceId: string;
+  deviceName?: string;
   accountId: string;
   orbitIdentityId: string;
   status: DeviceStatus;
@@ -95,14 +96,6 @@ export interface MedicalRecordConfirmation {
   recordRevision: number;
   ownerAccountId: string;
   confirmedAt: string;
-}
-
-export interface TemplateVersion {
-  templateId: string;
-  version: number;
-  title: string;
-  status: "draft" | "published" | "retired";
-  updatedAt: string;
 }
 
 export interface KeyEnvelope {
@@ -230,6 +223,7 @@ export interface DeviceEnrollmentDto {
   operationId: string;
   accountId: string;
   deviceId: string;
+  deviceName?: string;
   orbitIdentityId: string;
   status: DeviceStatus;
   signingPublicKey?: JsonWebKey;

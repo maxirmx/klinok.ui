@@ -4,6 +4,8 @@ import { useRoute, useRouter } from "vue-router";
 import type { Role, RoleStatus } from "@klinok/protocol";
 import BrandLogo from "../components/BrandLogo.vue";
 import PasswordInput from "../components/PasswordInput.vue";
+import { roleHomePath } from "../roleNavigation";
+import { getDeviceName } from "../repositories/deviceVault";
 import {
   appState,
   approveDeviceEnrollment,
@@ -13,6 +15,7 @@ import {
   getConfig,
   logout,
   importBootstrapRecovery,
+  rejectDeviceEnrollment,
   requestRole,
   revokeDevice,
   switchRole,
@@ -31,6 +34,9 @@ const recoveryText = ref("");
 const recoveryPassphrase = ref("");
 const deletionArmed = ref(false);
 const profileDraft = reactive({ firstName: "", lastName: "", patronymic: "" });
+const deviceName = (device: { deviceId: string; deviceName?: string }) => device.deviceName?.trim()
+  || (device.deviceId === appState.session.device?.deviceId ? getDeviceName() : null)
+  || "Устройство без названия";
 watch(() => appState.control.profile, (profile) => {
   if (profile) Object.assign(profileDraft, { firstName: profile.firstName, lastName: profile.lastName, patronymic: profile.patronymic ?? "" });
 }, { immediate: true });
@@ -44,8 +50,13 @@ async function activate(role: Role) {
   switchRole(role);
   const destination = typeof route.query.continue === "string" && route.query.switch === role
     ? route.query.continue
-    : role === "administrator" ? "/admin/home" : role === "doctor" ? "/doctor/home" : "/owner/home";
+    : roleHomePath(role);
   await router.push(destination);
+}
+
+async function signOut(all = false) {
+  await logout(all);
+  await router.replace("/auth/login");
 }
 </script>
 
@@ -54,7 +65,7 @@ async function activate(role: Role) {
     <header class="workspace-header">
       <BrandLogo variant="full" size="compact" />
       <div><h1>Роли и доступ</h1><p>Выберите активную одобренную роль</p></div>
-      <button class="link-action" @click="logout()">Выйти</button>
+      <button class="link-action" @click="signOut()">Выйти</button>
     </header>
 
     <p v-if="appState.error" class="form-alert error" role="alert">{{ appState.error }}</p>
@@ -80,8 +91,11 @@ async function activate(role: Role) {
       <h2>Новые устройства</h2>
       <p>Подтверждайте только свои устройства. Передача ключей зашифрована для конкретного запроса.</p>
       <div v-for="enrollment in appState.session.enrollments.filter(item => item.status === 'pending' && item.ephemeralPublicKey)" :key="enrollment.enrollmentId" class="list-row">
-        <div><strong>Устройство {{ enrollment.deviceId }}</strong><small>{{ enrollment.createdAt }}</small></div>
-        <button class="primary-action inline" @click="approveDeviceEnrollment(enrollment.enrollmentId)">Подтвердить и передать ключи</button>
+        <div><strong>{{ deviceName(enrollment) }}</strong><span>ID: {{ enrollment.deviceId }}</span><small>Запрошено {{ enrollment.createdAt }}</small></div>
+        <div class="row-actions">
+          <button class="primary-action inline" @click="approveDeviceEnrollment(enrollment.enrollmentId)">Подтвердить и передать ключи</button>
+          <button class="outline-action inline danger-link" @click="rejectDeviceEnrollment(enrollment.enrollmentId)">Отклонить</button>
+        </div>
       </div>
     </section>
 
@@ -120,11 +134,11 @@ async function activate(role: Role) {
     <section class="panel critical-panel account-security">
       <h2>Аккаунт и устройства</h2>
       <div v-for="device in appState.session.devices" :key="device.deviceId" class="list-row">
-        <div><strong>{{ device.deviceId }}</strong><span>{{ device.status === 'active' ? 'Действующее устройство' : 'Устройство отозвано' }}</span></div>
+        <div><strong>{{ deviceName(device) }}</strong><span>{{ device.deviceId === appState.session.device?.deviceId ? 'Это устройство' : device.status === 'active' ? 'Действующее устройство' : 'Устройство отозвано' }}</span><small>ID: {{ device.deviceId }}</small></div>
         <button v-if="device.status === 'active'" class="outline-action inline" @click="revokeDevice(device.deviceId)">Отозвать устройство</button>
       </div>
       <div class="row-actions">
-        <button class="outline-action inline" @click="logout(true)">Выйти на всех устройствах</button>
+        <button class="outline-action inline" @click="signOut(true)">Выйти на всех устройствах</button>
         <button v-if="!deletionArmed" class="outline-action inline danger-link" @click="deletionArmed = true">Удалить аккаунт</button>
       </div>
       <div v-if="deletionArmed" class="form-alert error" role="alert">

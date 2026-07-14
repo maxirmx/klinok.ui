@@ -94,6 +94,7 @@ function controller(
 
 export class OrbitEventTransport extends IndexedDbEventTransport {
   private runtime: { helia: { stop(): Promise<unknown> }; orbitdb: { stop(): Promise<unknown> }; dbs: Record<DatabaseKind, OrbitDb> } | null = null;
+  private disposing = false;
   private readonly remoteListeners = new Map<DatabaseKind, Set<() => void>>([["control", new Set()], ["medical", new Set()]]);
   private readonly updateHandlers = new Map<DatabaseKind, () => void>();
   private readonly accessState: ProtocolState;
@@ -108,6 +109,7 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
 
   override async initialize() {
     await super.initialize();
+    this.disposing = false;
     logP2p("info", "p2p.client.initialize.started", {
       configuredOrbitIdentity: this.identityId,
       trustedNodeMultiaddrs: this.config.trustedNodeMultiaddrs,
@@ -150,7 +152,10 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
       logP2p("info", "p2p.peer.connected", { peerId: String(connectionEvent.detail) });
     });
     libp2p.addEventListener("peer:disconnect", (connectionEvent) => {
-      logP2p("warn", "p2p.peer.disconnected", { peerId: String(connectionEvent.detail) });
+      logP2p(this.disposing ? "info" : "warn", "p2p.peer.disconnected", {
+        peerId: String(connectionEvent.detail),
+        ...(this.disposing ? { reason: "client_dispose" } : {}),
+      });
     });
     for (const address of configuredAddresses) {
       const multiaddrText = address.toString();
@@ -259,6 +264,7 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
   override async recordConflict(conflict: AuthorizationConflict) { await super.recordConflict(conflict); }
 
   override async dispose() {
+    this.disposing = true;
     logP2p("info", "p2p.client.dispose.started", { configuredOrbitIdentity: this.identityId });
     if (this.runtime) {
       for (const database of ["control", "medical"] as const) {

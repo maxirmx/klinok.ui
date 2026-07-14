@@ -9,6 +9,8 @@ import {
 const DB_NAME = "klinok-identity-v1";
 const STORE_NAME = "user-keys";
 const ENROLLMENT_STORE = "enrollment-keys";
+const DEVICE_HINT_KEY = "klinok:device-hint";
+const DEVICE_NAME_KEY = "klinok:device-name";
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -168,11 +170,48 @@ export function setLastActiveRole(accountId: string, deviceId: string, role: str
   localStorage.setItem(`klinok:active-role:${accountId}:${deviceId}`, role);
 }
 
-export function getDeviceHint(): string | null {
-  return localStorage.getItem("klinok:device-hint");
+function getDeviceHint(): string | null {
+  return localStorage.getItem(DEVICE_HINT_KEY);
 }
 
-export function setDeviceHint(deviceId: string | null): void {
-  if (deviceId) localStorage.setItem("klinok:device-hint", deviceId);
-  else localStorage.removeItem("klinok:device-hint");
+export function clearDeviceId(): void {
+  localStorage.removeItem(DEVICE_HINT_KEY);
+}
+
+export function getOrCreateDeviceId(): string {
+  const existing = getDeviceHint();
+  if (existing) return existing;
+  const deviceId = crypto.randomUUID();
+  localStorage.setItem(DEVICE_HINT_KEY, deviceId);
+  return deviceId;
+}
+
+export function suggestedDeviceName(): string {
+  if (typeof navigator === "undefined") return "Это устройство";
+  const userAgent = navigator.userAgent;
+  const browser = userAgent.includes("Edg/") ? "Microsoft Edge"
+    : userAgent.includes("Firefox/") ? "Firefox"
+      : userAgent.includes("Chrome/") ? "Chrome"
+        : userAgent.includes("Safari/") ? "Safari"
+          : "Браузер";
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform
+    || navigator.platform
+    || (userAgent.includes("Android") ? "Android" : userAgent.includes("iPhone") || userAgent.includes("iPad") ? "iOS" : "устройство");
+  return `${browser} · ${platform}`;
+}
+
+export function getDeviceName(): string | null {
+  return localStorage.getItem(DEVICE_NAME_KEY);
+}
+
+export function setDeviceName(deviceName: string): void {
+  localStorage.setItem(DEVICE_NAME_KEY, deviceName.trim().slice(0, 80));
+}
+
+export function getOrCreateDeviceName(): string {
+  const existing = getDeviceName();
+  if (existing) return existing;
+  const deviceName = suggestedDeviceName();
+  setDeviceName(deviceName);
+  return deviceName;
 }

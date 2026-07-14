@@ -12,20 +12,22 @@ import { AuthClient, AuthClientError, type RegisterInput } from "./repositories/
 import {
   createAndStoreUserKeys,
   createEnrollmentKey,
+  clearDeviceId,
   decryptAndStoreUserKeyBundle,
   encryptUserKeyBundle,
   getLastActiveRole,
-  getDeviceHint,
+  getOrCreateDeviceId,
+  getOrCreateDeviceName,
   importBootstrapRecoveryBundle,
   loadUserKeys,
-  setDeviceHint,
+  setDeviceName,
   setLastActiveRole,
   storeExportedUserKeys,
 } from "./repositories/deviceVault";
 import { KlinokRepository } from "./repositories";
 import type { ControlSnapshot, MedicalSnapshot } from "./repositories/types";
 
-const emptyControl: ControlSnapshot = { profile: null, profiles: [], roles: [], allRoles: [], devices: [], templates: [], pendingQueue: [], notifications: [], events: [] };
+const emptyControl: ControlSnapshot = { profile: null, profiles: [], roles: [], allRoles: [], devices: [], pendingQueue: [], notifications: [], events: [] };
 const emptyMedical: MedicalSnapshot = { pets: [], grants: [], records: [], confirmations: [], events: [] };
 
 const state = reactive({
@@ -58,7 +60,7 @@ async function ensureDevice(session: AuthSessionDto): Promise<AuthSessionDto> {
   keys = await loadUserKeys(session.accountId);
   if (session.device) {
     state.devicePending = false;
-    setDeviceHint(session.device.deviceId);
+    if (session.device.deviceName) setDeviceName(session.device.deviceName);
     if (!keys) {
       const enrollment = session.enrollments?.find((item) => item.deviceId === session.device?.deviceId && item.status === "active" && item.encryptedKeyBundle);
       if (enrollment?.encryptedKeyBundle) keys = await decryptAndStoreUserKeyBundle(session.accountId, enrollment.encryptedKeyBundle);
@@ -66,12 +68,16 @@ async function ensureDevice(session: AuthSessionDto): Promise<AuthSessionDto> {
     }
     return session;
   }
-  const existingPending = session.enrollments?.find((enrollment) => enrollment.status === "pending");
+  let deviceId = getOrCreateDeviceId();
+  if (session.devices?.some((device) => device.deviceId === deviceId && device.status === "revoked")) {
+    clearDeviceId();
+    deviceId = getOrCreateDeviceId();
+  }
+  const existingPending = session.enrollments?.find((enrollment) => enrollment.deviceId === deviceId && enrollment.status === "pending");
   if (existingPending) {
     state.devicePending = true;
     return session;
   }
-  const deviceId = crypto.randomUUID();
   const firstDevice = !(session.devices ?? []).some((device) => device.status === "active");
   let signingPublicKey: JsonWebKey | undefined;
   let encryptionPublicKey: JsonWebKey | undefined;
@@ -90,6 +96,7 @@ async function ensureDevice(session: AuthSessionDto): Promise<AuthSessionDto> {
   }
   const result = await auth.enrollDevice({
     deviceId,
+    deviceName: getOrCreateDeviceName(),
     orbitIdentityId: `klinok-device-${deviceId}`,
     ...(signingPublicKey ? { signingPublicKey } : {}),
     ...(encryptionPublicKey ? { encryptionPublicKey } : {}),
@@ -99,7 +106,6 @@ async function ensureDevice(session: AuthSessionDto): Promise<AuthSessionDto> {
     state.devicePending = true;
     return { ...session, enrollments: [...(session.enrollments ?? []), result.enrollment] };
   }
-  setDeviceHint(result.certificate.deviceId);
   return { ...session, device: result.certificate, enrollments: [...(session.enrollments ?? []), result.enrollment] };
 }
 
@@ -113,6 +119,8 @@ function chooseInitialRole(session: AuthSessionDto): Role {
 
 async function connectRepository(session: AuthSessionDto) {
   if (!session.accountId || !session.device || !keys || state.keyRecoveryRequired) return;
+  const accountId = session.accountId;
+  const deviceId = session.device.deviceId;
   await repository?.dispose();
   const initialRole = chooseInitialRole(session);
   repository = await KlinokRepository.create({
@@ -140,15 +148,20 @@ async function connectRepository(session: AuthSessionDto) {
   }
   controlUnsubscribe?.();
   medicalUnsubscribe?.();
-  controlUnsubscribe = repository.control.subscribe((snapshot) => {
+  const applyControlSnapshot = (snapshot: ControlSnapshot) => {
     state.control = snapshot;
     const approved = snapshot.roles.filter((role) => role.status === "approved");
     if (!state.activeRole || !approved.some((role) => role.role === state.activeRole)) {
       const preferred = approved.find((role) => role.role === initialRole) ?? approved[0];
       state.activeRole = preferred?.role ?? null;
-      if (preferred) repository?.setActiveRole(preferred.role, preferred.requestId);
+      if (preferred) {
+        repository?.setActiveRole(preferred.role, preferred.requestId);
+        setLastActiveRole(accountId, deviceId, preferred.role);
+      }
     }
-  });
+  };
+  applyControlSnapshot(await repository.control.snapshot());
+  controlUnsubscribe = repository.control.subscribe(applyControlSnapshot);
   medicalUnsubscribe = repository.medical.subscribe((snapshot) => { state.medical = snapshot; });
   state.conflicts = await repository.conflicts();
 }
@@ -190,9 +203,14 @@ export async function verifyEmail(token: string) {
   catch (reason) { setError(reason); throw reason; } finally { state.busy = false; }
 }
 
-export async function login(email: string, password: string) {
+export async function login(email: string, password: string, deviceName?: string) {
   state.busy = true; state.error = "";
-  try { await auth.login(email, password, getDeviceHint() ?? undefined); state.initialized = false; await bootstrapApp(true); }
+  try {
+    if (deviceName?.trim()) setDeviceName(deviceName);
+    await auth.login(email, password, getOrCreateDeviceId());
+    state.initialized = false;
+    await bootstrapApp(true);
+  }
   catch (reason) { setError(reason); throw reason; } finally { state.busy = false; }
 }
 
@@ -217,12 +235,11 @@ export async function revokeDevice(deviceId: string) {
     if (result.certificate) {
       await repository?.control.rotateCurrentDevice(result.certificate);
       keys = await storeExportedUserKeys(state.session.accountId!, exported);
-      setDeviceHint(result.certificate.deviceId);
     }
   } else {
     await repository?.control.revokeDevice(deviceId);
     await auth.revokeDevice(deviceId);
-    if (currentDeviceId === deviceId) setDeviceHint(null);
+    if (currentDeviceId === deviceId) clearDeviceId();
   }
   await repository?.dispose();
   repository = null;
@@ -304,6 +321,14 @@ export async function approveDeviceEnrollment(enrollmentId: string) {
   state.message = "Устройство подтверждено. Ключи переданы по защищённому каналу.";
   state.initialized = false;
   await bootstrapApp(true);
+}
+
+export async function rejectDeviceEnrollment(enrollmentId: string) {
+  await auth.rejectEnrollment(enrollmentId);
+  state.session = {
+    ...state.session,
+    enrollments: state.session.enrollments?.filter((item) => item.enrollmentId !== enrollmentId),
+  };
 }
 
 export const appState = readonly(state);

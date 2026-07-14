@@ -47,6 +47,7 @@ export class AttestationService {
     }
     const unsigned = {
       deviceId: enrollment.deviceId,
+      ...(enrollment.deviceName ? { deviceName: enrollment.deviceName } : {}),
       accountId: enrollment.accountId,
       orbitIdentityId: enrollment.orbitIdentityId,
       status: "active" as const,
