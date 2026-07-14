@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { Role } from "@klinok/protocol";
 import BrandLogo from "../components/BrandLogo.vue";
+import PasswordInput from "../components/PasswordInput.vue";
 import { appState, forgotPassword, getConfig, login, register, resetPassword, verifyEmail } from "../appStore";
 import { APP_VERSION } from "../version";
 
@@ -106,7 +107,7 @@ onMounted(async () => {
 
         <form v-if="mode === 'login'" class="form-stack" @submit.prevent="submitLogin">
           <label><span>Электронная почта</span><input v-model="email" type="email" autocomplete="email" required /></label>
-          <label><span>Пароль</span><input v-model="password" type="password" autocomplete="current-password" required /></label>
+          <PasswordInput v-model="password" label="Пароль" autocomplete="current-password" required />
           <button class="primary-action" :disabled="appState.busy">Войти</button>
           <nav class="auth-login-links" aria-label="Дополнительные действия">
             <RouterLink class="auth-text-link" to="/auth/forgot-password">Забыли пароль?</RouterLink>
@@ -116,10 +117,10 @@ onMounted(async () => {
 
         <form v-else-if="mode === 'register'" class="form-stack" @submit.prevent="continueRegistration">
           <label><span>Имя</span><input v-model="registration.firstName" autocomplete="given-name" required /></label>
-          <label><span>Фамилия</span><input v-model="registration.lastName" autocomplete="family-name" required /></label>
           <label><span>Отчество, если есть</span><input v-model="registration.patronymic" autocomplete="additional-name" /></label>
+          <label><span>Фамилия</span><input v-model="registration.lastName" autocomplete="family-name" required /></label>
           <label><span>Электронная почта</span><input v-model="registration.email" type="email" autocomplete="email" required /></label>
-          <label><span>Пароль — от 12 до 128 символов</span><input v-model="registration.password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required /></label>
+          <PasswordInput v-model="registration.password" label="Пароль — от 12 до 128 символов" minlength="12" maxlength="128" autocomplete="new-password" required />
           <fieldset class="role-checkboxes">
             <legend>Запрашиваемые роли</legend>
             <label><input type="checkbox" :checked="registration.requestedRoles.includes('owner')" @change="toggleRole('owner')" /> Владелец животного</label>
@@ -154,8 +155,8 @@ onMounted(async () => {
         </form>
 
         <form v-else class="form-stack" @submit.prevent="submitReset">
-          <label><span>Новый пароль</span><input v-model="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required /></label>
-          <label><span>Повторите пароль</span><input v-model="confirmPassword" type="password" autocomplete="new-password" required /></label>
+          <PasswordInput v-model="password" label="Новый пароль" minlength="12" maxlength="128" autocomplete="new-password" required />
+          <PasswordInput v-model="confirmPassword" label="Повторите пароль" autocomplete="new-password" required />
           <p v-if="confirmPassword && password !== confirmPassword" class="field-error" role="alert">Пароли не совпадают.</p>
           <button class="primary-action" :disabled="password !== confirmPassword">Изменить пароль</button>
           <RouterLink class="auth-text-link" to="/auth/login">Вернуться ко входу</RouterLink>

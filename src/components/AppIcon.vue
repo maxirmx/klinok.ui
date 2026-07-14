@@ -18,6 +18,8 @@ defineProps<{
     | "filter"
     | "close"
     | "moon"
+    | "eye"
+    | "eye-off"
     | "calendar"
     | "star"
     | "check"
@@ -69,6 +71,14 @@ defineProps<{
     </g>
     <g v-else-if="name === 'moon'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
       <path d="M18.8 15.3A7.4 7.4 0 0 1 8.7 5.2a7.8 7.8 0 1 0 10.1 10.1Z" />
+    </g>
+    <g v-else-if="name === 'eye'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
+      <path d="M2.8 12s3.3-5.4 9.2-5.4 9.2 5.4 9.2 5.4-3.3 5.4-9.2 5.4S2.8 12 2.8 12Z" />
+      <circle cx="12" cy="12" r="2.7" />
+    </g>
+    <g v-else-if="name === 'eye-off'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
+      <path d="M4.2 7.2C3.3 8.1 2.8 9 2.8 9s3.3 5.4 9.2 5.4c1.2 0 2.3-.2 3.2-.5M8.1 5.9c1.1-.4 2.4-.6 3.9-.6 5.9 0 9.2 5.4 9.2 5.4s-.7 1.1-1.9 2.3" />
+      <path d="M9.7 9.7a3.2 3.2 0 0 0 4.6 4.6M3.5 3.5l17 17" />
     </g>
     <g v-else-if="name === 'calendar'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
       <path d="M6.2 5.5h11.6a1.9 1.9 0 0 1 1.9 1.9v10.4a1.9 1.9 0 0 1-1.9 1.9H6.2a1.9 1.9 0 0 1-1.9-1.9V7.4a1.9 1.9 0 0 1 1.9-1.9Z" />

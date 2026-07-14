@@ -22,15 +22,25 @@ const filteredQueue = computed(() => {
   if (!query) return appState.control.pendingQueue;
   return appState.control.pendingQueue.filter((request) => {
     const profile = appState.control.profiles.find((candidate) => candidate.accountId === request.accountId);
-    return [request.accountId, request.role, profile?.firstName, profile?.lastName].some((value) => value?.toLocaleLowerCase("ru").includes(query));
+    return [request.accountId, request.role, profile?.firstName, profile?.patronymic, profile?.lastName]
+      .some((value) => value?.toLocaleLowerCase("ru").includes(query));
   });
 });
 const filteredAccounts = computed(() => {
   const query = adminSearch.value.trim().toLocaleLowerCase("ru");
   return appState.control.profiles.filter((profile) => !query ||
-    [profile.accountId, profile.firstName, profile.lastName].some((value) => value.toLocaleLowerCase("ru").includes(query)));
+    [profile.accountId, profile.firstName, profile.patronymic, profile.lastName]
+      .some((value) => value?.toLocaleLowerCase("ru").includes(query)));
 });
 const auditEvents = computed(() => appState.control.events.filter((event) => event.eventType.startsWith("audit.")));
+
+function formatProfileName(profile?: { firstName: string; patronymic?: string; lastName: string } | null) {
+  return [profile?.firstName, profile?.patronymic, profile?.lastName].filter(Boolean).join(" ");
+}
+
+function profileName(accountId: string) {
+  return formatProfileName(appState.control.profiles.find((profile) => profile.accountId === accountId));
+}
 
 async function action(task: () => Promise<unknown>) {
   actionError.value = "";
@@ -91,7 +101,7 @@ async function createTemplate() {
   <main class="workspace-page">
     <header class="workspace-header">
       <BrandLogo variant="full" size="compact" />
-      <div><h1>{{ roleLabels[role] }}</h1><p>{{ appState.control.profile?.firstName }} {{ appState.control.profile?.lastName }}</p></div>
+      <div><h1>{{ roleLabels[role] }}</h1><p>{{ formatProfileName(appState.control.profile) }}</p></div>
       <nav>
         <button class="link-action" @click="router.push('/roles')">Сменить роль</button>
         <button class="link-action" @click="logout()">Выйти</button>
@@ -108,7 +118,7 @@ async function createTemplate() {
           <div v-for="request in filteredQueue" :key="request.requestId" class="request-row">
             <div>
               <strong>{{ request.role === 'doctor' ? 'Врач' : request.role === 'administrator' ? 'Администратор' : 'Владелец животного' }}</strong>
-              <span>{{ appState.control.profiles.find(profile => profile.accountId === request.accountId)?.firstName }} {{ appState.control.profiles.find(profile => profile.accountId === request.accountId)?.lastName }}</span>
+              <span>{{ profileName(request.accountId) }}</span>
               <small>Аккаунт {{ request.accountId }}</small>
               <small>Проверена редакция профиля {{ request.profileRevision }}</small>
               <span v-if="appState.control.profiles.find(profile => profile.accountId === request.accountId)?.revision !== request.profileRevision" class="status-badge pending">Профиль изменён после подачи</span>
@@ -125,7 +135,7 @@ async function createTemplate() {
           <h2>Аккаунты</h2>
           <div v-for="profile in filteredAccounts" :key="profile.accountId" class="request-row">
             <div>
-              <strong>{{ profile.firstName }} {{ profile.lastName }}</strong>
+              <strong>{{ formatProfileName(profile) }}</strong>
               <small>{{ profile.accountId }} · редакция {{ profile.revision }}</small>
             </div>
             <div v-for="request in appState.control.allRoles.filter(item => item.accountId === profile.accountId)" :key="request.role" class="row-actions">

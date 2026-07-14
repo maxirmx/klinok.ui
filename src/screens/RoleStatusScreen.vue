@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { Role, RoleStatus } from "@klinok/protocol";
 import BrandLogo from "../components/BrandLogo.vue";
+import PasswordInput from "../components/PasswordInput.vue";
 import {
   appState,
   approveDeviceEnrollment,
@@ -63,7 +64,7 @@ async function activate(role: Role) {
         <p>Для первого устройства начального администратора загрузите офлайн-пакет, созданный командой provision.</p>
         <form class="form-stack" @submit.prevent="importBootstrapRecovery(recoveryText, recoveryPassphrase)">
           <label><span>Пакет восстановления</span><input type="file" accept="application/json,.json" required @change="readRecoveryFile" /></label>
-          <label><span>Пароль пакета</span><input v-model="recoveryPassphrase" type="password" required /></label>
+          <PasswordInput v-model="recoveryPassphrase" label="Пароль пакета" required />
           <button class="primary-action" :disabled="!recoveryText || recoveryPassphrase.length < 16">Импортировать ключи</button>
         </form>
       </template>
@@ -108,10 +109,10 @@ async function activate(role: Role) {
 
     <section class="panel critical-panel">
       <h2>Профиль</h2>
-      <form class="form-stack" @submit.prevent="updateProfile({ ...profileDraft, patronymic: profileDraft.patronymic || undefined })">
+      <form class="form-stack profile-form" @submit.prevent="updateProfile({ ...profileDraft, patronymic: profileDraft.patronymic || undefined })">
         <label><span>Имя</span><input v-model="profileDraft.firstName" required /></label>
-        <label><span>Фамилия</span><input v-model="profileDraft.lastName" required /></label>
         <label><span>Отчество, если есть</span><input v-model="profileDraft.patronymic" /></label>
+        <label><span>Фамилия</span><input v-model="profileDraft.lastName" required /></label>
         <button class="primary-action inline">Сохранить профиль</button>
       </form>
     </section>

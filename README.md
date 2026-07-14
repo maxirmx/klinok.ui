@@ -33,6 +33,35 @@ After the complete stack is running, rebuild and restart only the UI service wit
 The script preserves the running auth, P2P, and mail services and reuses their current
 trust configuration.
 
+### Смешанный режим разработки
+
+Чтобы запустить сервисы аутентификации, P2P и почты в Docker, а интерфейс — через
+Vite с горячей перезагрузкой, выполните:
+
+```sh
+./scripts/run-mixed-dev.sh
+```
+
+Скрипт останавливает контейнер `ui`, но сохраняет и переиспользует те же локальные
+тома и данные, что и полный Docker-стек. Он выполняет provision при первом запуске,
+получает публичные ключи доверия и идентификатор P2P-узла, формирует локальную
+runtime-конфигурацию и запускает `npm run dev`. Интерфейс доступен по адресу
+`http://127.0.0.1:5173`, а Mailpit — по адресу `http://localhost:8025`. Для
+изменяющих состояние запросов адрес интерфейса должен точно совпадать с этим
+адресом (в частности, не заменяйте `127.0.0.1` на `localhost`).
+Пока backend-контейнеры продолжают работать, последующие запуски интерфейса можно
+выполнять обычной командой `npm run dev`: Vite автоматически использует созданную
+конфигурацию из `.klinok-local/`.
+
+После первого запуска сборку backend-образов можно пропустить:
+
+```sh
+KLINOK_SKIP_BUILD=true ./scripts/run-mixed-dev.sh
+```
+
+Остановить backend-контейнеры можно командой, которую скрипт выводит перед запуском
+Vite.
+
 Docker with Compose v2 and `curl` are required. To rebuild less often after the first
 run, use `KLINOK_SKIP_BUILD=true ./scripts/run-local.sh`. Stop the stack with:
 
