@@ -20,6 +20,8 @@ services:
     environment:
       KLINOK_PUBLIC_ORIGIN: http://localhost:8080
       KLINOK_AUTH_COOKIE_SECURE: "false"
+      # The auth port is internal-only and every HTTP request arrives through the UI nginx container.
+      KLINOK_AUTH_TRUST_PROXY: "1"
       KLINOK_AUTH_DATA_DIR: /data
       KLINOK_AUTH_CONTROL_OBSERVER_ENABLED: "true"
       KLINOK_P2P_TRUSTED_NODES: ${KLINOK_P2P_TRUSTED_NODES:-/dns4/p2p/tcp/8089/ws}

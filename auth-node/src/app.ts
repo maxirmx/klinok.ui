@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
+import rateLimit from "@fastify/rate-limit";
 import {
   stableSerialize,
   type AuthErrorBody,
@@ -26,8 +27,6 @@ import { AuthStore, type AuthAccount, type AuthSessionRecord } from "./store.js"
 import { ControlPlaneObserver } from "./controlObserver.js";
 
 const COOKIE_NAME = "klinok_session";
-const LOGIN_WINDOW_MS = 15 * 60_000;
-const LOCK_MS = 15 * 60_000;
 const IDLE_MS = 30 * 60_000;
 const ABSOLUTE_MS = 8 * 60 * 60_000;
 const ROTATE_MS = 15 * 60_000;
@@ -52,6 +51,26 @@ interface DeviceBody {
   ephemeralPublicKey?: JsonWebKey;
 }
 
+class RateLimitError extends Error {
+  readonly statusCode = 429;
+  readonly code = "RATE_LIMITED";
+
+  constructor() {
+    super("Слишком много запросов. Повторите попытку позже.");
+  }
+}
+
+type RateLimitCheck = ReturnType<FastifyInstance["createRateLimit"]>;
+type RateLimitResult = Awaited<ReturnType<RateLimitCheck>>;
+
+function rateLimitExhausted(result: RateLimitResult): boolean {
+  return !result.isAllowed && (result.isExceeded || result.remaining === 0);
+}
+
+function rateLimitExceeded(result: RateLimitResult): boolean {
+  return !result.isAllowed && result.isExceeded;
+}
+
 export interface AuthAppOptions {
   config: AuthConfig;
   store?: AuthStore;
@@ -74,19 +93,37 @@ function cookieOptions(config: AuthConfig) {
 }
 
 export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { redact: ["req.headers.cookie", "req.headers.authorization", "password", "token"] }, bodyLimit: 64 * 1024 });
-  await app.register(cookie);
-  const store = options.store ?? new AuthStore(options.config.dataDir);
-  const mailer = options.mailer ?? new SmtpMailer(options.config);
+  const app = Fastify({
+    logger: { redact: ["req.headers.cookie", "req.headers.authorization", "password", "token"] },
+    bodyLimit: 64 * 1024,
+    trustProxy: options.config.trustProxy,
+  });
   const metrics = {
     loginFailures: 0,
-    loginLocks: 0,
+    rateLimitRejected: 0,
     sessionsIssued: 0,
     sessionsRevoked: 0,
     mailDelivered: 0,
     originRejected: 0,
     csrfRejected: 0,
   };
+  await app.register(cookie);
+  await app.register(rateLimit, {
+    global: false,
+    skipOnError: false,
+    keyGenerator: (request) => request.ip,
+    onExceeded: () => { metrics.rateLimitRejected += 1; },
+    errorResponseBuilder: () => new RateLimitError(),
+  });
+  app.setErrorHandler((failure, _request, reply) => {
+    if (failure instanceof RateLimitError) {
+      return error(reply, 429, "RATE_LIMITED", "Слишком много запросов. Повторите попытку позже.");
+    }
+    return reply.send(failure);
+  });
+
+  const store = options.store ?? new AuthStore(options.config.dataDir);
+  const mailer = options.mailer ?? new SmtpMailer(options.config);
   const countedMailer: Mailer = {
     async send(message) {
       await mailer.send(message);
@@ -95,6 +132,63 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
   };
   const attestation = options.attestation ?? await AttestationService.loadOrCreate(options.config.attestationKeyPath);
   const now = options.now ?? (() => new Date());
+  const limiterKeySecret = randomBytes(32);
+
+  function privateLimiterKey(scope: string, value: string): string {
+    return `${scope}:${createHmac("sha256", limiterKeySecret).update(value).digest("base64url")}`;
+  }
+
+  function keyedLimiter(max: number, timeWindow: number): (request: FastifyRequest, key: string, increment?: boolean) => Promise<RateLimitResult> {
+    const requestKeys = new WeakMap<FastifyRequest, string>();
+    const check = app.createRateLimit({
+      max,
+      timeWindow,
+      keyGenerator: (request) => {
+        const key = requestKeys.get(request);
+        if (!key) throw new Error("Rate-limit key is missing");
+        return key;
+      },
+    });
+    return async (request, key, increment = true) => {
+      requestKeys.set(request, key);
+      try {
+        return await check(request, { increment });
+      } finally {
+        requestKeys.delete(request);
+      }
+    };
+  }
+
+  const registrationByEmail = keyedLimiter(options.config.rateLimit.registrationEmailPerDay, 24 * 60 * 60_000);
+  const loginFailuresByAccount = keyedLimiter(options.config.rateLimit.loginFailuresPerAccount15Minutes, 15 * 60_000);
+  const recoveryByAccount = keyedLimiter(options.config.rateLimit.recoveryAccountPerHour, 60 * 60_000);
+  const tokenAttempts = keyedLimiter(options.config.rateLimit.tokenPer15Minutes, 15 * 60_000);
+  const mutationsByAccount = keyedLimiter(options.config.rateLimit.mutationAccountPerMinute, 60_000);
+  const sensitiveMutationsByAccount = keyedLimiter(options.config.rateLimit.sensitiveMutationAccountPerMinute, 60_000);
+
+  function rejectRateLimit(reply: FastifyReply, result: RateLimitResult): FastifyReply {
+    metrics.rateLimitRejected += 1;
+    if (!result.isAllowed) reply.header("Retry-After", Math.max(1, result.ttlInSeconds));
+    return error(reply, 429, "RATE_LIMITED", "Слишком много запросов. Повторите попытку позже.");
+  }
+
+  async function allowAccountMutation(request: FastifyRequest, reply: FastifyReply, accountId: string, sensitive = false): Promise<boolean> {
+    const accountKey = privateLimiterKey("account", accountId);
+    const mutationResult = await mutationsByAccount(request, accountKey);
+    if (rateLimitExceeded(mutationResult)) {
+      rejectRateLimit(reply, mutationResult);
+      return false;
+    }
+    if (sensitive) {
+      const sensitiveResult = await sensitiveMutationsByAccount(request, accountKey);
+      if (rateLimitExceeded(sensitiveResult)) {
+        rejectRateLimit(reply, sensitiveResult);
+        return false;
+      }
+    }
+    return true;
+  }
+
   await store.open();
 
   app.addHook("onClose", async () => store.close());
@@ -183,7 +277,9 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
   app.get("/healthz", async () => ({ status: "ok" }));
   app.get("/metrics", async () => ({ counters: { ...metrics } }));
 
-  app.post<{ Body: RegistrationBody }>("/api/auth/register", async (request, reply) => {
+  app.post<{ Body: RegistrationBody }>("/api/auth/register", {
+    config: { rateLimit: { max: options.config.rateLimit.registrationIpPerHour, timeWindow: 60 * 60_000 } },
+  }, async (request, reply) => {
     const body = request.body;
     const email = normalizeEmail(body.email ?? "");
     const roles = [...new Set(body.requestedRoles ?? [])].filter((role): role is Role => ["administrator", "doctor", "owner"].includes(role));
@@ -192,6 +288,9 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
       body.personalDataConsentVersion === options.config.legal.personalDataConsentVersion &&
       body.userAgreementVersion === options.config.legal.userAgreementVersion;
     if (!valid) return error(reply, 400, "REGISTRATION_INVALID", "Проверьте регистрационные данные и согласия.");
+
+    const emailLimit = await registrationByEmail(request, privateLimiterKey("registration-email", email));
+    if (rateLimitExceeded(emailLimit)) return reply.code(202).send({ accepted: true });
 
     const existing = await store.getAccountByEmail(email);
     if (!existing) {
@@ -234,8 +333,13 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return reply.code(202).send({ accepted: true });
   });
 
-  app.post<{ Body: { token: string } }>("/api/auth/verify-email", async (request, reply) => {
-    const token = await store.getToken("verification", digestToken(request.body.token ?? ""));
+  app.post<{ Body: { token: string } }>("/api/auth/verify-email", {
+    config: { rateLimit: { max: options.config.rateLimit.tokenIpPer15Minutes, timeWindow: 15 * 60_000 } },
+  }, async (request, reply) => {
+    const rawToken = request.body.token ?? "";
+    const tokenLimit = await tokenAttempts(request, `verification:${digestToken(rawToken)}`);
+    if (rateLimitExceeded(tokenLimit)) return rejectRateLimit(reply, tokenLimit);
+    const token = await store.getToken("verification", digestToken(rawToken));
     if (!token || token.usedAt || new Date(token.expiresAt).getTime() <= now().getTime()) {
       return error(reply, 400, "VERIFICATION_TOKEN_INVALID", "Ссылка подтверждения недействительна или устарела.");
     }
@@ -246,26 +350,23 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return { verified: true };
   });
 
-  app.post<{ Body: { email: string; password: string; deviceId?: string } }>("/api/auth/login", async (request, reply) => {
+  app.post<{ Body: { email: string; password: string; deviceId?: string } }>("/api/auth/login", {
+    config: { rateLimit: { max: options.config.rateLimit.loginIpPer15Minutes, timeWindow: 15 * 60_000 } },
+  }, async (request, reply) => {
     const email = normalizeEmail(request.body.email ?? "");
+    const accountLimitKey = privateLimiterKey("login-account", email);
+    const accountLimit = await loginFailuresByAccount(request, accountLimitKey, false);
+    if (rateLimitExhausted(accountLimit)) return rejectRateLimit(reply, accountLimit);
     const account = await store.getAccountByEmail(email);
-    const current = now().getTime();
-    const generic = () => {
+    const generic = async () => {
       metrics.loginFailures += 1;
+      await loginFailuresByAccount(request, accountLimitKey);
       return error(reply, 401, "LOGIN_FAILED", "Неверная электронная почта или пароль.");
     };
-    if (!account || account.credentialStatus === "deleted") return generic();
+    if (!account || account.credentialStatus === "deleted") return await generic();
     if (account.verificationState !== "verified") return error(reply, 403, "EMAIL_NOT_VERIFIED", "Сначала подтвердите электронную почту.");
-    if (account.lockedUntil && new Date(account.lockedUntil).getTime() > current) {
-      metrics.loginLocks += 1;
-      return error(reply, 423, "LOGIN_LOCKED", "Вход временно заблокирован. Повторите попытку позже.");
-    }
     if (!(await verifyPassword(account.passwordHash, request.body.password ?? ""))) {
-      const failureTimes = account.failureTimes.filter((value) => new Date(value).getTime() > current - LOGIN_WINDOW_MS);
-      failureTimes.push(now().toISOString());
-      const lockedUntil = failureTimes.length >= 5 ? new Date(current + LOCK_MS).toISOString() : undefined;
-      await store.putAccount({ ...account, failureTimes, ...(lockedUntil ? { lockedUntil } : {}), updatedAt: now().toISOString() });
-      return generic();
+      return await generic();
     }
     const clean = { ...account, failureTimes: [], lockedUntil: undefined, credentialStatus: "active" as const, updatedAt: now().toISOString() };
     const deviceId = clean.devices.some((device) => device.deviceId === request.body.deviceId && device.status === "active")
@@ -275,7 +376,9 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return { authenticated: true, accountId: account.accountId, csrfToken: session.csrfToken };
   });
 
-  app.get("/api/auth/session", async (request, reply) => {
+  app.get("/api/auth/session", {
+    config: { rateLimit: { max: options.config.rateLimit.sessionIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
     let current = await sessionFor(request);
     if (!current) return { authenticated: false } satisfies AuthSessionDto;
     if (now().getTime() - new Date(current.session.createdAt).getTime() >= ROTATE_MS) current = await rotateSession(current, reply);
@@ -294,26 +397,37 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     } satisfies AuthSessionDto;
   });
 
-  app.post("/api/auth/logout", async (request, reply) => {
+  app.post("/api/auth/logout", {
+    config: { rateLimit: { max: options.config.rateLimit.mutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
     const current = await authenticated(request, reply);
     if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId)) return;
     await store.deleteSessionForAccount(current.session.digest, current.account);
     metrics.sessionsRevoked += 1;
     reply.clearCookie(COOKIE_NAME, cookieOptions(options.config));
     return { loggedOut: true };
   });
 
-  app.post("/api/auth/logout-all", async (request, reply) => {
+  app.post("/api/auth/logout-all", {
+    config: { rateLimit: { max: options.config.rateLimit.sensitiveMutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
     const current = await authenticated(request, reply);
     if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId, true)) return;
     await store.revokeAccountSessions(current.account);
     metrics.sessionsRevoked += current.account.sessionDigests.length;
     reply.clearCookie(COOKIE_NAME, cookieOptions(options.config));
     return { loggedOut: true };
   });
 
-  app.post<{ Body: { email: string } }>("/api/auth/password/forgot", async (request, reply) => {
-    const account = await store.getAccountByEmail(normalizeEmail(request.body.email ?? ""));
+  app.post<{ Body: { email: string } }>("/api/auth/password/forgot", {
+    config: { rateLimit: { max: options.config.rateLimit.recoveryIpPerHour, timeWindow: 60 * 60_000 } },
+  }, async (request, reply) => {
+    const email = normalizeEmail(request.body.email ?? "");
+    const accountLimit = await recoveryByAccount(request, privateLimiterKey("recovery-account", email));
+    if (rateLimitExceeded(accountLimit)) return reply.code(202).send({ accepted: true });
+    const account = await store.getAccountByEmail(email);
     if (account && account.credentialStatus !== "deleted") {
       const token = createOpaqueToken();
       await store.putToken({ digest: digestToken(token), accountId: account.accountId, kind: "password_reset", expiresAt: new Date(now().getTime() + 30 * 60_000).toISOString() });
@@ -326,9 +440,14 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return reply.code(202).send({ accepted: true });
   });
 
-  app.post<{ Body: { token: string; password: string } }>("/api/auth/password/reset", async (request, reply) => {
+  app.post<{ Body: { token: string; password: string } }>("/api/auth/password/reset", {
+    config: { rateLimit: { max: options.config.rateLimit.tokenIpPer15Minutes, timeWindow: 15 * 60_000 } },
+  }, async (request, reply) => {
     if (!validatePassword(request.body.password ?? "")) return error(reply, 400, "PASSWORD_INVALID", "Пароль должен содержать от 12 до 128 символов.");
-    const token = await store.getToken("password_reset", digestToken(request.body.token ?? ""));
+    const rawToken = request.body.token ?? "";
+    const tokenLimit = await tokenAttempts(request, `password-reset:${digestToken(rawToken)}`);
+    if (rateLimitExceeded(tokenLimit)) return rejectRateLimit(reply, tokenLimit);
+    const token = await store.getToken("password_reset", digestToken(rawToken));
     if (!token || token.usedAt || new Date(token.expiresAt).getTime() <= now().getTime()) {
       return error(reply, 400, "RESET_TOKEN_INVALID", "Ссылка восстановления недействительна или устарела.");
     }
@@ -342,9 +461,12 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return { reset: true };
   });
 
-  app.patch<{ Body: Partial<RegistrationSetupDto["profile"]> }>("/api/auth/profile", async (request, reply) => {
+  app.patch<{ Body: Partial<RegistrationSetupDto["profile"]> }>("/api/auth/profile", {
+    config: { rateLimit: { max: options.config.rateLimit.mutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
     const current = await authenticated(request, reply);
     if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId)) return;
     const operationId = randomUUID();
     const profile = { ...(current.account.setup?.profile ?? {}), ...request.body };
     if (!profile.firstName?.trim() || !profile.lastName?.trim()) return error(reply, 400, "PROFILE_INVALID", "Имя и фамилия обязательны.");
@@ -366,9 +488,12 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return { operationId };
   });
 
-  app.delete("/api/auth/account", async (request, reply) => {
+  app.delete("/api/auth/account", {
+    config: { rateLimit: { max: options.config.rateLimit.sensitiveMutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
     const current = await authenticated(request, reply);
     if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId, true)) return;
     if (current.account.immutableBootstrap) return error(reply, 409, "BOOTSTRAP_PROTECTED", "Начальный аккаунт администратора нельзя удалить.");
     const pending = current.account.pendingOperations.find((operation) => operation.kind === "account_delete");
     if (pending) return { operationId: pending.operationId };
@@ -381,9 +506,12 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return { operationId };
   });
 
-  app.post<{ Body: DeviceBody }>("/api/auth/device-enrollments", async (request, reply) => {
+  app.post<{ Body: DeviceBody }>("/api/auth/device-enrollments", {
+    config: { rateLimit: { max: options.config.rateLimit.sensitiveMutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
     const current = await authenticated(request, reply);
     if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId, true)) return;
     const existingEnrollment = current.account.enrollments.find((enrollment) => enrollment.deviceId === request.body.deviceId);
     if (existingEnrollment) {
       const certificate = current.account.devices.find((device) => device.deviceId === existingEnrollment.deviceId && device.status === "active");
@@ -429,9 +557,12 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return { enrollment, ...(enrollment.status === "active" ? { certificate: devices.at(-1) } : {}) };
   });
 
-  app.post<{ Params: { id: string }; Body: { encryptedKeyBundle: string; signingPublicKey: JsonWebKey; encryptionPublicKey: JsonWebKey } }>("/api/auth/device-enrollments/:id/approve", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { encryptedKeyBundle: string; signingPublicKey: JsonWebKey; encryptionPublicKey: JsonWebKey } }>("/api/auth/device-enrollments/:id/approve", {
+    config: { rateLimit: { max: options.config.rateLimit.sensitiveMutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
     const current = await authenticated(request, reply);
     if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId, true)) return;
     if (!current.session.deviceId || !current.account.devices.some((device) => device.deviceId === current.session.deviceId && device.status === "active")) {
       return error(reply, 403, "ACTIVE_DEVICE_REQUIRED", "Подтвердить устройство можно только с действующего устройства.");
     }
@@ -453,9 +584,12 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return { certificate };
   });
 
-  app.delete<{ Params: { id: string }; Body: { signingPublicKey?: JsonWebKey; encryptionPublicKey?: JsonWebKey } }>("/api/auth/devices/:id", async (request, reply) => {
+  app.delete<{ Params: { id: string }; Body: { signingPublicKey?: JsonWebKey; encryptionPublicKey?: JsonWebKey } }>("/api/auth/devices/:id", {
+    config: { rateLimit: { max: options.config.rateLimit.sensitiveMutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
     const current = await authenticated(request, reply);
     if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId, true)) return;
     const found = current.account.devices.find((device) => device.deviceId === request.params.id);
     if (!found) return error(reply, 404, "DEVICE_NOT_FOUND", "Устройство не найдено.");
     const currentDevice = current.account.devices.find((device) => device.deviceId === current.session.deviceId && device.status === "active");
