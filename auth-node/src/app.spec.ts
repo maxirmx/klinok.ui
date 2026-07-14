@@ -4,14 +4,16 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildAuthApp } from "./app.js";
 import { MemoryMailer } from "./mailer.js";
-import type { AuthConfig } from "./config.js";
+import { DEFAULT_AUTH_RATE_LIMITS, type AuthConfig, type AuthRateLimitConfig } from "./config.js";
 
 const apps: Array<{ close(): Promise<void> }> = [];
 
-async function fixture(options: { now?: () => Date } = {}) {
+async function fixture(options: { now?: () => Date; trustProxy?: AuthConfig["trustProxy"]; rateLimit?: Partial<AuthRateLimitConfig> } = {}) {
   const dataDir = await mkdtemp(join(tmpdir(), "klinok-auth-test-"));
   const config: AuthConfig = {
     host: "127.0.0.1", port: 0, dataDir, publicOrigin: "https://klinok.test", attestationKeyPath: join(dataDir, "attestation.json"), cookieSecure: true, enforceOrigin: true,
+    trustProxy: options.trustProxy ?? false,
+    rateLimit: { ...DEFAULT_AUTH_RATE_LIMITS, ...options.rateLimit },
     smtp: { host: "localhost", port: 1025, secure: false, from: "test@klinok.test" },
     legal: { personalDataConsentVersion: "consent-v1", userAgreementVersion: "terms-v1" },
     controlObserver: { enabled: false, databaseName: "klinok-control-v1", trustedNodeMultiaddrs: [] },
@@ -110,16 +112,84 @@ describe("auth-node", () => {
     });
   });
 
-  it("locks login after five failures in the rolling window", async () => {
+  it("limits failed logins per account across client addresses", async () => {
     const { app, mailer } = await fixture();
     await verifiedLogin(app, mailer);
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" }, payload: { email: registration.email, password: "this password is wrong" } });
       expect(response.statusCode).toBe(401);
     }
-    const locked = await app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" }, payload: { email: registration.email, password: registration.password } });
-    expect(locked.statusCode).toBe(423);
-    expect(locked.json().error.code).toBe("LOGIN_LOCKED");
+    const limited = await app.inject({
+      method: "POST", url: "/api/auth/login", remoteAddress: "203.0.113.20",
+      headers: { origin: "https://klinok.test" }, payload: { email: registration.email, password: registration.password },
+    });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json().error.code).toBe("RATE_LIMITED");
+    expect(limited.headers["retry-after"]).toBeTruthy();
+  });
+
+  it("does not trust forged forwarded addresses by default", async () => {
+    const { app } = await fixture({ rateLimit: { recoveryIpPerHour: 2 } });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const accepted = await app.inject({
+        method: "POST", url: "/api/auth/password/forgot", remoteAddress: "198.51.100.10",
+        headers: { origin: "https://klinok.test", "x-forwarded-for": `203.0.113.${attempt + 1}` },
+        payload: { email: `missing-${attempt}@example.com` },
+      });
+      expect(accepted.statusCode).toBe(202);
+    }
+    const limited = await app.inject({
+      method: "POST", url: "/api/auth/password/forgot", remoteAddress: "198.51.100.10",
+      headers: { origin: "https://klinok.test", "x-forwarded-for": "203.0.113.99" },
+      payload: { email: "missing-limited@example.com" },
+    });
+    expect(limited.statusCode).toBe(429);
+  });
+
+  it("isolates forwarded client quotas behind one explicitly trusted proxy", async () => {
+    const { app } = await fixture({ trustProxy: 1, rateLimit: { recoveryIpPerHour: 2 } });
+    const request = (clientIp: string, suffix: string) => app.inject({
+      method: "POST", url: "/api/auth/password/forgot", remoteAddress: "172.18.0.2",
+      headers: { origin: "https://klinok.test", "x-forwarded-for": clientIp },
+      payload: { email: `missing-${suffix}@example.com` },
+    });
+    expect((await request("203.0.113.10", "a1")).statusCode).toBe(202);
+    expect((await request("203.0.113.10", "a2")).statusCode).toBe(202);
+    expect((await request("203.0.113.10", "a3")).statusCode).toBe(429);
+    expect((await request("203.0.113.11", "b1")).statusCode).toBe(202);
+  });
+
+  it("silently suppresses repeated recovery mail for one account", async () => {
+    const { app, mailer } = await fixture({ rateLimit: { recoveryAccountPerHour: 2 } });
+    await verifiedLogin(app, mailer);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await app.inject({
+        method: "POST", url: "/api/auth/password/forgot",
+        headers: { origin: "https://klinok.test" }, payload: { email: registration.email },
+      });
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toEqual({ accepted: true });
+    }
+    expect(mailer.messages).toHaveLength(3);
+  });
+
+  it("shares an authenticated mutation budget across requests", async () => {
+    const { app, mailer } = await fixture({ rateLimit: { mutationAccountPerMinute: 2 } });
+    const login = await verifiedLogin(app, mailer);
+    const headers = { origin: "https://klinok.test", cookie: login.cookie, "x-csrf-token": login.csrf };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await app.inject({
+        method: "PATCH", url: "/api/auth/profile", headers,
+        payload: { firstName: "Иван", lastName: `Петров-${attempt}` },
+      });
+      expect(response.statusCode).toBe(200);
+    }
+    const limited = await app.inject({
+      method: "PATCH", url: "/api/auth/profile", headers,
+      payload: { firstName: "Иван", lastName: "Петров-ограничен" },
+    });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json().error.code).toBe("RATE_LIMITED");
   });
 
   it("tracks operational counters without exposing secrets", async () => {

@@ -6,6 +6,8 @@ export interface AuthConfig {
   attestationKeyPath: string;
   cookieSecure: boolean;
   enforceOrigin: boolean;
+  trustProxy: boolean | number | string;
+  rateLimit: AuthRateLimitConfig;
   smtp: {
     host: string;
     port: number;
@@ -26,10 +28,56 @@ export interface AuthConfig {
   };
 }
 
+export interface AuthRateLimitConfig {
+  registrationIpPerHour: number;
+  registrationEmailPerDay: number;
+  loginIpPer15Minutes: number;
+  loginFailuresPerAccount15Minutes: number;
+  recoveryIpPerHour: number;
+  recoveryAccountPerHour: number;
+  tokenIpPer15Minutes: number;
+  tokenPer15Minutes: number;
+  sessionIpPerMinute: number;
+  mutationIpPerMinute: number;
+  sensitiveMutationIpPerMinute: number;
+  mutationAccountPerMinute: number;
+  sensitiveMutationAccountPerMinute: number;
+}
+
+export const DEFAULT_AUTH_RATE_LIMITS: AuthRateLimitConfig = {
+  registrationIpPerHour: 5,
+  registrationEmailPerDay: 1,
+  loginIpPer15Minutes: 30,
+  loginFailuresPerAccount15Minutes: 5,
+  recoveryIpPerHour: 10,
+  recoveryAccountPerHour: 3,
+  tokenIpPer15Minutes: 20,
+  tokenPer15Minutes: 5,
+  sessionIpPerMinute: 300,
+  mutationIpPerMinute: 60,
+  sensitiveMutationIpPerMinute: 10,
+  mutationAccountPerMinute: 60,
+  sensitiveMutationAccountPerMinute: 10,
+};
+
 function bool(value: string | undefined, fallback: boolean): boolean {
   if (value === "true") return true;
   if (value === "false") return false;
   return fallback;
+}
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`Expected a positive integer, received: ${value}`);
+  return parsed;
+}
+
+function trustProxy(value: string | undefined): boolean | number | string {
+  if (value === undefined || value.trim() === "" || value === "false") return false;
+  if (value === "true") return true;
+  if (/^\d+$/.test(value)) return Number(value);
+  return value;
 }
 
 export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig {
@@ -41,6 +89,22 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
     attestationKeyPath: env.KLINOK_AUTH_ATTESTATION_KEY_PATH ?? `${env.KLINOK_AUTH_DATA_DIR ?? ".klinok-auth"}/auth-attestation-key.json`,
     cookieSecure: bool(env.KLINOK_AUTH_COOKIE_SECURE, env.NODE_ENV === "production"),
     enforceOrigin: bool(env.KLINOK_AUTH_ENFORCE_ORIGIN, true),
+    trustProxy: trustProxy(env.KLINOK_AUTH_TRUST_PROXY),
+    rateLimit: {
+      registrationIpPerHour: positiveInteger(env.KLINOK_RATE_LIMIT_REGISTRATION_IP_PER_HOUR, DEFAULT_AUTH_RATE_LIMITS.registrationIpPerHour),
+      registrationEmailPerDay: positiveInteger(env.KLINOK_RATE_LIMIT_REGISTRATION_EMAIL_PER_DAY, DEFAULT_AUTH_RATE_LIMITS.registrationEmailPerDay),
+      loginIpPer15Minutes: positiveInteger(env.KLINOK_RATE_LIMIT_LOGIN_IP_PER_15_MINUTES, DEFAULT_AUTH_RATE_LIMITS.loginIpPer15Minutes),
+      loginFailuresPerAccount15Minutes: positiveInteger(env.KLINOK_RATE_LIMIT_LOGIN_FAILURES_PER_ACCOUNT_15_MINUTES, DEFAULT_AUTH_RATE_LIMITS.loginFailuresPerAccount15Minutes),
+      recoveryIpPerHour: positiveInteger(env.KLINOK_RATE_LIMIT_RECOVERY_IP_PER_HOUR, DEFAULT_AUTH_RATE_LIMITS.recoveryIpPerHour),
+      recoveryAccountPerHour: positiveInteger(env.KLINOK_RATE_LIMIT_RECOVERY_ACCOUNT_PER_HOUR, DEFAULT_AUTH_RATE_LIMITS.recoveryAccountPerHour),
+      tokenIpPer15Minutes: positiveInteger(env.KLINOK_RATE_LIMIT_TOKEN_IP_PER_15_MINUTES, DEFAULT_AUTH_RATE_LIMITS.tokenIpPer15Minutes),
+      tokenPer15Minutes: positiveInteger(env.KLINOK_RATE_LIMIT_TOKEN_PER_15_MINUTES, DEFAULT_AUTH_RATE_LIMITS.tokenPer15Minutes),
+      sessionIpPerMinute: positiveInteger(env.KLINOK_RATE_LIMIT_SESSION_IP_PER_MINUTE, DEFAULT_AUTH_RATE_LIMITS.sessionIpPerMinute),
+      mutationIpPerMinute: positiveInteger(env.KLINOK_RATE_LIMIT_MUTATION_IP_PER_MINUTE, DEFAULT_AUTH_RATE_LIMITS.mutationIpPerMinute),
+      sensitiveMutationIpPerMinute: positiveInteger(env.KLINOK_RATE_LIMIT_SENSITIVE_MUTATION_IP_PER_MINUTE, DEFAULT_AUTH_RATE_LIMITS.sensitiveMutationIpPerMinute),
+      mutationAccountPerMinute: positiveInteger(env.KLINOK_RATE_LIMIT_MUTATION_ACCOUNT_PER_MINUTE, DEFAULT_AUTH_RATE_LIMITS.mutationAccountPerMinute),
+      sensitiveMutationAccountPerMinute: positiveInteger(env.KLINOK_RATE_LIMIT_SENSITIVE_MUTATION_ACCOUNT_PER_MINUTE, DEFAULT_AUTH_RATE_LIMITS.sensitiveMutationAccountPerMinute),
+    },
     smtp: {
       host: env.KLINOK_SMTP_HOST ?? "127.0.0.1",
       port: Number(env.KLINOK_SMTP_PORT ?? 1025),
