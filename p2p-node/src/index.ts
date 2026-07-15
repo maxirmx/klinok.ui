@@ -26,6 +26,7 @@ import {
   registerOrbitDbEventHandlers,
   registerRecoverableProcessErrorHandlers,
 } from "./events.js";
+import { EventIngestService, startEventIngestServer } from "./eventIngest.js";
 
 const unregisterProcessErrors = registerRecoverableProcessErrorHandlers();
 useIdentityProvider(KlinokIdentityProvider);
@@ -35,6 +36,7 @@ const medicalDatabase = process.env.KLINOK_MEDICAL_DB ?? "klinok-medical-v3";
 const controlAddress = optionalEnv("KLINOK_CONTROL_DB_ADDRESS");
 const medicalAddress = optionalEnv("KLINOK_MEDICAL_DB_ADDRESS");
 const wsPort = process.env.KLINOK_P2P_WS_PORT ?? "8089";
+const apiPort = Number(process.env.KLINOK_P2P_API_PORT ?? "8091");
 const identityId = process.env.KLINOK_P2P_IDENTITY ?? "klinok-trusted-node";
 const tlsFiles = getTlsFilePaths();
 const privateKey = await loadOrCreateLibp2pPrivateKey({ dataDir });
@@ -123,6 +125,14 @@ const controlDb = await orbitdb.open(controlAddress ?? controlDatabase, { type: 
 await replayDatabase(controlDb, "control");
 const medicalDb = await orbitdb.open(medicalAddress ?? medicalDatabase, { type: "events", AccessController: medicalAccess });
 await replayDatabase(medicalDb, "medical");
+const ingestServer = await startEventIngestServer({
+  port: apiPort,
+  service: new EventIngestService({
+    state,
+    databases: { control: controlDb, medical: medicalDb },
+    verification: { authAttestationPublicKey, bootstrapSigningPublicKey, requireTrustedAttestation: true },
+  }),
+});
 const unregisterControl = registerOrbitDbEventHandlers(controlDb, "control", counters, () => state.roleConflicts.length);
 const unregisterMedical = registerOrbitDbEventHandlers(medicalDb, "medical", counters, () => state.roleConflicts.length);
 
@@ -133,6 +143,7 @@ console.log(JSON.stringify({
   medicalDatabase: medicalDb.address,
   orbitIdentity: orbitdb.identity.id,
   peerId: libp2p.peerId.toString(),
+  apiPort,
   multiaddrs: libp2p.getMultiaddrs().map((value) => value.toString()),
 }));
 
@@ -140,6 +151,7 @@ async function shutdown() {
   unregisterProcessErrors();
   unregisterControl();
   unregisterMedical();
+  await new Promise<void>((resolve, reject) => ingestServer.close((error) => error ? reject(error) : resolve()));
   await controlDb.close();
   await medicalDb.close();
   await orbitdb.stop();

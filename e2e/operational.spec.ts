@@ -1,7 +1,10 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 
 const password = "correct horse battery";
 const replicationTimeout = 30_000;
+const execFile = promisify(execFileCallback);
 
 async function verificationLink(request: APIRequestContext, email: string): Promise<string> {
   for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -73,6 +76,37 @@ async function newPage(context: BrowserContext, label: string): Promise<Page> {
   return page;
 }
 
+async function clearBrowserEventCaches(page: Page) {
+  await page.evaluate(async () => {
+    const retained = new Set(["klinok-identity-v1", "klinok-pet-keys-v1"]);
+    const databases = typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
+    for (const database of databases) {
+      if (!database.name || retained.has(database.name)) continue;
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.deleteDatabase(database.name!);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+        request.onblocked = () => reject(new Error(`IndexedDB ${database.name} is still open.`));
+      });
+    }
+  });
+}
+
+async function restartTrustedNode() {
+  await execFile("docker", ["compose", "restart", "p2p"], { cwd: process.cwd(), env: process.env });
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      await execFile("docker", ["compose", "exec", "-T", "p2p", "node", "-e", "fetch('http://127.0.0.1:8091/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], {
+        cwd: process.cwd(), env: process.env,
+      });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  throw new Error("Trusted P2P node did not become healthy after restart.");
+}
+
 test("fresh provisioning, Doctor approval, grant, draft, and confirmation", async ({ browser, request }) => {
   test.slow();
   const suffix = Date.now();
@@ -117,6 +151,7 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await ownerPage.getByLabel("Порода").fill("Бигль");
   await ownerPage.getByRole("button", { name: "Сохранить питомца" }).click();
   await expect(ownerPage.locator(".pet-operational-card strong").filter({ hasText: "Шарик" })).toBeVisible();
+  await expect(ownerPage.locator(".sync-status")).toContainText("Сохранено", { timeout: replicationTimeout });
   await ownerPage.getByLabel("Питомец").selectOption({ label: "Шарик" });
   await ownerPage.getByLabel("Идентификатор аккаунта врача").fill(doctorAccountId);
   await ownerPage.getByRole("button", { name: "Предоставить доступ" }).click();
@@ -133,4 +168,20 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await expect(ownerPage.getByText("Состояние стабильное")).toBeVisible({ timeout: replicationTimeout });
   await ownerPage.getByRole("button", { name: "Подтвердить" }).click();
   await expect(ownerPage.getByText("Подтверждена")).toBeVisible();
+  await expect(ownerPage.locator(".sync-status")).toContainText("Сохранено", { timeout: replicationTimeout });
+
+  if (process.env.KLINOK_E2E_RESTART_P2P === "true") await restartTrustedNode();
+  await ownerPage.getByRole("button", { name: "Выйти", exact: true }).click();
+  await expect(ownerPage).toHaveURL(/\/auth\/login/);
+  await clearBrowserEventCaches(ownerPage);
+  await login(ownerPage, ownerEmail);
+  await expect(ownerPage).toHaveURL(/\/(?:roles|owner\/home)/, { timeout: replicationTimeout });
+  if (new URL(ownerPage.url()).pathname === "/roles") {
+    const ownerRole = ownerPage.locator(".role-status-card").filter({ hasText: "Владелец животного" });
+    await expect(ownerRole.getByText("Одобрена", { exact: true })).toBeVisible({ timeout: replicationTimeout });
+    await ownerRole.getByRole("button", { name: "Использовать роль" }).click();
+  }
+  await expect(ownerPage).toHaveURL(/\/owner\/home/);
+  await expect(ownerPage.locator(".sync-status")).toContainText("Сохранено", { timeout: replicationTimeout });
+  await expect(ownerPage.locator(".pet-operational-card strong").filter({ hasText: "Шарик" })).toBeVisible({ timeout: replicationTimeout });
 });

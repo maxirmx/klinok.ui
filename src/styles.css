@@ -2198,6 +2198,11 @@ dd {
 .status-badge.approved { background: #dcfae6; color: #067647; }
 .status-badge.pending { background: #fef0c7; color: #93370d; }
 .status-badge.rejected, .status-badge.revoked, .status-badge.suspended { background: #fee4e2; color: #b42318; }
+.sync-status { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; color: #344054; font-size: .8rem; font-weight: 700; white-space: nowrap; }
+.sync-status > span { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #17b26a; }
+.sync-status.pending > span { background: #f79009; }
+.sync-status.error { color: #b42318; }
+.sync-status.error > span { background: #d92d20; }
 .request-row, .pet-operational-card, .record-card, .list-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid #eaecf0; }
 .request-row { grid-template-columns: minmax(220px,1fr) minmax(220px,.8fr) auto; }
 .request-row strong, .request-row span, .request-row small, .pet-operational-card strong, .pet-operational-card span, .pet-operational-card small, .list-row strong, .list-row span, .list-row small { display: block; }

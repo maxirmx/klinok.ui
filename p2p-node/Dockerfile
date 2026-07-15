@@ -15,7 +15,7 @@ RUN npm run build --workspace @klinok/protocol && npm run build --workspace @kli
 
 FROM node:24.18.0-bookworm-slim AS final
 WORKDIR /app
-ENV NODE_ENV=production KLINOK_P2P_DATA_DIR=/data KLINOK_P2P_WS_PORT=8089
+ENV NODE_ENV=production KLINOK_P2P_DATA_DIR=/data KLINOK_P2P_WS_PORT=8089 KLINOK_P2P_API_PORT=8091
 COPY --from=build --chown=node:node /app/node_modules node_modules
 COPY --from=build --chown=node:node /app/packages/protocol packages/protocol
 COPY --from=build --chown=node:node /app/packages/node-datachannel-disabled packages/node-datachannel-disabled
@@ -25,5 +25,6 @@ USER node
 
 VOLUME ["/data"]
 EXPOSE 8089/tcp
+EXPOSE 8091/tcp
 
 CMD ["node", "p2p-node/dist/index.js"]

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import type { Role, RoleStatus } from "@klinok/protocol";
 import BrandLogo from "../components/BrandLogo.vue";
 import PasswordInput from "../components/PasswordInput.vue";
+import SyncStatus from "../components/SyncStatus.vue";
 import { roleHomePath } from "../roleNavigation";
 import { getDeviceName } from "../repositories/deviceVault";
 import {
@@ -33,6 +34,7 @@ const requests = computed(() => new Map(appState.control.roles.map((request) => 
 const recoveryText = ref("");
 const recoveryPassphrase = ref("");
 const deletionArmed = ref(false);
+const actionError = ref("");
 const profileDraft = reactive({ firstName: "", lastName: "", patronymic: "" });
 const deviceName = (device: { deviceId: string; deviceName?: string }) => device.deviceName?.trim()
   || (device.deviceId === appState.session.device?.deviceId ? getDeviceName() : null)
@@ -58,6 +60,11 @@ async function signOut(all = false) {
   await logout(all);
   await router.replace("/auth/login");
 }
+
+async function action(task: () => Promise<unknown>) {
+  actionError.value = "";
+  try { await task(); } catch (reason) { actionError.value = reason instanceof Error ? reason.message : "Операция не выполнена."; }
+}
 </script>
 
 <template>
@@ -65,10 +72,11 @@ async function signOut(all = false) {
     <header class="workspace-header">
       <BrandLogo variant="full" size="compact" />
       <div><h1>Роли и доступ</h1><p>Выберите активную одобренную роль</p></div>
+      <SyncStatus />
       <button class="link-action" @click="signOut()">Выйти</button>
     </header>
 
-    <p v-if="appState.error" class="form-alert error" role="alert">{{ appState.error }}</p>
+    <p v-if="actionError || appState.error" class="form-alert error" role="alert">{{ actionError || appState.error }}</p>
     <section v-if="appState.keyRecoveryRequired" class="panel critical-panel" role="alert">
       <h2>Ключи этого аккаунта отсутствуют на устройстве</h2>
       <template v-if="appState.session.accountId === getConfig()?.p2p.bootstrapAccountId && !appState.session.devices?.length">
@@ -93,8 +101,8 @@ async function signOut(all = false) {
       <div v-for="enrollment in appState.session.enrollments.filter(item => item.status === 'pending' && item.ephemeralPublicKey)" :key="enrollment.enrollmentId" class="list-row">
         <div><strong>{{ deviceName(enrollment) }}</strong><span>ID: {{ enrollment.deviceId }}</span><small>Запрошено {{ enrollment.createdAt }}</small></div>
         <div class="row-actions">
-          <button class="primary-action inline" @click="approveDeviceEnrollment(enrollment.enrollmentId)">Подтвердить и передать ключи</button>
-          <button class="outline-action inline danger-link" @click="rejectDeviceEnrollment(enrollment.enrollmentId)">Отклонить</button>
+          <button class="primary-action inline" @click="action(() => approveDeviceEnrollment(enrollment.enrollmentId))">Подтвердить и передать ключи</button>
+          <button class="outline-action inline danger-link" @click="action(() => rejectDeviceEnrollment(enrollment.enrollmentId))">Отклонить</button>
         </div>
       </div>
     </section>
@@ -109,8 +117,8 @@ async function signOut(all = false) {
         </div>
         <p v-if="requests.get(role)?.reason">Причина: {{ requests.get(role)?.reason }}</p>
         <button v-if="requests.get(role)?.status === 'approved'" class="primary-action" @click="activate(role)">Использовать роль</button>
-        <button v-else-if="requests.get(role)?.status === 'pending'" class="outline-action" @click="cancelRole(role)">Отменить запрос</button>
-        <button v-else class="outline-action" @click="requestRole(role)">{{ requests.has(role) ? 'Отправить повторно' : 'Запросить роль' }}</button>
+        <button v-else-if="requests.get(role)?.status === 'pending'" class="outline-action" @click="action(() => cancelRole(role))">Отменить запрос</button>
+        <button v-else class="outline-action" @click="action(() => requestRole(role))">{{ requests.has(role) ? 'Отправить повторно' : 'Запросить роль' }}</button>
       </article>
     </section>
 
@@ -123,7 +131,7 @@ async function signOut(all = false) {
 
     <section class="panel critical-panel">
       <h2>Профиль</h2>
-      <form class="form-stack profile-form" @submit.prevent="updateProfile({ ...profileDraft, patronymic: profileDraft.patronymic || undefined })">
+      <form class="form-stack profile-form" @submit.prevent="action(() => updateProfile({ ...profileDraft, patronymic: profileDraft.patronymic || undefined }))">
         <label><span>Имя</span><input v-model="profileDraft.firstName" required /></label>
         <label><span>Отчество, если есть</span><input v-model="profileDraft.patronymic" /></label>
         <label><span>Фамилия</span><input v-model="profileDraft.lastName" required /></label>
@@ -135,7 +143,7 @@ async function signOut(all = false) {
       <h2>Аккаунт и устройства</h2>
       <div v-for="device in appState.session.devices" :key="device.deviceId" class="list-row">
         <div><strong>{{ deviceName(device) }}</strong><span>{{ device.deviceId === appState.session.device?.deviceId ? 'Это устройство' : device.status === 'active' ? 'Действующее устройство' : 'Устройство отозвано' }}</span><small>ID: {{ device.deviceId }}</small></div>
-        <button v-if="device.status === 'active'" class="outline-action inline" @click="revokeDevice(device.deviceId)">Отозвать устройство</button>
+        <button v-if="device.status === 'active'" class="outline-action inline" @click="action(() => revokeDevice(device.deviceId))">Отозвать устройство</button>
       </div>
       <div class="row-actions">
         <button class="outline-action inline" @click="signOut(true)">Выйти на всех устройствах</button>
@@ -145,7 +153,7 @@ async function signOut(all = false) {
         <p>Удаление необратимо. Медицинская история останется в подписанном журнале, но аккаунт потеряет доступ.</p>
         <div class="row-actions">
           <button class="outline-action inline" @click="deletionArmed = false">Отмена</button>
-          <button class="primary-action inline" @click="deleteAccount">Подтвердить удаление</button>
+          <button class="primary-action inline" @click="action(deleteAccount)">Подтвердить удаление</button>
         </div>
       </div>
     </section>

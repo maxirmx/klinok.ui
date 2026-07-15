@@ -7,7 +7,7 @@ import {
 } from "@klinok/protocol";
 import type { AppRuntimeConfig } from "../runtimeConfig";
 import { ControlRepository } from "./controlRepository";
-import { IndexedDbEventTransport, MemoryEventTransport, type EventTransport } from "./eventTransport";
+import { IndexedDbEventTransport, MemoryEventTransport, type EventSyncStatus, type EventTransport } from "./eventTransport";
 import { MedicalRepository } from "./medicalRepository";
 import { OrbitEventTransport } from "./orbitTransport";
 
@@ -73,6 +73,12 @@ export class KlinokRepository {
       createdAt: "",
     }));
     return [...stored, ...roleConflicts];
+  }
+
+  syncStatus(): Promise<EventSyncStatus> { return this.transport.syncStatus(); }
+
+  subscribeSyncStatus(listener: (status: EventSyncStatus) => void): () => void {
+    return this.transport.subscribeSyncStatus(listener);
   }
 
   async dispose() {

@@ -28,6 +28,7 @@ export class ControlRepository {
   private events: SignedEvent[] = [];
   private unsubscribe: (() => void) | null = null;
   private reloadQueue: Promise<void> = Promise.resolve();
+  private disposed = false;
 
   constructor(
     private readonly transport: EventTransport,
@@ -47,6 +48,7 @@ export class ControlRepository {
   }
 
   async initialize(setup?: RegistrationSetupDto, deviceOperationId?: string): Promise<void> {
+    this.disposed = false;
     await this.reloadNow();
     this.unsubscribe = this.transport.subscribe("control", () => { void this.queueReload(); });
     if (!this.signed.state.devices.has(this.context.deviceId)) {
@@ -112,15 +114,22 @@ export class ControlRepository {
   }
 
   private queueReload(): Promise<void> {
-    this.reloadQueue = this.reloadQueue.then(() => this.reloadNow());
+    this.reloadQueue = this.reloadQueue
+      .then(() => this.disposed ? undefined : this.reloadNow())
+      .catch((reason) => {
+        if (!this.disposed) throw reason;
+      });
     return this.reloadQueue;
   }
 
   private async reloadNow() {
     const remote = await this.transport.list("control");
+    if (this.disposed) return;
     await this.signed.import(remote);
+    if (this.disposed) return;
     this.events = this.signed.list().filter((event) => event.database === "control");
     for (const conflict of this.signed.conflicts.splice(0)) {
+      if (this.disposed) return;
       await this.transport.recordConflict({
         eventId: conflict.event.eventId,
         database: conflict.event.database,
@@ -359,5 +368,10 @@ export class ControlRepository {
     for (const listener of this.listeners) listener(snapshot);
   }
 
-  async dispose() { this.unsubscribe?.(); }
+  async dispose() {
+    this.disposed = true;
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.listeners.clear();
+  }
 }

@@ -9,10 +9,11 @@ import {
   shouldDeferEventVerification,
   verifySignedEvent,
   type DatabaseKind,
+  type EventIngestResponse,
   type ProtocolState,
   type SignedEvent,
 } from "@klinok/protocol";
-import { createBrowserHeliaInit } from "./browserStorage";
+import { closeBrowserHeliaStorage, createBrowserHeliaInit } from "./browserStorage";
 import { IndexedDbEventTransport, type AuthorizationConflict } from "./eventTransport";
 import type { P2PClientConfig } from "../runtimeConfig";
 
@@ -22,6 +23,24 @@ interface OrbitDb {
   iterator(): AsyncIterable<unknown>;
   close(): Promise<void>;
   events?: { on?(name: string, listener: (...args: unknown[]) => void): void; off?(name: string, listener: (...args: unknown[]) => void): void };
+}
+
+export async function waitForInitialReplication(db: OrbitDb, timeoutMs = 5_000): Promise<boolean> {
+  const events = db.events;
+  if (!events?.on || !events.off) return false;
+  const on = events.on.bind(events);
+  const off = events.off.bind(events);
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout>;
+    function joined() { finish(true); }
+    function finish(replicated: boolean) {
+      clearTimeout(timer);
+      off("join", joined);
+      resolve(replicated);
+    }
+    on("join", joined);
+    timer = setTimeout(() => finish(false), timeoutMs);
+  });
 }
 
 function orbitValue(entry: unknown): SignedEvent | null {
@@ -37,6 +56,26 @@ function logP2p(level: "info" | "warn" | "error", event: string, details: Record
   if (level === "error") console.error(message);
   else if (level === "warn") console.warn(message);
   else console.info(message);
+}
+
+export function parentOrdered(events: SignedEvent[]): SignedEvent[] {
+  const ordered: SignedEvent[] = [];
+  const remaining = new Map(events.map((event) => [event.eventId, event]));
+  while (remaining.size) {
+    let progressed = false;
+    const candidates = [...remaining.values()].sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.eventId.localeCompare(right.eventId));
+    for (const event of candidates) {
+      if (event.parents.some((parent) => remaining.has(parent))) continue;
+      ordered.push(event);
+      remaining.delete(event.eventId);
+      progressed = true;
+    }
+    if (!progressed) {
+      ordered.push(...candidates);
+      break;
+    }
+  }
+  return ordered;
 }
 
 function controller(
@@ -93,11 +132,20 @@ function controller(
 }
 
 export class OrbitEventTransport extends IndexedDbEventTransport {
-  private runtime: { helia: { stop(): Promise<unknown> }; orbitdb: { stop(): Promise<unknown> }; dbs: Record<DatabaseKind, OrbitDb> } | null = null;
+  private runtime: {
+    helia: { stop(): Promise<unknown> };
+    orbitdb: { stop(): Promise<unknown> };
+    dbs: Record<DatabaseKind, OrbitDb>;
+    storage: Awaited<ReturnType<typeof createBrowserHeliaInit>>;
+  } | null = null;
   private disposing = false;
   private readonly remoteListeners = new Map<DatabaseKind, Set<() => void>>([["control", new Set()], ["medical", new Set()]]);
   private readonly updateHandlers = new Map<DatabaseKind, () => void>();
   private readonly accessState: ProtocolState;
+  private flushPromise: Promise<void> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryDelay = 1_000;
+  private readonly onlineHandler = () => { void this.flushOutbox(); };
 
   constructor(
     private readonly config: P2PClientConfig,
@@ -110,6 +158,7 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
   override async initialize() {
     await super.initialize();
     this.disposing = false;
+    if (typeof window !== "undefined") window.addEventListener("online", this.onlineHandler);
     logP2p("info", "p2p.client.initialize.started", {
       configuredOrbitIdentity: this.identityId,
       trustedNodeMultiaddrs: this.config.trustedNodeMultiaddrs,
@@ -150,6 +199,7 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
     });
     libp2p.addEventListener("peer:connect", (connectionEvent) => {
       logP2p("info", "p2p.peer.connected", { peerId: String(connectionEvent.detail) });
+      void this.flushOutbox();
     });
     libp2p.addEventListener("peer:disconnect", (connectionEvent) => {
       logP2p(this.disposing ? "info" : "warn", "p2p.peer.disconnected", {
@@ -182,6 +232,8 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
     });
     const control = await orbitdb.open(this.config.controlDatabaseAddress ?? this.config.controlDatabaseName, { type: "events", AccessController: controlAccess }) as OrbitDb;
     logP2p("info", "p2p.database.opened", { database: "control", address: control.address?.toString() });
+    const controlReplicated = await waitForInitialReplication(control);
+    logP2p(controlReplicated ? "info" : "warn", "p2p.database.initial-replication", { database: "control", replicated: controlReplicated });
     const controlEvents = await this.remoteList(control);
     await reduceSignedEvents(controlEvents.filter((event) => !this.accessState.knownEvents.has(event.eventId)), this.accessState, {
       authAttestationPublicKey: this.config.authAttestationPublicKey,
@@ -190,13 +242,15 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
     });
     const medical = await orbitdb.open(this.config.medicalDatabaseAddress ?? this.config.medicalDatabaseName, { type: "events", AccessController: medicalAccess }) as OrbitDb;
     logP2p("info", "p2p.database.opened", { database: "medical", address: medical.address?.toString() });
+    const medicalReplicated = await waitForInitialReplication(medical);
+    logP2p(medicalReplicated ? "info" : "warn", "p2p.database.initial-replication", { database: "medical", replicated: medicalReplicated });
     const medicalEvents = await this.remoteList(medical);
     await reduceSignedEvents(medicalEvents.filter((event) => !this.accessState.knownEvents.has(event.eventId)), this.accessState, {
       authAttestationPublicKey: this.config.authAttestationPublicKey,
       bootstrapSigningPublicKey: this.config.bootstrapSigningPublicKey,
       requireTrustedAttestation: true,
     });
-    const runtime = { helia, orbitdb, dbs: { control, medical } };
+    const runtime = { helia, orbitdb, dbs: { control, medical }, storage };
     this.runtime = runtime;
     for (const database of ["control", "medical"] as const) {
       const handler = (...args: unknown[]) => {
@@ -229,30 +283,79 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
 
   override async append(event: SignedEvent): Promise<void> {
     await super.append(event);
-    try {
-      if (!this.runtime) throw new Error("P2P transport is offline.");
-      await this.runtime.dbs[event.database].add(event);
-      await this.removeOutbox(event.eventId);
-      logP2p("info", "p2p.append.succeeded", { eventId: event.eventId, eventType: event.eventType, database: event.database });
-    } catch (error) {
-      await this.queueOutbox(event);
-      logP2p("warn", "p2p.append.queued", { eventId: event.eventId, eventType: event.eventType, database: event.database, error: errorMessage(error) });
-    }
+    await this.queueOutbox(event);
+    logP2p("info", "p2p.append.queued", { eventId: event.eventId, eventType: event.eventType, database: event.database });
+    void this.flushOutbox();
   }
 
-  private async flushOutbox(): Promise<void> {
-    if (!this.runtime) return;
-    const pending = await this.pendingOutbox();
-    if (pending.length) logP2p("info", "p2p.outbox.flush.started", { count: pending.length });
-    for (const event of pending) {
-      try {
-        await this.runtime.dbs[event.database].add(event);
-        await this.removeOutbox(event.eventId);
-        logP2p("info", "p2p.outbox.flush.succeeded", { eventId: event.eventId, eventType: event.eventType, database: event.database });
-      } catch (error) {
-        logP2p("warn", "p2p.outbox.flush.failed", { eventId: event.eventId, eventType: event.eventType, database: event.database, error: errorMessage(error) });
-      }
+  private flushOutbox(): Promise<void> {
+    if (this.flushPromise) return this.flushPromise;
+    this.flushPromise = this.flushOutboxNow().finally(() => { this.flushPromise = null; });
+    return this.flushPromise;
+  }
+
+  private async flushOutboxNow(): Promise<void> {
+    if (this.disposing) return;
+    const pending = parentOrdered(await this.pendingOutbox()).slice(0, 100);
+    if (!pending.length) {
+      await this.setSyncState({ syncing: false, lastError: "" });
+      return;
     }
+    await this.setSyncState({ syncing: true });
+    logP2p("info", "p2p.outbox.flush.started", { count: pending.length });
+    try {
+      const response = await fetch("/api/events", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ events: pending }),
+      });
+      if (!response.ok) throw new Error(`Trusted node returned HTTP ${response.status}.`);
+      const body = await response.json() as EventIngestResponse;
+      if (!body || !Array.isArray(body.results)) throw new Error("Trusted node returned an invalid acknowledgement.");
+      let rejection = "";
+      let transientError = "";
+      let acknowledged = 0;
+      for (const result of body.results) {
+        const event = pending.find((candidate) => candidate.eventId === result.eventId);
+        if (!event) continue;
+        if (result.status === "persisted" || result.status === "duplicate") {
+          await this.removeOutbox(result.eventId);
+          acknowledged += 1;
+          logP2p("info", "p2p.outbox.flush.succeeded", { eventId: event.eventId, eventType: event.eventType, database: event.database, status: result.status });
+        } else if (result.status === "rejected") {
+          rejection = result.message ?? "The trusted node rejected an event.";
+          await this.recordConflict({
+            eventId: event.eventId,
+            database: event.database,
+            code: result.code ?? "EVENT_REJECTED",
+            message: rejection,
+            createdAt: event.createdAt,
+          });
+          await this.removeOutbox(result.eventId);
+          acknowledged += 1;
+          logP2p("warn", "p2p.outbox.flush.rejected", { eventId: event.eventId, eventType: event.eventType, database: event.database, code: result.code });
+        } else if (result.code !== "EVENT_PARENT_MISSING") {
+          transientError = result.message ?? "The trusted node deferred an event.";
+        }
+      }
+      this.retryDelay = acknowledged ? 1_000 : Math.min(this.retryDelay * 2, 30_000);
+      await this.setSyncState({ syncing: false, lastError: rejection || transientError });
+    } catch (error) {
+      const message = errorMessage(error);
+      await this.setSyncState({ syncing: false, lastError: message });
+      logP2p("warn", "p2p.outbox.flush.failed", { count: pending.length, error: message });
+      this.retryDelay = Math.min(this.retryDelay * 2, 30_000);
+    }
+    if ((await this.pendingOutbox()).length) this.scheduleRetry();
+  }
+
+  private scheduleRetry(): void {
+    if (this.retryTimer || this.disposing) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.flushOutbox();
+    }, this.retryDelay);
   }
 
   override subscribe(database: DatabaseKind, listener: () => void): () => void {
@@ -265,15 +368,23 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
 
   override async dispose() {
     this.disposing = true;
+    if (typeof window !== "undefined") window.removeEventListener("online", this.onlineHandler);
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     logP2p("info", "p2p.client.dispose.started", { configuredOrbitIdentity: this.identityId });
     if (this.runtime) {
       for (const database of ["control", "medical"] as const) {
         const handler = this.updateHandlers.get(database);
         if (handler) this.runtime.dbs[database].events?.off?.("update", handler);
+      }
+      this.updateHandlers.clear();
+      if (this.flushPromise) await this.flushPromise;
+      for (const database of ["control", "medical"] as const) {
         await this.runtime.dbs[database].close();
       }
       await this.runtime.orbitdb.stop();
       await this.runtime.helia.stop();
+      await closeBrowserHeliaStorage(this.runtime.storage);
       this.runtime = null;
     }
     await super.dispose();
