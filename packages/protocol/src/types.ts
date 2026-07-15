@@ -138,6 +138,23 @@ export interface SignedEvent<TMetadata extends Record<string, unknown> = Record<
   signature: EventSignature;
 }
 
+export type EventIngestStatus = "persisted" | "duplicate" | "deferred" | "rejected";
+
+export interface EventIngestResult {
+  eventId: string;
+  status: EventIngestStatus;
+  code?: string;
+  message?: string;
+}
+
+export interface EventIngestRequest {
+  events: SignedEvent[];
+}
+
+export interface EventIngestResponse {
+  results: EventIngestResult[];
+}
+
 export interface UserKeySet {
   version: number;
   signingPublicKey: CryptoKey;

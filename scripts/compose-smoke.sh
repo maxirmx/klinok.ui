@@ -79,4 +79,5 @@ export KLINOK_E2E_RECOVERY_BUNDLE
 export KLINOK_E2E_BOOTSTRAP_EMAIL=administrator@example.ru
 export KLINOK_E2E_BOOTSTRAP_PASSWORD=bootstrap-password-2026
 export KLINOK_E2E_RECOVERY_PASSPHRASE=offline-recovery-passphrase-2026
+export KLINOK_E2E_RESTART_P2P=true
 npx playwright test

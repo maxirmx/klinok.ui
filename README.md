@@ -11,6 +11,8 @@ Klinok is a Russian-language, local-first veterinary application with operationa
 
 The current databases are `klinok-control-v1` and `klinok-medical-v3`. There is no migration or runtime fallback from earlier demo data.
 
+Roles, profiles, pets, grants, and medical records are encrypted signed events in these OrbitDB databases; they are not rows in the authentication LevelDB. The browser keeps an IndexedDB cache and durable outbox. A change is shown as fully saved only after `p2p-node` acknowledges that the event was written to its persistent `/data` volume; offline changes remain visible with a pending-sync status and are retried in dependency order.
+
 ## Development
 
 The easiest way to start the complete application locally is Docker Compose:

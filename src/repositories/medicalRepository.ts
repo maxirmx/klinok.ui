@@ -26,6 +26,7 @@ export class MedicalRepository {
   private readonly listeners = new Set<Listener>();
   private unsubscribe: (() => void) | null = null;
   private reloadQueue: Promise<void> = Promise.resolve();
+  private disposed = false;
 
   constructor(
     private readonly transport: EventTransport,
@@ -43,20 +44,28 @@ export class MedicalRepository {
   }
 
   async initialize() {
+    this.disposed = false;
     await this.reloadNow();
     this.unsubscribe = this.transport.subscribe("medical", () => { void this.queueReload(); });
   }
 
   private queueReload(): Promise<void> {
-    this.reloadQueue = this.reloadQueue.then(() => this.reloadNow());
+    this.reloadQueue = this.reloadQueue
+      .then(() => this.disposed ? undefined : this.reloadNow())
+      .catch((reason) => {
+        if (!this.disposed) throw reason;
+      });
     return this.reloadQueue;
   }
 
   private async reloadNow() {
     const events = await this.transport.list("medical");
+    if (this.disposed) return;
     await this.control.signed.import(events);
+    if (this.disposed) return;
     this.events = this.control.signed.list().filter((event) => event.database === "medical");
     for (const conflict of this.control.signed.conflicts.splice(0)) {
+      if (this.disposed) return;
       await this.transport.recordConflict({
         eventId: conflict.event.eventId,
         database: conflict.event.database,
@@ -66,6 +75,7 @@ export class MedicalRepository {
       });
     }
     for (const [eventId, code] of this.control.signed.state.invalidatedEvents) {
+      if (this.disposed) return;
       const event = this.events.find((candidate) => candidate.eventId === eventId);
       if (event) await this.transport.recordConflict({
         eventId,
@@ -361,5 +371,10 @@ export class MedicalRepository {
     for (const listener of this.listeners) listener(snapshot);
   }
 
-  async dispose() { this.unsubscribe?.(); }
+  async dispose() {
+    this.disposed = true;
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.listeners.clear();
+  }
 }

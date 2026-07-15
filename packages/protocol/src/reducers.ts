@@ -96,23 +96,30 @@ export async function reduceSignedEvents(events: SignedEvent[], state: ProtocolS
   const accepted: SignedEvent[] = [];
   const conflicts: ProjectionConflict[] = [];
   const remaining = new Map(events.map((event) => [event.eventId, event]));
-  let progressed = true;
-  while (remaining.size && progressed) {
-    progressed = false;
+  const deferredResults = new Map<string, VerificationResult>();
+  while (remaining.size) {
+    let progressed = false;
     for (const [eventId, event] of remaining) {
       const result = await verifySignedEvent(event, state, { ...options, allowUnknownDevice: event.eventType === "device.attested" });
-      if (!result.accepted && result.code === "EVENT_PARENT_MISSING") continue;
-      remaining.delete(eventId);
-      progressed = true;
-      if (!result.accepted) conflicts.push({ event, result });
-      else {
-        applyAcceptedEvent(event, state);
-        accepted.push(event);
+      if (!result.accepted) {
+        deferredResults.set(eventId, result);
+        continue;
       }
+      remaining.delete(eventId);
+      deferredResults.delete(eventId);
+      progressed = true;
+      applyAcceptedEvent(event, state);
+      accepted.push(event);
     }
-  }
-  for (const event of remaining.values()) {
-    conflicts.push({ event, result: { accepted: false, code: "EVENT_PARENT_MISSING", message: "A logical parent is missing." } });
+    if (!progressed) {
+      for (const [eventId, event] of remaining) {
+        conflicts.push({
+          event,
+          result: deferredResults.get(eventId) ?? { accepted: false, code: "EVENT_REJECTED", message: "The event was rejected." },
+        });
+      }
+      break;
+    }
   }
   reconcileEffectiveEvents(events, state);
   return { state, accepted, conflicts };

@@ -3,7 +3,7 @@ import { computed, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import type { PetGrantAction, Role } from "@klinok/protocol";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
-import { appState, decideRole, getConfig, getRepository, logout } from "../appStore";
+import { appState, decideRole, getConfig, logout, requireRepository } from "../appStore";
 
 defineProps<{ role: Role; scenarioId: string }>();
 const router = useRouter();
@@ -53,7 +53,7 @@ async function action(task: () => Promise<unknown>) {
 
 async function createPet() {
   await action(async () => {
-    await getRepository()?.medical.createPet({ ...petDraft, chip: petDraft.chip || undefined });
+    await requireRepository().medical.createPet({ ...petDraft, chip: petDraft.chip || undefined });
     Object.assign(petDraft, { name: "", species: "Собака", breed: "", sex: "Не указан", chip: "" });
   });
 }
@@ -62,12 +62,12 @@ async function grantDoctor() {
   const actions: PetGrantAction[] = ["read"];
   if (grantDraft.write) actions.push("write_unconfirmed");
   if (grantDraft.delegate) actions.push("delegate");
-  await action(() => getRepository()!.medical.grantDoctor(grantDraft.petId, grantDraft.doctorAccountId, actions));
+  await action(() => requireRepository().medical.grantDoctor(grantDraft.petId, grantDraft.doctorAccountId, actions));
 }
 
 async function saveRecord() {
   await action(async () => {
-    await getRepository()?.medical.saveRecord({
+    await requireRepository().medical.saveRecord({
       petId: recordDraft.petId, title: recordDraft.title, text: recordDraft.text,
       ...(recordDraft.recordId ? { recordId: recordDraft.recordId } : {}),
       ...(recordDraft.addendumTo ? { addendumTo: recordDraft.addendumTo } : {}),
@@ -87,7 +87,7 @@ async function delegateGrant() {
   const actions: PetGrantAction[] = ["read"];
   if (delegationDraft.write) actions.push("write_unconfirmed");
   if (delegationDraft.delegate) actions.push("delegate");
-  await action(() => getRepository()!.medical.delegateGrant(delegationDraft.parentGrantId, delegationDraft.doctorAccountId, actions));
+  await action(() => requireRepository().medical.delegateGrant(delegationDraft.parentGrantId, delegationDraft.doctorAccountId, actions));
 }
 
 </script>
@@ -112,8 +112,8 @@ async function delegateGrant() {
             </div>
             <label><span>Причина, необязательно</span><input v-model="decisionReason" /></label>
             <div class="row-actions">
-              <button class="primary-action inline" @click="decideRole(request, 'approved', decisionReason || undefined)">Одобрить</button>
-              <button class="outline-action inline" @click="decideRole(request, 'rejected', decisionReason || undefined)">Отклонить</button>
+              <button class="primary-action inline" @click="action(() => decideRole(request, 'approved', decisionReason || undefined))">Одобрить</button>
+              <button class="outline-action inline" @click="action(() => decideRole(request, 'rejected', decisionReason || undefined))">Отклонить</button>
             </div>
           </div>
         </article>
@@ -127,9 +127,9 @@ async function delegateGrant() {
             </div>
             <div v-for="request in appState.control.allRoles.filter(item => item.accountId === profile.accountId)" :key="request.role" class="row-actions">
               <span>{{ request.role }} · {{ request.status }}</span>
-              <button v-if="request.status === 'approved' && profile.accountId !== appState.session.accountId" class="outline-action inline" @click="decideRole(request, 'suspended')">Приостановить</button>
-              <button v-if="request.status === 'suspended'" class="outline-action inline" @click="decideRole(request, 'approved')">Возобновить</button>
-              <button v-if="['approved', 'suspended'].includes(request.status) && profile.accountId !== getConfig()?.p2p.bootstrapAccountId" class="outline-action inline danger-link" @click="decideRole(request, 'revoked')">Отозвать</button>
+              <button v-if="request.status === 'approved' && profile.accountId !== appState.session.accountId" class="outline-action inline" @click="action(() => decideRole(request, 'suspended'))">Приостановить</button>
+              <button v-if="request.status === 'suspended'" class="outline-action inline" @click="action(() => decideRole(request, 'approved'))">Возобновить</button>
+              <button v-if="['approved', 'suspended'].includes(request.status) && profile.accountId !== getConfig()?.p2p.bootstrapAccountId" class="outline-action inline danger-link" @click="action(() => decideRole(request, 'revoked'))">Отозвать</button>
             </div>
           </div>
         </article>
@@ -174,7 +174,7 @@ async function delegateGrant() {
           <p v-if="!appState.medical.pets.length">Питомцев пока нет.</p>
           <div v-for="pet in appState.medical.pets" :key="pet.petId" class="pet-operational-card">
             <div><strong>{{ pet.name }}</strong><span>{{ pet.species }} · {{ pet.breed }}</span><small>Версия ключа {{ pet.keyVersion }}</small></div>
-            <button class="outline-action inline" @click="action(() => getRepository()!.medical.updatePet({ ...pet, tombstoned: true }))">Удалить карточку</button>
+            <button class="outline-action inline" @click="action(() => requireRepository().medical.updatePet({ ...pet, tombstoned: true }))">Удалить карточку</button>
           </div>
         </article>
 
@@ -193,7 +193,7 @@ async function delegateGrant() {
           <h2>Действующие доступы</h2>
           <div v-for="grant in appState.medical.grants" :key="grant.grantId" class="list-row">
             <strong>{{ grant.granteeAccountId }}</strong><span>{{ grant.actions.join(', ') }}</span>
-            <button v-if="grant.status === 'active'" class="outline-action inline" @click="action(() => getRepository()!.medical.revokeGrant(grant.grantId))">Отозвать</button>
+            <button v-if="grant.status === 'active'" class="outline-action inline" @click="action(() => requireRepository().medical.revokeGrant(grant.grantId))">Отозвать</button>
             <small v-else>Отозван</small>
           </div>
         </article>
@@ -203,7 +203,7 @@ async function delegateGrant() {
           <div v-for="record in appState.medical.records" :key="record.recordId" class="record-card">
             <div><strong>{{ record.title }}</strong><p>{{ record.text }}</p><small>Редакция {{ record.revision }}</small></div>
             <span v-if="confirmedIds.has(record.recordId)" class="status-badge approved">Подтверждена</span>
-            <button v-else class="primary-action inline" @click="action(() => getRepository()!.medical.confirmRecord(record.petId, record.recordId, record.revision))">Подтвердить</button>
+            <button v-else class="primary-action inline" @click="action(() => requireRepository().medical.confirmRecord(record.petId, record.recordId, record.revision))">Подтвердить</button>
           </div>
         </article>
 

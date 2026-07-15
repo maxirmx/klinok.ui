@@ -5,6 +5,8 @@ services:
     depends_on:
       auth-blue:
         condition: service_healthy
+      p2p-blue:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
@@ -59,8 +61,12 @@ services:
     volumes:
       - /home/maxirmx/.certificate:/etc/nginx/certificate:ro
       - /home/maxirmx/klinok.p2p.v1/data:/data:rw
+    networks:
+      default:
+        aliases:
+          - p2p
     healthcheck:
-      test: ["CMD", "node", "-e", "const socket=require('node:net').connect(8089,'127.0.0.1',()=>{socket.end();process.exit(0)});socket.setTimeout(3000,()=>process.exit(1));socket.on('error',()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8091/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 5

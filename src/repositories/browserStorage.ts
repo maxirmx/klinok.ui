@@ -7,3 +7,7 @@ export async function createBrowserHeliaInit(base = "klinok-p2p-v1") {
   await Promise.all([blockstore.open(), datastore.open()]);
   return { blockstore, datastore };
 }
+
+export async function closeBrowserHeliaStorage(storage: Awaited<ReturnType<typeof createBrowserHeliaInit>>) {
+  await Promise.all([storage.blockstore.close(), storage.datastore.close()]);
+}

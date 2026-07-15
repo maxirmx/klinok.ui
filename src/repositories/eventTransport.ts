@@ -8,6 +8,13 @@ export interface AuthorizationConflict {
   createdAt: string;
 }
 
+export interface EventSyncStatus {
+  pendingCount: number;
+  failedCount: number;
+  syncing: boolean;
+  lastError: string;
+}
+
 export interface EventTransport {
   initialize(): Promise<void>;
   list(database: DatabaseKind): Promise<SignedEvent[]>;
@@ -18,6 +25,8 @@ export interface EventTransport {
   pendingOutbox(): Promise<SignedEvent[]>;
   queueOutbox(event: SignedEvent): Promise<void>;
   removeOutbox(eventId: string): Promise<void>;
+  syncStatus(): Promise<EventSyncStatus>;
+  subscribeSyncStatus(listener: (status: EventSyncStatus) => void): () => void;
   dispose(): Promise<void>;
 }
 
@@ -25,6 +34,7 @@ export class MemoryEventTransport implements EventTransport {
   private readonly events = new Map<DatabaseKind, SignedEvent[]>([["control", []], ["medical", []]]);
   private readonly conflicts: AuthorizationConflict[] = [];
   private readonly listeners = new Map<DatabaseKind, Set<() => void>>([["control", new Set()], ["medical", new Set()]]);
+  private readonly syncListeners = new Set<(status: EventSyncStatus) => void>();
 
   async initialize() {}
   async list(database: DatabaseKind) { return [...(this.events.get(database) ?? [])]; }
@@ -42,6 +52,12 @@ export class MemoryEventTransport implements EventTransport {
   async pendingOutbox() { return []; }
   async queueOutbox(event: SignedEvent) { void event; }
   async removeOutbox(eventId: string) { void eventId; }
+  async syncStatus() { return { pendingCount: 0, failedCount: this.conflicts.length, syncing: false, lastError: "" }; }
+  subscribeSyncStatus(listener: (status: EventSyncStatus) => void) {
+    this.syncListeners.add(listener);
+    void this.syncStatus().then(listener);
+    return () => this.syncListeners.delete(listener);
+  }
   async dispose() {}
 }
 
@@ -50,6 +66,9 @@ const DB_NAME = "klinok-events-v1";
 export class IndexedDbEventTransport implements EventTransport {
   private db: IDBDatabase | null = null;
   private readonly listeners = new Map<DatabaseKind, Set<() => void>>([["control", new Set()], ["medical", new Set()]]);
+  private readonly syncListeners = new Set<(status: EventSyncStatus) => void>();
+  protected syncing = false;
+  protected lastSyncError = "";
 
   async initialize() {
     this.db = await new Promise((resolve, reject) => {
@@ -110,6 +129,7 @@ export class IndexedDbEventTransport implements EventTransport {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+    await this.emitSyncStatus();
   }
 
   async pendingOutbox(): Promise<SignedEvent[]> {
@@ -127,6 +147,7 @@ export class IndexedDbEventTransport implements EventTransport {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+    await this.emitSyncStatus();
   }
 
   async removeOutbox(eventId: string): Promise<void> {
@@ -136,6 +157,35 @@ export class IndexedDbEventTransport implements EventTransport {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+    await this.emitSyncStatus();
+  }
+
+  async syncStatus(): Promise<EventSyncStatus> {
+    const [pending, conflicts] = await Promise.all([this.pendingOutbox(), this.listConflicts()]);
+    return {
+      pendingCount: pending.length,
+      failedCount: conflicts.length,
+      syncing: this.syncing,
+      lastError: this.lastSyncError,
+    };
+  }
+
+  subscribeSyncStatus(listener: (status: EventSyncStatus) => void): () => void {
+    this.syncListeners.add(listener);
+    void this.syncStatus().then(listener);
+    return () => this.syncListeners.delete(listener);
+  }
+
+  protected async setSyncState(input: { syncing?: boolean; lastError?: string }): Promise<void> {
+    if (input.syncing !== undefined) this.syncing = input.syncing;
+    if (input.lastError !== undefined) this.lastSyncError = input.lastError;
+    await this.emitSyncStatus();
+  }
+
+  protected async emitSyncStatus(): Promise<void> {
+    if (!this.syncListeners.size) return;
+    const status = await this.syncStatus();
+    for (const listener of this.syncListeners) listener(status);
   }
 
   async dispose(): Promise<void> {

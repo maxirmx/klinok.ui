@@ -5,6 +5,7 @@ import type { Role } from "@klinok/protocol";
 import packageJson from "../../package.json";
 import AppIcon from "./AppIcon.vue";
 import BrandLogo from "./BrandLogo.vue";
+import SyncStatus from "./SyncStatus.vue";
 
 type WorkspaceIcon = "home" | "pets" | "plus" | "user" | "book" | "bell" | "eye" | "medical-tools";
 type WorkspaceNavItem = { id: string; label: string; icon: WorkspaceIcon };
@@ -95,6 +96,7 @@ function selectSection(id: string) {
           <p>{{ profileName }}</p>
         </div>
         <nav class="workspace-account-actions" aria-label="Действия аккаунта">
+          <SyncStatus />
           <button class="link-action" type="button" @click="router.push('/roles')">Сменить роль</button>
           <button class="link-action" type="button" @click="emit('signOut')">Выйти</button>
         </nav>

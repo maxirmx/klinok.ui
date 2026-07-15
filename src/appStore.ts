@@ -26,9 +26,11 @@ import {
 } from "./repositories/deviceVault";
 import { KlinokRepository } from "./repositories";
 import type { ControlSnapshot, MedicalSnapshot } from "./repositories/types";
+import type { EventSyncStatus } from "./repositories/eventTransport";
 
 const emptyControl: ControlSnapshot = { profile: null, profiles: [], roles: [], allRoles: [], devices: [], pendingQueue: [], notifications: [], events: [] };
 const emptyMedical: MedicalSnapshot = { pets: [], grants: [], records: [], confirmations: [], events: [] };
+const emptySync: EventSyncStatus = { pendingCount: 0, failedCount: 0, syncing: false, lastError: "" };
 
 const state = reactive({
   initialized: false,
@@ -42,6 +44,8 @@ const state = reactive({
   conflicts: [] as Array<{ eventId: string; code: string; message: string }>,
   devicePending: false,
   keyRecoveryRequired: false,
+  sync: emptySync,
+  repositoryConnected: false,
 });
 
 let config: AppRuntimeConfig;
@@ -50,6 +54,7 @@ let repository: KlinokRepository | null = null;
 let keys: UserKeySet | null = null;
 let controlUnsubscribe: (() => void) | null = null;
 let medicalUnsubscribe: (() => void) | null = null;
+let syncUnsubscribe: (() => void) | null = null;
 
 function setError(reason: unknown) {
   state.error = reason instanceof AuthClientError || reason instanceof Error ? reason.message : "Не удалось выполнить операцию.";
@@ -118,10 +123,16 @@ function chooseInitialRole(session: AuthSessionDto): Role {
 }
 
 async function connectRepository(session: AuthSessionDto) {
+  state.repositoryConnected = false;
+  controlUnsubscribe?.(); controlUnsubscribe = null;
+  medicalUnsubscribe?.(); medicalUnsubscribe = null;
+  syncUnsubscribe?.(); syncUnsubscribe = null;
+  await repository?.dispose();
+  repository = null;
+  state.sync = emptySync;
   if (!session.accountId || !session.device || !keys || state.keyRecoveryRequired) return;
   const accountId = session.accountId;
   const deviceId = session.device.deviceId;
-  await repository?.dispose();
   const initialRole = chooseInitialRole(session);
   repository = await KlinokRepository.create({
     config,
@@ -129,6 +140,7 @@ async function connectRepository(session: AuthSessionDto) {
     keys,
     initialRole,
   });
+  state.repositoryConnected = true;
   for (const operation of session.pendingOperations ?? []) {
     if (operation.kind === "profile" && operation.payload) {
       const snapshot = await repository.control.snapshot();
@@ -146,8 +158,6 @@ async function connectRepository(session: AuthSessionDto) {
     }
     if (operation.kind === "account_delete") await repository.control.deleteAccount(operation.operationId);
   }
-  controlUnsubscribe?.();
-  medicalUnsubscribe?.();
   const applyControlSnapshot = (snapshot: ControlSnapshot) => {
     state.control = snapshot;
     const approved = snapshot.roles.filter((role) => role.status === "approved");
@@ -163,6 +173,13 @@ async function connectRepository(session: AuthSessionDto) {
   applyControlSnapshot(await repository.control.snapshot());
   controlUnsubscribe = repository.control.subscribe(applyControlSnapshot);
   medicalUnsubscribe = repository.medical.subscribe((snapshot) => { state.medical = snapshot; });
+  const connectedRepository = repository;
+  syncUnsubscribe = repository.subscribeSyncStatus((status) => {
+    state.sync = status;
+    if (status.failedCount) void connectedRepository.conflicts().then((conflicts) => {
+      if (repository === connectedRepository) state.conflicts = conflicts;
+    });
+  });
   state.conflicts = await repository.conflicts();
 }
 
@@ -176,7 +193,12 @@ export async function bootstrapApp(force = false) {
     let session = await auth.session();
     if (session.authenticated) session = await ensureDevice(session);
     state.session = session;
-    if (session.authenticated) await connectRepository(session);
+    await connectRepository(session);
+    if (!session.authenticated) {
+      state.activeRole = null;
+      state.control = emptyControl;
+      state.medical = emptyMedical;
+    }
   } catch (reason) {
     setError(reason);
   } finally {
@@ -217,12 +239,16 @@ export async function login(email: string, password: string, deviceName?: string
 export async function logout(all = false) {
   state.busy = true;
   try { if (all) await auth.logoutAll(); else await auth.logout(); } finally {
+    controlUnsubscribe?.(); controlUnsubscribe = null;
+    medicalUnsubscribe?.(); medicalUnsubscribe = null;
+    syncUnsubscribe?.(); syncUnsubscribe = null;
     await repository?.dispose(); repository = null; keys = null;
-    state.session = { authenticated: false }; state.activeRole = null; state.control = emptyControl; state.medical = emptyMedical; state.busy = false;
+    state.session = { authenticated: false }; state.activeRole = null; state.control = emptyControl; state.medical = emptyMedical; state.sync = emptySync; state.repositoryConnected = false; state.busy = false;
   }
 }
 
 export async function revokeDevice(deviceId: string) {
+  const activeRepository = requireRepository();
   const currentDeviceId = state.session.device?.deviceId;
   if (currentDeviceId && currentDeviceId !== deviceId && keys) {
     const nextKeys = await generateUserKeySet(keys.version + 1);
@@ -231,29 +257,40 @@ export async function revokeDevice(deviceId: string) {
       signingPublicKey: exported.signingPublicKey,
       encryptionPublicKey: exported.encryptionPublicKey,
     });
-    for (const revokedId of result.revokedDeviceIds) await repository?.control.revokeDevice(revokedId);
+    for (const revokedId of result.revokedDeviceIds) await activeRepository.control.revokeDevice(revokedId);
     if (result.certificate) {
-      await repository?.control.rotateCurrentDevice(result.certificate);
+      await activeRepository.control.rotateCurrentDevice(result.certificate);
       keys = await storeExportedUserKeys(state.session.accountId!, exported);
     }
   } else {
-    await repository?.control.revokeDevice(deviceId);
+    await activeRepository.control.revokeDevice(deviceId);
     await auth.revokeDevice(deviceId);
     if (currentDeviceId === deviceId) clearDeviceId();
   }
   await repository?.dispose();
   repository = null;
+  controlUnsubscribe?.(); controlUnsubscribe = null;
+  medicalUnsubscribe?.(); medicalUnsubscribe = null;
+  syncUnsubscribe?.(); syncUnsubscribe = null;
   state.session = { authenticated: false };
   state.activeRole = null;
+  state.repositoryConnected = false;
+  state.sync = emptySync;
 }
 
 export async function deleteAccount() {
+  const activeRepository = requireRepository();
   const { operationId } = await auth.deleteAccount();
-  await repository?.control.deleteAccount(operationId);
+  await activeRepository.control.deleteAccount(operationId);
   await repository?.dispose();
   repository = null;
+  controlUnsubscribe?.(); controlUnsubscribe = null;
+  medicalUnsubscribe?.(); medicalUnsubscribe = null;
+  syncUnsubscribe?.(); syncUnsubscribe = null;
   state.session = { authenticated: false };
   state.activeRole = null;
+  state.repositoryConnected = false;
+  state.sync = emptySync;
 }
 
 export async function forgotPassword(email: string) { await auth.forgotPassword(email); state.message = "Если аккаунт существует, письмо отправлено."; }
@@ -261,8 +298,9 @@ export async function resetPassword(token: string, password: string) { await aut
 
 export async function updateProfile(input: { firstName: string; lastName: string; patronymic?: string }) {
   if (!state.session.accountId) throw new Error("Необходимо войти в аккаунт.");
+  const activeRepository = requireRepository();
   const operation = await auth.updateProfile(input);
-  await repository?.control.updateProfile({
+  await activeRepository.control.updateProfile({
     accountId: state.session.accountId,
     revision: (state.control.profile?.revision ?? 0) + 1,
     ...input,
@@ -275,15 +313,19 @@ export function switchRole(role: Role) {
   if (!proof || !state.session.accountId || !state.session.device) throw new Error("Эта роль недоступна.");
   state.activeRole = role;
   setLastActiveRole(state.session.accountId, state.session.device.deviceId, role);
-  repository?.setActiveRole(role, proof.requestId);
+  requireRepository().setActiveRole(role, proof.requestId);
 }
 
-export async function requestRole(role: Role) { await repository?.control.requestRole(role, state.control.profile?.revision ?? 1); }
-export async function cancelRole(role: Role) { await repository?.control.cancelRole(role); }
+export async function requestRole(role: Role) { await requireRepository().control.requestRole(role, state.control.profile?.revision ?? 1); }
+export async function cancelRole(role: Role) { await requireRepository().control.cancelRole(role); }
 export async function decideRole(request: RoleRequest, status: "approved" | "rejected" | "suspended" | "revoked", reason?: string) {
-  await repository?.control.decideRole({ accountId: request.accountId, role: request.role, status, ...(reason ? { reason } : {}) });
+  await requireRepository().control.decideRole({ accountId: request.accountId, role: request.role, status, ...(reason ? { reason } : {}) });
 }
 export function getRepository() { return repository; }
+export function requireRepository() {
+  if (!repository) throw new Error("Хранилище данных ещё не подключено. Повторите операцию после восстановления соединения.");
+  return repository;
+}
 export function getConfig() { return config; }
 
 export async function importBootstrapRecovery(bundleText: string, passphrase: string) {

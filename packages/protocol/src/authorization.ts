@@ -3,6 +3,7 @@ import { stableSerialize } from "./stable.js";
 import {
   ROLE_STATUSES,
   ROLES,
+  type DatabaseKind,
   type PetAccessGrant,
   type PetGrantAction,
   type ProtocolState,
@@ -103,6 +104,14 @@ function validShape(event: SignedEvent): boolean {
     Boolean(event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)) &&
     event.payload?.algorithm === "AES-GCM-256" && typeof event.payload.iv === "string" && typeof event.payload.ciphertext === "string" &&
     event.signature?.algorithm === "ECDSA-P256-SHA256" && typeof event.signature.value === "string";
+}
+
+function expectedDatabase(eventType: string): DatabaseKind | null {
+  if (["role.", "audit.", "notification.", "email.", "account.", "device.", "profile.", "consent."].some((prefix) => eventType.startsWith(prefix))) {
+    return "control";
+  }
+  if (["pet.", "grant.", "medical."].some((prefix) => eventType.startsWith(prefix))) return "medical";
+  return null;
 }
 
 export function isRoleApproved(state: ProtocolState, accountId: string, role: Role): boolean {
@@ -246,6 +255,10 @@ export async function verifySignedEvent(
   options: VerificationOptions = {},
 ): Promise<VerificationResult> {
   if (!validShape(event)) return { accepted: false, code: "EVENT_SCHEMA_INVALID", message: "Signed event schema is invalid." };
+  const database = expectedDatabase(event.eventType);
+  if (database && event.database !== database) {
+    return { accepted: false, code: "DATABASE_MISMATCH", message: `${event.eventType} events belong in the ${database} database.` };
+  }
   if (state.knownEvents.has(event.eventId)) return { accepted: true, code: "EVENT_DUPLICATE" };
   if (event.parents.some((parent) => !state.knownEvents.has(parent))) {
     return { accepted: false, code: "EVENT_PARENT_MISSING", message: "A logical parent is missing." };
