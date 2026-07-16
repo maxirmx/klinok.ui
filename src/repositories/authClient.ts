@@ -63,6 +63,9 @@ export class AuthClient {
   forgotPassword(email: string) { return this.request<{ accepted: true }>("/api/auth/password/forgot", { method: "POST", body: JSON.stringify({ email }) }); }
   resetPassword(token: string, password: string) { return this.request<{ reset: true }>("/api/auth/password/reset", { method: "POST", body: JSON.stringify({ token, password }) }); }
   updateProfile(profile: Record<string, string>) { return this.request<{ operationId: string }>("/api/auth/profile", { method: "PATCH", body: JSON.stringify(profile) }); }
+  updateCredentials(input: { email?: string; password?: string }) {
+    return this.request<{ updated: true; email: string }>("/api/auth/credentials", { method: "PATCH", body: JSON.stringify(input) });
+  }
   deleteAccount() { return this.request<{ operationId: string }>("/api/auth/account", { method: "DELETE" }); }
 
   enrollDevice(input: Omit<DeviceEnrollmentDto, "enrollmentId" | "operationId" | "accountId" | "status" | "createdAt">) {

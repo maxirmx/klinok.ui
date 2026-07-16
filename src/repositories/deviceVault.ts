@@ -174,12 +174,16 @@ function getDeviceHint(): string | null {
   return localStorage.getItem(DEVICE_HINT_KEY);
 }
 
+export function getDeviceId(): string | null {
+  return getDeviceHint();
+}
+
 export function clearDeviceId(): void {
   localStorage.removeItem(DEVICE_HINT_KEY);
 }
 
 export function getOrCreateDeviceId(): string {
-  const existing = getDeviceHint();
+  const existing = getDeviceId();
   if (existing) return existing;
   const deviceId = crypto.randomUUID();
   localStorage.setItem(DEVICE_HINT_KEY, deviceId);

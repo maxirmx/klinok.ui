@@ -27,7 +27,7 @@ export const scenarioRegistry: ScenarioRegistryEntry[] = [
   { id: "auth-verify", title: "Подтверждение почты", role: "auth", path: "/auth/verify-email", figmaNodeId: "issue:25", component: "AuthScreen", implemented: true },
   { id: "auth-forgot", title: "Восстановление пароля", role: "auth", path: "/auth/forgot-password", figmaNodeId: "issue:25", component: "AuthScreen", implemented: true },
   { id: "auth-reset", title: "Новый пароль", role: "auth", path: "/auth/reset-password", figmaNodeId: "issue:25", component: "AuthScreen", implemented: true },
-  { id: "role-status", title: "Роли и статусы", role: "shared", path: "/roles", figmaNodeId: "issue:25", component: "RoleStatusScreen", implemented: true },
+  { id: "user-profile", title: "Настройки пользователя", role: "shared", path: "/profile", figmaNodeId: "issue:25", component: "RoleStatusScreen", implemented: true },
   { id: "owner-home", title: "Кабинет владельца", role: "owner", path: "/owner/home", figmaNodeId: "issue:25", component: "WorkspaceScreen", implemented: true },
   { id: "doctor-home", title: "Кабинет врача", role: "doctor", path: "/doctor/home", figmaNodeId: "issue:25", component: "WorkspaceScreen", implemented: true },
   { id: "administrator-home", title: "Кабинет администратора", role: "administrator", path: "/admin/home", figmaNodeId: "issue:25", component: "WorkspaceScreen", implemented: true },

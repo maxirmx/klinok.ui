@@ -4,3 +4,7 @@ services:
       - "127.0.0.1:8090:8090"
     environment:
       KLINOK_PUBLIC_ORIGIN: ${KLINOK_PUBLIC_ORIGIN:-http://127.0.0.1:5173}
+
+  p2p:
+    ports:
+      - "127.0.0.1:8091:8091"

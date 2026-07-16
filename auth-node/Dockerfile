@@ -1,3 +1,7 @@
+# Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+# All rights reserved.
+# This file is a part of Klinok application
+
 FROM node:26.3.0-bookworm-slim AS build
 WORKDIR /app
 COPY package*.json ./

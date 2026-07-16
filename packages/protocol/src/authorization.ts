@@ -64,27 +64,30 @@ export function isLegalRoleTransition(from: RoleStatus, to: RoleStatus): boolean
   return transitions[from].includes(to);
 }
 
-const IMMEDIATE_VERIFICATION_FAILURES = new Set([
-  "EVENT_SCHEMA_INVALID",
-  "EVENT_TYPE_UNSUPPORTED",
-  "DEVICE_REVOKED",
-  "DEVICE_BINDING_INVALID",
-  "KEY_VERSION_STALE",
-  "SIGNATURE_INVALID",
-  "DEVICE_ATTESTATION_INVALID",
-  "BOOTSTRAP_ANCHOR_MISMATCH",
-  "BOOTSTRAP_IDENTITY_INVALID",
-  "AUTH_ANCHOR_MISSING",
+const STATE_DEPENDENT_VERIFICATION_FAILURES = new Set([
+  "EVENT_PARENT_MISSING",
+  "DEVICE_UNKNOWN",
+  "SIGNATURE_UNVERIFIABLE",
+  "ROLE_DECISION_FORBIDDEN",
+  "ADMIN_SELF_APPROVAL_FORBIDDEN",
+  "PROFILE_REWRAP_FORBIDDEN",
+  "COMPANION_PROOF_INVALID",
+  "PET_CREATE_FORBIDDEN",
+  "PET_SHARE_FORBIDDEN",
+  "OWNER_SCOPE_FORBIDDEN",
+  "DOCTOR_ROLE_REQUIRED",
+  "PET_GRANT_REQUIRED",
+  "GRANT_DELEGATION_FORBIDDEN",
 ]);
 
 /**
- * OrbitDB replays entries independently of the protocol's causal order. Only
- * failures that can be established from the envelope and already-known trust
- * material are safe to reject during transport admission. State-dependent
- * failures are retried and decided by the deterministic reducer.
+ * Replication and batch ingestion can present events independently of the
+ * protocol's causal order. Retry only failures that can change after another
+ * event advances the known authorization state.
  */
 export function shouldDeferEventVerification(result: VerificationResult): boolean {
-  return !result.accepted && Boolean(result.code) && !IMMEDIATE_VERIFICATION_FAILURES.has(result.code!);
+  if (result.accepted || !result.code) return false;
+  return STATE_DEPENDENT_VERIFICATION_FAILURES.has(result.code);
 }
 
 function validShape(event: SignedEvent): boolean {

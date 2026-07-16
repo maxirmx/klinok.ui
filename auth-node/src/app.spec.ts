@@ -112,6 +112,31 @@ describe("auth-node", () => {
     });
   });
 
+  it("updates authenticated email and password credentials", async () => {
+    const { app, mailer } = await fixture();
+    const login = await verifiedLogin(app, mailer);
+    const headers = { origin: "https://klinok.test", cookie: login.cookie, "x-csrf-token": login.csrf };
+    const changed = await app.inject({
+      method: "PATCH",
+      url: "/api/auth/credentials",
+      headers,
+      payload: { email: " New.User@Example.com ", password: "a completely new password" },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json()).toEqual({ updated: true, email: "new.user@example.com" });
+
+    const session = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: login.cookie } });
+    expect(session.json()).toMatchObject({ authenticated: true, email: "new.user@example.com" });
+    expect((await app.inject({
+      method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" },
+      payload: { email: registration.email, password: registration.password },
+    })).statusCode).toBe(401);
+    expect((await app.inject({
+      method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" },
+      payload: { email: "new.user@example.com", password: "a completely new password" },
+    })).statusCode).toBe(200);
+  });
+
   it("limits failed logins per account across client addresses", async () => {
     const { app, mailer } = await fixture();
     await verifiedLogin(app, mailer);

@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { scenarioRegistry } from "../src/scenarios";
 
 describe("operational routes", () => {
-  it("exposes auth, role status, and final role workspaces", () => {
+  it("exposes auth, profile, and final role workspaces", () => {
     const paths = scenarioRegistry.map((scenario) => scenario.path);
     expect(paths).toEqual(expect.arrayContaining([
       "/auth/login", "/auth/register", "/auth/register/consent", "/auth/verify-email",
-      "/roles", "/owner/home", "/doctor/home", "/admin/home",
+      "/profile", "/owner/home", "/doctor/home", "/admin/home",
     ]));
   });
 

@@ -1,4 +1,4 @@
-import { chooseConcurrentRoleStatus, roleProjectionKey, verifySignedEvent } from "./authorization.js";
+import { chooseConcurrentRoleStatus, roleProjectionKey, shouldDeferEventVerification, verifySignedEvent } from "./authorization.js";
 import type {
   DeviceCertificate,
   PetAccessGrant,
@@ -102,7 +102,13 @@ export async function reduceSignedEvents(events: SignedEvent[], state: ProtocolS
     for (const [eventId, event] of remaining) {
       const result = await verifySignedEvent(event, state, { ...options, allowUnknownDevice: event.eventType === "device.attested" });
       if (!result.accepted) {
-        deferredResults.set(eventId, result);
+        if (shouldDeferEventVerification(result)) {
+          deferredResults.set(eventId, result);
+        } else {
+          remaining.delete(eventId);
+          deferredResults.delete(eventId);
+          conflicts.push({ event, result });
+        }
         continue;
       }
       remaining.delete(eventId);

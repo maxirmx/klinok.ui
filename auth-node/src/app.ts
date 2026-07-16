@@ -52,6 +52,11 @@ interface DeviceBody {
   ephemeralPublicKey?: JsonWebKey;
 }
 
+interface CredentialsBody {
+  email?: string;
+  password?: string;
+}
+
 class RateLimitError extends Error {
   readonly statusCode = 429;
   readonly code = "RATE_LIMITED";
@@ -389,6 +394,7 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
       authenticated: true,
       credentialStatus: account.credentialStatus,
       accountId: account.accountId,
+      email: account.email,
       csrfToken: session.csrfToken,
       ...(device ? { device } : {}),
       devices: account.devices,
@@ -487,6 +493,37 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
       updatedAt: now().toISOString(),
     });
     return { operationId };
+  });
+
+  app.patch<{ Body: CredentialsBody }>("/api/auth/credentials", {
+    config: { rateLimit: { max: options.config.rateLimit.sensitiveMutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply);
+    if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId, true)) return;
+
+    const requestedEmail = request.body.email === undefined ? current.account.email : normalizeEmail(request.body.email);
+    const requestedPassword = request.body.password;
+    if (!requestedEmail.includes("@")) return error(reply, 400, "EMAIL_INVALID", "Введите корректный адрес электронной почты.");
+    if (requestedPassword !== undefined && !validatePassword(requestedPassword)) {
+      return error(reply, 400, "PASSWORD_INVALID", "Пароль должен содержать от 12 до 128 символов.");
+    }
+    if (requestedEmail === current.account.email && requestedPassword === undefined) {
+      return error(reply, 400, "CREDENTIALS_UNCHANGED", "Укажите новый адрес или пароль.");
+    }
+
+    const emailOwner = await store.getAccountByEmail(requestedEmail);
+    if (emailOwner && emailOwner.accountId !== current.account.accountId) {
+      return error(reply, 409, "EMAIL_IN_USE", "Этот адрес электронной почты уже используется.");
+    }
+
+    await store.putAccount({
+      ...current.account,
+      email: requestedEmail,
+      ...(requestedPassword !== undefined ? { passwordHash: await hashPassword(requestedPassword) } : {}),
+      updatedAt: now().toISOString(),
+    }, current.account.email);
+    return { updated: true, email: requestedEmail };
   });
 
   app.delete("/api/auth/account", {

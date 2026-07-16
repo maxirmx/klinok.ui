@@ -46,6 +46,10 @@ export default defineConfig({
       "/api/auth": {
         target: process.env.KLINOK_AUTH_DEV_TARGET ?? "http://127.0.0.1:8090",
       },
+      "/api/events": {
+        target: process.env.KLINOK_P2P_DEV_TARGET ?? "http://127.0.0.1:8091",
+        rewrite: () => "/events",
+      },
     },
   },
 });
