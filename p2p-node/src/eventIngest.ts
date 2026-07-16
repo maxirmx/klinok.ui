@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import {
   applyAcceptedEvent,
+  shouldDeferEventVerification,
   stableSerialize,
   verifySignedEvent,
   type DatabaseKind,
@@ -36,15 +37,14 @@ export class EventIngestService {
     if (values.length > MAX_BATCH_SIZE) throw new Error(`A batch may contain at most ${MAX_BATCH_SIZE} events.`);
     const results: Array<EventIngestResult | undefined> = new Array(values.length);
     let remaining = values.map((value, index) => ({ value, index }));
-    const deferredReasons = new Map<number, { code?: string; message?: string }>();
 
     while (remaining.length) {
-      let progressed = false;
+      let stateProgressed = false;
       const deferred: typeof remaining = [];
+      const deferredReasons = new Map<number, { code?: string; message?: string }>();
       for (const item of remaining) {
         if (!item.value || typeof item.value !== "object") {
           results[item.index] = { eventId: "", status: "rejected", code: "EVENT_SCHEMA_INVALID", message: "Signed event schema is invalid." };
-          progressed = true;
           continue;
         }
         const event = item.value as SignedEvent;
@@ -53,7 +53,6 @@ export class EventIngestService {
           results[item.index] = stableSerialize(existing) === stableSerialize(event)
             ? { eventId: event.eventId, status: "duplicate", code: "EVENT_DUPLICATE" }
             : { eventId: event.eventId, status: "rejected", code: "EVENT_ID_COLLISION", message: "The event ID is already used by different content." };
-          progressed = true;
           continue;
         }
         const verification = await verifySignedEvent(event, this.options.state, {
@@ -61,14 +60,24 @@ export class EventIngestService {
           allowUnknownDevice: event.eventType === "device.attested",
         });
         if (!verification.accepted) {
-          deferredReasons.set(item.index, verification);
-          deferred.push(item);
+          if (shouldDeferEventVerification(verification)) {
+            deferredReasons.set(item.index, verification);
+            deferred.push(item);
+          } else {
+            results[item.index] = {
+              eventId: eventId(item.value),
+              status: "rejected",
+              code: verification.code ?? "EVENT_REJECTED",
+              message: verification.message ?? "The event was rejected.",
+            };
+          }
           continue;
         }
         try {
           await this.options.databases[event.database].add(event);
           if (!this.options.state.knownEvents.has(event.eventId)) applyAcceptedEvent(event, this.options.state);
           results[item.index] = { eventId: event.eventId, status: "persisted" };
+          stateProgressed = true;
         } catch (reason) {
           results[item.index] = {
             eventId: event.eventId,
@@ -77,19 +86,15 @@ export class EventIngestService {
             message: reason instanceof Error ? reason.message : "The trusted node could not persist the event.",
           };
         }
-        progressed = true;
       }
-      if (!progressed) {
+      if (!stateProgressed) {
         for (const item of deferred) {
           const reason = deferredReasons.get(item.index);
-          const missingParent = reason?.code === "EVENT_PARENT_MISSING";
           results[item.index] = {
             eventId: eventId(item.value),
-            status: missingParent ? "deferred" : "rejected",
+            status: "deferred",
             code: reason?.code ?? "EVENT_REJECTED",
-            message: reason?.message ?? (missingParent
-              ? "A logical parent has not reached the trusted node yet."
-              : "The event was rejected."),
+            message: reason?.message ?? "A required authorization dependency has not reached the trusted node yet.",
           };
         }
         break;

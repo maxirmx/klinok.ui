@@ -115,13 +115,13 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   const doctorPage = await newPage(await browser.newContext(), "doctor");
   await register(doctorPage, request, { firstName: "Анна", lastName: "Врач", email: doctorEmail, role: "doctor" });
   await login(doctorPage, doctorEmail);
-  await expect(doctorPage).toHaveURL(/\/roles/);
+  await expect(doctorPage).toHaveURL(/\/profile/);
   const doctorAccountId = await accountId(doctorPage);
   await expect(doctorPage.getByText("Ожидает решения")).toBeVisible();
 
   const administratorPage = await newPage(await browser.newContext(), "administrator");
   await login(administratorPage, process.env.KLINOK_E2E_BOOTSTRAP_EMAIL ?? "administrator@example.ru", process.env.KLINOK_E2E_BOOTSTRAP_PASSWORD ?? "bootstrap-password-2026");
-  await expect(administratorPage).toHaveURL(/\/roles/);
+  await expect(administratorPage).toHaveURL(/\/profile/);
   await expect(administratorPage.getByText(/Ключи этого аккаунта отсутствуют/)).toBeVisible();
   const recoveryBundle = process.env.KLINOK_E2E_RECOVERY_BUNDLE;
   if (!recoveryBundle) throw new Error("KLINOK_E2E_RECOVERY_BUNDLE is required for the composed E2E test.");
@@ -132,15 +132,16 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   });
   await administratorPage.getByLabel("Пароль пакета").fill(process.env.KLINOK_E2E_RECOVERY_PASSPHRASE ?? "offline-recovery-passphrase-2026");
   await administratorPage.getByRole("button", { name: "Импортировать ключи" }).click();
-  await administratorPage.getByRole("button", { name: "Использовать роль" }).click();
+  await administratorPage.locator(".workspace-sidebar").getByRole("link", { name: "Главная страница" }).click();
   await expect(administratorPage).toHaveURL(/\/admin\/home/);
   const requestRow = administratorPage.locator(".request-row").filter({ hasText: doctorAccountId });
   await expect(requestRow).toBeVisible({ timeout: replicationTimeout });
   await requestRow.getByRole("button", { name: "Одобрить" }).click();
 
   await doctorPage.bringToFront();
-  await expect(doctorPage.getByRole("button", { name: "Использовать роль" })).toBeVisible({ timeout: replicationTimeout });
-  await doctorPage.getByRole("button", { name: "Использовать роль" }).click();
+  const doctorHome = doctorPage.locator(".workspace-sidebar").getByRole("link", { name: "Главная страница" });
+  await expect(doctorHome).toBeVisible({ timeout: replicationTimeout });
+  await doctorHome.click();
   await expect(doctorPage).toHaveURL(/\/doctor\/home/);
 
   const ownerPage = await newPage(await browser.newContext(), "owner");
@@ -175,11 +176,11 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await expect(ownerPage).toHaveURL(/\/auth\/login/);
   await clearBrowserEventCaches(ownerPage);
   await login(ownerPage, ownerEmail);
-  await expect(ownerPage).toHaveURL(/\/(?:roles|owner\/home)/, { timeout: replicationTimeout });
-  if (new URL(ownerPage.url()).pathname === "/roles") {
-    const ownerRole = ownerPage.locator(".role-status-card").filter({ hasText: "Владелец животного" });
+  await expect(ownerPage).toHaveURL(/\/(?:profile|owner\/home)/, { timeout: replicationTimeout });
+  if (new URL(ownerPage.url()).pathname === "/profile") {
+    const ownerRole = ownerPage.locator(".role-selection-card").filter({ hasText: "Владелец животного" });
     await expect(ownerRole.getByText("Одобрена", { exact: true })).toBeVisible({ timeout: replicationTimeout });
-    await ownerRole.getByRole("button", { name: "Использовать роль" }).click();
+    await ownerPage.locator(".workspace-sidebar").getByRole("link", { name: "Главная страница" }).click();
   }
   await expect(ownerPage).toHaveURL(/\/owner\/home/);
   await expect(ownerPage.locator(".sync-status")).toContainText("Сохранено", { timeout: replicationTimeout });

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearDeviceId,
+  getDeviceId,
   getDeviceName,
   getOrCreateDeviceId,
   getOrCreateDeviceName,
@@ -19,11 +20,13 @@ describe("local device identity", () => {
       .mockReturnValueOnce("22222222-2222-4222-8222-222222222222");
     const first = getOrCreateDeviceId();
     const second = getOrCreateDeviceId();
+    expect(getDeviceId()).toBe(first);
     expect(first).toBe("11111111-1111-4111-8111-111111111111");
     expect(second).toBe(first);
     expect(crypto.randomUUID).toHaveBeenCalledTimes(1);
 
     clearDeviceId();
+    expect(getDeviceId()).toBeNull();
     const replacement = getOrCreateDeviceId();
     expect(replacement).toBe("22222222-2222-4222-8222-222222222222");
     expect(crypto.randomUUID).toHaveBeenCalledTimes(2);

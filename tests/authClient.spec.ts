@@ -20,4 +20,17 @@ describe("auth client", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { code: "LOGIN_FAILED", message: "Ошибка входа" } }), { status: 401 })));
     await expect(new AuthClient().login("a@b.ru", "password")).rejects.toMatchObject<AuthClientError>({ code: "LOGIN_FAILED", status: 401 });
   });
+
+  it("sends credential changes through an authenticated CSRF request", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ authenticated: true, csrfToken: "csrf" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ updated: true, email: "new@example.ru" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new AuthClient();
+    await client.session();
+    await client.updateCredentials({ email: "new@example.ru", password: "a completely new password" });
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/auth/credentials");
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "PATCH", credentials: "include" });
+    expect((fetchMock.mock.calls[1][1].headers as Headers).get("X-CSRF-Token")).toBe("csrf");
+  });
 });

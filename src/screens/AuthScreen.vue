@@ -2,25 +2,24 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { Role } from "@klinok/protocol";
-import AppIcon from "../components/AppIcon.vue";
 import BrandLogo from "../components/BrandLogo.vue";
 import PasswordInput from "../components/PasswordInput.vue";
+import RoleSelectionCards from "../components/RoleSelectionCards.vue";
 import { appState, forgotPassword, getConfig, login, register, resetPassword, verifyEmail } from "../appStore";
-import { getOrCreateDeviceName } from "../repositories/deviceVault";
+import { getDeviceId, getOrCreateDeviceName, suggestedDeviceName } from "../repositories/deviceVault";
 import { roleHomePath } from "../roleNavigation";
 import { APP_VERSION } from "../version";
-
-type InitialRole = Extract<Role, "owner" | "doctor">;
 
 const props = defineProps<{ scenarioId: string }>();
 const route = useRoute();
 const router = useRouter();
 const email = ref("");
 const password = ref("");
-const deviceName = ref(getOrCreateDeviceName());
+const isNewDevice = !getDeviceId();
+const deviceName = ref(isNewDevice ? suggestedDeviceName() : getOrCreateDeviceName());
 const confirmPassword = ref("");
 const registrationConfirmPassword = ref("");
-const initialRole = ref<InitialRole>("owner");
+const initialRole = ref<Role>("owner");
 const acceptedConsent = ref(false);
 const acceptedAgreement = ref(false);
 const ageConfirmed = ref(false);
@@ -39,7 +38,7 @@ async function submitLogin() {
   try {
     await login(email.value, password.value, deviceName.value);
     const destination = appState.keyRecoveryRequired || appState.devicePending
-      ? "/roles"
+      ? "/profile"
       : roleHomePath(appState.activeRole);
     await router.replace(destination);
   } catch { /* app store exposes a localized error */ }
@@ -55,7 +54,7 @@ function continueRegistration() {
 async function submitRegistration() {
   const saved = sessionStorage.getItem("klinok:registration");
   if (!saved || !acceptedConsent.value || !acceptedAgreement.value || !ageConfirmed.value) return;
-  const input = JSON.parse(saved) as typeof registration & { requestedRoles: InitialRole[] };
+  const input = JSON.parse(saved) as typeof registration & { requestedRoles: Role[] };
   try {
     await register({ ...input, patronymic: input.patronymic || undefined, ageConfirmed: true });
     sessionStorage.removeItem("klinok:registration");
@@ -112,7 +111,11 @@ onMounted(async () => {
         <form v-if="mode === 'login'" class="form-stack" @submit.prevent="submitLogin">
           <label class="auth-field-label"><span>Электронная почта</span><input v-model="email" type="email" autocomplete="email" required /></label>
           <PasswordInput v-model="password" label="Пароль" autocomplete="current-password" required />
-          <label class="auth-field-label"><span>Название этого устройства</span><input v-model="deviceName" maxlength="80" autocomplete="off" required /><small>Например, «Домашний ноутбук». Название увидят при подтверждении устройства.</small></label>
+          <label v-if="isNewDevice" class="auth-field-label"><span>Название этого устройства</span><input v-model="deviceName" maxlength="80" autocomplete="off" required /><small>Например, «Домашний ноутбук». Название увидят при подтверждении устройства.</small></label>
+          <div v-else class="auth-device-name" aria-label="Название этого устройства">
+            <span>Название этого устройства</span>
+            <strong>{{ deviceName }}</strong>
+          </div>
           <button class="primary-action" :disabled="appState.busy">Войти</button>
           <nav class="auth-login-links" aria-label="Дополнительные действия">
             <RouterLink class="auth-text-link" to="/auth/forgot-password">Забыли пароль?</RouterLink>
@@ -129,18 +132,7 @@ onMounted(async () => {
           <PasswordInput v-model="registrationConfirmPassword" label="Повторите пароль" minlength="12" maxlength="128" autocomplete="new-password" required />
           <p v-if="registrationConfirmPassword && registration.password !== registrationConfirmPassword" class="field-error" role="alert">Пароли не совпадают.</p>
           <fieldset class="initial-role-options" aria-label="Выберите роль">
-            <div class="initial-role-grid">
-              <label class="initial-role-option owner" :class="{ selected: initialRole === 'owner' }">
-                <input v-model="initialRole" type="radio" name="initial-role" value="owner" />
-                <span>Я - владелец животного</span>
-                <AppIcon class="initial-role-graphic" name="pets" />
-              </label>
-              <label class="initial-role-option doctor" :class="{ selected: initialRole === 'doctor' }">
-                <input v-model="initialRole" type="radio" name="initial-role" value="doctor" />
-                <span>Я - ветеринар</span>
-                <AppIcon class="initial-role-graphic" name="medical-tools" />
-              </label>
-            </div>
+            <RoleSelectionCards v-model="initialRole" personalized-labels />
           </fieldset>
           <button class="primary-action" :disabled="registration.password !== registrationConfirmPassword">Продолжить</button>
           <RouterLink class="auth-text-link" to="/auth/login">Уже есть аккаунт</RouterLink>

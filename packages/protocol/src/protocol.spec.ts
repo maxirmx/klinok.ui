@@ -6,6 +6,7 @@ import {
   exportUserKeySet,
   createProtocolState,
   roleProjectionKey,
+  shouldDeferEventVerification,
   applyAcceptedEvent,
   reconcileEffectiveEvents,
   signEvent,
@@ -58,6 +59,14 @@ describe("klinok protocol", () => {
   it("selects the more restrictive concurrent role status", () => {
     expect(chooseConcurrentRoleStatus("approved", "suspended")).toBe("suspended");
     expect(chooseConcurrentRoleStatus("rejected", "pending")).toBe("rejected");
+  });
+
+  it("defers only verification failures that can change as protocol state arrives", () => {
+    expect(shouldDeferEventVerification({ accepted: false, code: "EVENT_PARENT_MISSING" })).toBe(true);
+    expect(shouldDeferEventVerification({ accepted: false, code: "DEVICE_UNKNOWN" })).toBe(true);
+    expect(shouldDeferEventVerification({ accepted: false, code: "SIGNATURE_INVALID" })).toBe(false);
+    expect(shouldDeferEventVerification({ accepted: false, code: "DATABASE_MISMATCH" })).toBe(false);
+    expect(shouldDeferEventVerification({ accepted: false, code: "EVENT_TYPE_UNSUPPORTED" })).toBe(false);
   });
 
   it("can generate browser-and-node compatible data keys", async () => {

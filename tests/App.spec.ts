@@ -1,11 +1,16 @@
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
+import { defineComponent } from "vue";
 import { createMemoryHistory, createRouter } from "vue-router";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import PasswordInput from "../src/components/PasswordInput.vue";
+import RoleSelectionCards from "../src/components/RoleSelectionCards.vue";
 import AuthScreen from "../src/screens/AuthScreen.vue";
 import RoleStatusScreen from "../src/screens/RoleStatusScreen.vue";
 import WorkspaceScreen from "../src/screens/WorkspaceScreen.vue";
+import { getOrCreateDeviceId, setDeviceName } from "../src/repositories/deviceVault";
 import { routes } from "../src/router";
+
+beforeEach(() => localStorage.clear());
 
 async function mountScreen(component: object, path: string, props: Record<string, unknown>) {
   const router = createRouter({ history: createMemoryHistory(), routes });
@@ -22,8 +27,19 @@ describe("operational Russian UI", () => {
     expect(wrapper.text()).not.toContain("Введите электронную почту и пароль");
     expect(wrapper.find('input[type="email"]').exists()).toBe(true);
     expect(wrapper.find('input[type="password"]').exists()).toBe(true);
+    expect(wrapper.find('input[autocomplete="off"]').exists()).toBe(true);
+    expect(wrapper.find(".auth-device-name").exists()).toBe(false);
     expect(wrapper.text()).not.toContain("номер телефона");
     expect(wrapper.text()).not.toContain("код из СМС");
+  });
+
+  it("shows the saved device name as non-editable text for an existing device", async () => {
+    getOrCreateDeviceId();
+    setDeviceName("Домашний ноутбук");
+    const wrapper = await mountScreen(AuthScreen, "/auth/login", { scenarioId: "auth-login" });
+    expect(wrapper.find('input[autocomplete="off"]').exists()).toBe(false);
+    expect(wrapper.get(".auth-device-name").text()).toContain("Домашний ноутбук");
+    expect(wrapper.get(".auth-device-name").attributes("aria-label")).toBe("Название этого устройства");
   });
 
   it("uses one initial role and confirms the password during registration", async () => {
@@ -34,7 +50,8 @@ describe("operational Russian UI", () => {
     expect(wrapper.text()).not.toContain("Работа с предоставленными медкартами");
     expect(wrapper.text()).toContain("Я - ветеринар");
     expect(wrapper.text()).toContain("Я - владелец животного");
-    expect(wrapper.findAll(".initial-role-graphic")).toHaveLength(2);
+    expect(wrapper.findAll(".role-selection-graphic")).toHaveLength(2);
+    expect(wrapper.findAll(".role-selection-card")).toHaveLength(2);
     expect(wrapper.text()).not.toContain("Начальная роль");
     expect(wrapper.get("fieldset").attributes("aria-label")).toBe("Выберите роль");
     const roles = wrapper.findAll<HTMLInputElement>('input[type="radio"]');
@@ -59,22 +76,65 @@ describe("operational Russian UI", () => {
     expect(wrapper.get("button").attributes("aria-label")).toBe("Скрыть пароль");
   });
 
-  it("renders accessible status and Administrator queue surfaces", async () => {
-    const statuses = await mountScreen(RoleStatusScreen, "/roles", { scenarioId: "role-status" });
-    expect(statuses.text()).toContain("Роли и доступ");
-    expect(statuses.findAll("h2").map((node) => node.text())).toEqual(expect.arrayContaining(["Администратор", "Врач", "Владелец животного"]));
+  it("shares role cards and highlights active and request statuses", () => {
+    const wrapper = mount(RoleSelectionCards, {
+      props: {
+        modelValue: "owner",
+        includeAdministrator: true,
+        selectable: false,
+        statusByRole: { owner: "approved", doctor: "pending", administrator: "rejected" },
+      },
+    });
+    const cards = wrapper.findAll(".role-selection-card");
+    expect(cards).toHaveLength(3);
+    expect(cards[0]!.classes()).toEqual(expect.arrayContaining(["owner", "approved", "selected"]));
+    expect(cards[1]!.classes()).toEqual(expect.arrayContaining(["doctor", "pending"]));
+    expect(cards[2]!.classes()).toEqual(expect.arrayContaining(["administrator", "rejected"]));
+  });
+
+  it("keeps separate role-card instances in independent radio groups", () => {
+    const wrapper = mount(defineComponent({
+      components: { RoleSelectionCards },
+      template: "<div><RoleSelectionCards /><RoleSelectionCards /></div>",
+    }));
+    const groups = wrapper.findAll(".role-selection-grid").map((group) =>
+      group.get<HTMLInputElement>('input[type="radio"]').attributes("name"),
+    );
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toBeTruthy();
+    expect(groups[1]).toBeTruthy();
+    expect(groups[0]).not.toBe(groups[1]);
+  });
+
+  it("renders accessible profile settings and Administrator queue surfaces", async () => {
+    const statuses = await mountScreen(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+    expect(statuses.text()).toContain("Настройки пользователя");
+    expect(statuses.text()).toContain("Электронная почта и пароль");
+    expect(statuses.text()).not.toContain("Повторите электронную почту");
+    expect(statuses.text()).toContain("Аккаунт и устройства");
+    expect(statuses.findAll(".role-selection-title").map((node) => node.text())).toEqual(["Владелец животного", "Ветеринар", "Администратор"]);
+    expect(statuses.findAll(".role-selection-card")).toHaveLength(3);
+    expect(statuses.findAll('.profile-roles input[type="radio"]')).toHaveLength(3);
+    expect(statuses.get(".profile-form").find('button[type="submit"]').exists()).toBe(false);
+    expect(statuses.get(".credentials-form").find('button[type="submit"]').exists()).toBe(false);
+    expect(statuses.get('.profile-section-heading button[form="profile-form"]').text()).toBe("Сохранить");
+    expect(statuses.get('.profile-section-heading button[form="credentials-form"]').text()).toBe("Сохранить");
     expect(statuses.findAll(".profile-form > label").map((label) => label.text())).toEqual([
       "Имя", "Отчество, если есть", "Фамилия",
     ]);
+    expect(statuses.get<HTMLInputElement>('input[autocomplete="given-name"]').attributes("readonly")).toBeUndefined();
+    expect(statuses.findAll<HTMLInputElement>('.credentials-form input[type="password"]')).toHaveLength(2);
+    expect(statuses.findAll<HTMLInputElement>('.credentials-form input[type="password"]').every((input) => input.element.value === "")).toBe(true);
     const administrator = await mountScreen(WorkspaceScreen, "/admin/home", { scenarioId: "administrator-home", role: "administrator" });
     expect(administrator.text()).toContain("Заявки на роли");
     expect(administrator.text()).toContain("Конфликты авторизации");
   });
 
   it.each([
-    ["administrator", "/admin/home", ["Главная", "Заявки", "Аккаунты", "Конфликты", "Журнал"]],
-    ["doctor", "/doctor/home", ["Главная", "Питомцы", "Новая запись", "Делегирование", "Медкарта"]],
-    ["owner", "/owner/home", ["Главная", "Добавить", "Питомцы", "Дать доступ", "Доступы", "Медкарта"]],
+    ["administrator", "/admin/home", ["Главная страница", "Заявки", "Аккаунты", "Конфликты", "Журнал"]],
+    ["doctor", "/doctor/home", ["Главная страница", "Питомцы", "Новая запись", "Делегирование", "Медкарта"]],
+    ["owner", "/owner/home", ["Главная страница", "Добавить", "Питомцы", "Дать доступ", "Доступы", "Медкарта"]],
   ] as const)("renders responsive %s navigation for the current feature set", async (role, path, labels) => {
     const workspace = await mountScreen(WorkspaceScreen, path, { scenarioId: `${role}-home`, role });
     const sidebarLabels = workspace.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text());
@@ -84,5 +144,12 @@ describe("operational Russian UI", () => {
     expect(bottomLabels).toEqual(labels);
     expect(workspace.find(".workspace-sidebar").attributes("aria-label")).toBe("Основная навигация");
     expect(workspace.find(".workspace-bottom-nav").attributes("aria-label")).toBe("Нижняя навигация");
+    expect(workspace.text()).toContain("Настройки пользователя");
+
+    const target = workspace.findAll(".workspace-sidebar-nav .workspace-nav-item")[1]!;
+    await target.trigger("click");
+    await flushPromises();
+    expect(workspace.vm.$route.hash).toBe(target.attributes("href"));
+    expect(target.classes()).toContain("active");
   });
 });

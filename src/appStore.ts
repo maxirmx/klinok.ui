@@ -15,6 +15,7 @@ import {
   clearDeviceId,
   decryptAndStoreUserKeyBundle,
   encryptUserKeyBundle,
+  getDeviceId,
   getLastActiveRole,
   getOrCreateDeviceId,
   getOrCreateDeviceName,
@@ -228,8 +229,8 @@ export async function verifyEmail(token: string) {
 export async function login(email: string, password: string, deviceName?: string) {
   state.busy = true; state.error = "";
   try {
+    await auth.login(email, password, getDeviceId() ?? undefined);
     if (deviceName?.trim()) setDeviceName(deviceName);
-    await auth.login(email, password, getOrCreateDeviceId());
     state.initialized = false;
     await bootstrapApp(true);
   }
@@ -306,6 +307,11 @@ export async function updateProfile(input: { firstName: string; lastName: string
     ...input,
     updatedAt: new Date().toISOString(),
   }, operation.operationId);
+}
+
+export async function updateCredentials(input: { email?: string; password?: string }) {
+  const result = await auth.updateCredentials(input);
+  state.session = { ...state.session, email: result.email };
 }
 
 export function switchRole(role: Role) {

@@ -11,6 +11,6 @@ describe("role navigation", () => {
   });
 
   it("uses role status only when no approved role is active", () => {
-    expect(roleHomePath(null)).toBe("/roles");
+    expect(roleHomePath(null)).toBe("/profile");
   });
 });

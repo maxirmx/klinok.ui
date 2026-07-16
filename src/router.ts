@@ -17,6 +17,7 @@ const roleByScenario: Partial<Record<string, Role>> = {
 
 export const routes: RouteRecordRaw[] = [
   { path: "/", redirect: "/auth/login" },
+  { path: "/roles", redirect: "/profile" },
   ...scenarioRegistry.map((scenario) => ({
     path: scenario.path,
     name: scenario.id,
@@ -28,27 +29,31 @@ export const routes: RouteRecordRaw[] = [
       title: scenario.title,
     },
   })),
-  { path: "/:pathMatch(.*)*", redirect: "/roles" },
+  { path: "/:pathMatch(.*)*", redirect: "/profile" },
 ];
 
 export function createAppRouter() {
-  const router = createRouter({ history: createWebHistory(), routes, scrollBehavior: () => ({ top: 0 }) });
+  const router = createRouter({
+    history: createWebHistory(),
+    routes,
+    scrollBehavior: (to) => to.hash ? { el: to.hash } : { top: 0 },
+  });
   router.beforeEach(async (to) => {
     await bootstrapApp();
     if (to.meta.public) {
       if (appState.session.authenticated && to.path === "/auth/login") {
-        if (appState.keyRecoveryRequired || appState.devicePending) return "/roles";
+        if (appState.keyRecoveryRequired || appState.devicePending) return "/profile";
         return roleHomePath(appState.activeRole);
       }
       return true;
     }
     if (!appState.session.authenticated) return { path: "/auth/login", query: { continue: to.fullPath } };
-    if (appState.keyRecoveryRequired || appState.devicePending) return to.path === "/roles" ? true : "/roles";
+    if (appState.keyRecoveryRequired || appState.devicePending) return to.path === "/profile" ? true : "/profile";
     const role = to.meta.role as Role | undefined;
     if (!role) return true;
     const approved = appState.control.roles.find((request) => request.role === role && request.status === "approved");
-    if (!approved) return "/roles";
-    if (appState.activeRole !== role) return { path: "/roles", query: { switch: role, continue: to.fullPath } };
+    if (!approved) return "/profile";
+    if (appState.activeRole !== role) return { path: "/profile", query: { switch: role, continue: to.fullPath } };
     return true;
   });
   return router;

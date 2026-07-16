@@ -72,6 +72,25 @@ describe("trusted-node event ingestion", () => {
     expect(projection.conflicts).toEqual([]);
   });
 
+  it("records permanent verification failures while continuing causal replay", async () => {
+    const events = await generatedEvents();
+    const invalid = {
+      ...events[0]!,
+      eventId: crypto.randomUUID(),
+      database: "medical" as const,
+    };
+    const projection = await reduceSignedEvents(
+      [invalid, ...[...events].reverse()],
+      createProtocolState("bootstrap-administrator"),
+      { requireTrustedAttestation: false },
+    );
+
+    expect(projection.accepted).toHaveLength(events.length);
+    expect(projection.conflicts).toEqual([
+      expect.objectContaining({ event: invalid, result: expect.objectContaining({ code: "DATABASE_MISMATCH" }) }),
+    ]);
+  });
+
   it("persists a reversed dependency batch and acknowledges duplicates idempotently", async () => {
     const events = await generatedEvents();
     const { ingest, persisted } = service();
@@ -117,6 +136,19 @@ describe("trusted-node event ingestion", () => {
     expect(await ingest.ingest([firstEvent])).toEqual({
       results: [expect.objectContaining({ eventId: firstEvent.eventId, status: "deferred", code: "EVENT_WRITE_FAILED" })],
     });
+  });
+
+  it("defers missing authorization state but rejects permanent verification failures", async () => {
+    const events = await generatedEvents();
+    const dependent = events.find((event) => event.eventType === "profile.updated")!;
+    const invalid = { ...dependent, eventId: crypto.randomUUID(), database: "medical" as const };
+    const { ingest } = service();
+    const response = await ingest.ingest([dependent, invalid]);
+
+    expect(response.results).toEqual([
+      expect.objectContaining({ eventId: dependent.eventId, status: "deferred", code: "EVENT_PARENT_MISSING" }),
+      expect.objectContaining({ eventId: invalid.eventId, status: "rejected", code: "DATABASE_MISMATCH" }),
+    ]);
   });
 
   it("serves health and batch ingestion through the HTTP request handler", async () => {

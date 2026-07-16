@@ -212,6 +212,7 @@ export interface AuthSessionDto {
   authenticated: boolean;
   credentialStatus?: CredentialStatus;
   accountId?: string;
+  email?: string;
   csrfToken?: string;
   device?: DeviceCertificate;
   devices?: DeviceCertificate[];
