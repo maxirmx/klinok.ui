@@ -15,7 +15,7 @@ const recoveryPassphrase = process.env.KLINOK_RECOVERY_PASSPHRASE ?? "";
 const outputDir = process.env.KLINOK_PROVISION_OUTPUT_DIR ?? join(config.dataDir, "provisioned");
 
 if (!validatePassword(password) || recoveryPassphrase.length < 16) {
-  throw new Error("KLINOK_BOOTSTRAP_PASSWORD must be 12-128 characters and KLINOK_RECOVERY_PASSPHRASE at least 16 characters.");
+  throw new Error("KLINOK_BOOTSTRAP_PASSWORD must be 6-128 characters and KLINOK_RECOVERY_PASSPHRASE at least 16 characters.");
 }
 
 await mkdir(outputDir, { recursive: true });

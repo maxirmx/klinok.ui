@@ -72,7 +72,7 @@ const normalizedEmailDraft = computed(() => credentialsDraft.email.trim().toLoca
 const credentialsCanSave = computed(() => {
   const password = credentialsDraft.password;
   const passwordValid = password
-    ? password.length >= 12 && password.length <= 128 && password === credentialsDraft.confirmPassword
+    ? password.length >= 6 && password.length <= 128 && password === credentialsDraft.confirmPassword
     : !credentialsDraft.confirmPassword;
   const hasChanges = normalizedEmailDraft.value !== savedEmail.value || Boolean(password);
   return normalizedEmailDraft.value.includes("@") && passwordValid && hasChanges;
@@ -148,8 +148,8 @@ async function saveCredentials() {
     feedback.forms = { kind: "error", text: "Пароли не совпадают." };
     return;
   }
-  if (credentialsDraft.password && (credentialsDraft.password.length < 12 || credentialsDraft.password.length > 128)) {
-    feedback.forms = { kind: "error", text: "Пароль должен содержать от 12 до 128 символов." };
+  if (credentialsDraft.password && (credentialsDraft.password.length < 6 || credentialsDraft.password.length > 128)) {
+    feedback.forms = { kind: "error", text: "Пароль должен содержать от 6 до 128 символов." };
     return;
   }
 
@@ -226,8 +226,8 @@ async function activate(role: Role) {
         </div>
         <form id="credentials-form" class="form-stack credentials-form" @submit.prevent="saveCredentials">
           <label><span>Электронная почта</span><input v-model="credentialsDraft.email" type="email" autocomplete="email" required /></label>
-          <PasswordInput v-model="credentialsDraft.password" label="Новый пароль — от 12 до 128 символов" minlength="12" maxlength="128" autocomplete="new-password" />
-          <PasswordInput v-model="credentialsDraft.confirmPassword" label="Повторите новый пароль" minlength="12" maxlength="128" autocomplete="new-password" />
+          <PasswordInput v-model="credentialsDraft.password" label="Новый пароль — от 6 до 128 символов" minlength="6" maxlength="128" autocomplete="new-password" />
+          <PasswordInput v-model="credentialsDraft.confirmPassword" label="Повторите новый пароль" minlength="6" maxlength="128" autocomplete="new-password" />
           <p v-if="credentialsDraft.confirmPassword && credentialsDraft.password !== credentialsDraft.confirmPassword" class="field-error" role="alert">Пароли не совпадают.</p>
         </form>
       </section>
