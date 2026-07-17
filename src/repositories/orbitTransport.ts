@@ -31,10 +31,10 @@ export async function waitForInitialReplication(db: OrbitDb, timeoutMs = 5_000):
   const on = events.on.bind(events);
   const off = events.off.bind(events);
   return new Promise((resolve) => {
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     function joined() { finish(true); }
     function finish(replicated: boolean) {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       off("join", joined);
       resolve(replicated);
     }
