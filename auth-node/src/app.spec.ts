@@ -42,6 +42,24 @@ async function verifiedLogin(app: Awaited<ReturnType<typeof buildAuthApp>>, mail
 afterEach(async () => Promise.all(apps.splice(0).map((app) => app.close())));
 
 describe("auth-node", () => {
+  it("accepts six-character passwords and rejects shorter passwords", async () => {
+    const { app } = await fixture();
+    const short = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      headers: { origin: "https://klinok.test" },
+      payload: { ...registration, email: "short@example.com", password: "12345" },
+    });
+    const minimum = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      headers: { origin: "https://klinok.test" },
+      payload: { ...registration, email: "minimum@example.com", password: "123456" },
+    });
+    expect(short.statusCode).toBe(400);
+    expect(minimum.statusCode).toBe(202);
+  });
+
   it("registers without exposing account existence and sends verification once", async () => {
     const { app, mailer } = await fixture();
     const first = await app.inject({ method: "POST", url: "/api/auth/register", headers: { origin: "https://klinok.test" }, payload: registration });

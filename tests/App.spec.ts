@@ -62,6 +62,7 @@ describe("operational Russian UI", () => {
     ]);
     const passwordFields = wrapper.findAll<HTMLInputElement>(".password-field input");
     expect(passwordFields).toHaveLength(2);
+    expect(passwordFields.every((field) => field.attributes("minlength") === "6")).toBe(true);
     await passwordFields[0]!.setValue("correct horse battery");
     await passwordFields[1]!.setValue("different password");
     expect(wrapper.text()).toContain("Пароли не совпадают.");
@@ -125,6 +126,7 @@ describe("operational Russian UI", () => {
     ]);
     expect(statuses.get<HTMLInputElement>('input[autocomplete="given-name"]').attributes("readonly")).toBeUndefined();
     expect(statuses.findAll<HTMLInputElement>('.credentials-form input[type="password"]')).toHaveLength(2);
+    expect(statuses.findAll<HTMLInputElement>('.credentials-form input[type="password"]').every((input) => input.attributes("minlength") === "6")).toBe(true);
     expect(statuses.findAll<HTMLInputElement>('.credentials-form input[type="password"]').every((input) => input.element.value === "")).toBe(true);
     const administrator = await mountScreen(WorkspaceScreen, "/admin/home", { scenarioId: "administrator-home", role: "administrator" });
     expect(administrator.text()).toContain("Заявки на роли");

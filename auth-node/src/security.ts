@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import argon2 from "argon2";
 
-export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MIN_LENGTH = 6;
 export const PASSWORD_MAX_LENGTH = 128;
 
 export function normalizeEmail(value: string): string {

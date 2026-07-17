@@ -46,7 +46,7 @@ async function submitLogin() {
 
 function continueRegistration() {
   if (!registration.firstName.trim() || !registration.lastName.trim() || !registration.email.includes("@") ||
-    registration.password.length < 12 || registration.password !== registrationConfirmPassword.value) return;
+    registration.password.length < 6 || registration.password !== registrationConfirmPassword.value) return;
   sessionStorage.setItem("klinok:registration", JSON.stringify({ ...registration, requestedRoles: [initialRole.value] }));
   void router.push("/auth/register/consent");
 }
@@ -68,7 +68,7 @@ async function submitForgot() {
 }
 
 async function submitReset() {
-  if (password.value !== confirmPassword.value) return;
+  if (password.value.length < 6 || password.value.length > 128 || password.value !== confirmPassword.value) return;
   try {
     await resetPassword(String(route.query.token ?? ""), password.value);
     localMessage.value = "Пароль изменён. Теперь войдите в аккаунт.";
@@ -128,8 +128,8 @@ onMounted(async () => {
           <label class="auth-field-label"><span>Отчество, если есть</span><input v-model="registration.patronymic" autocomplete="additional-name" /></label>
           <label class="auth-field-label"><span>Фамилия</span><input v-model="registration.lastName" autocomplete="family-name" required /></label>
           <label class="auth-field-label"><span>Электронная почта</span><input v-model="registration.email" type="email" autocomplete="email" required /></label>
-          <PasswordInput v-model="registration.password" label="Пароль — от 12 до 128 символов" minlength="12" maxlength="128" autocomplete="new-password" required />
-          <PasswordInput v-model="registrationConfirmPassword" label="Повторите пароль" minlength="12" maxlength="128" autocomplete="new-password" required />
+          <PasswordInput v-model="registration.password" label="Пароль — от 6 до 128 символов" minlength="6" maxlength="128" autocomplete="new-password" required />
+          <PasswordInput v-model="registrationConfirmPassword" label="Повторите пароль" minlength="6" maxlength="128" autocomplete="new-password" required />
           <p v-if="registrationConfirmPassword && registration.password !== registrationConfirmPassword" class="field-error" role="alert">Пароли не совпадают.</p>
           <fieldset class="initial-role-options" aria-label="Выберите роль">
             <RoleSelectionCards v-model="initialRole" personalized-labels />
@@ -162,10 +162,10 @@ onMounted(async () => {
         </form>
 
         <form v-else class="form-stack" @submit.prevent="submitReset">
-          <PasswordInput v-model="password" label="Новый пароль" minlength="12" maxlength="128" autocomplete="new-password" required />
-          <PasswordInput v-model="confirmPassword" label="Повторите пароль" minlength="12" maxlength="128" autocomplete="new-password" required />
+          <PasswordInput v-model="password" label="Новый пароль" minlength="6" maxlength="128" autocomplete="new-password" required />
+          <PasswordInput v-model="confirmPassword" label="Повторите пароль" minlength="6" maxlength="128" autocomplete="new-password" required />
           <p v-if="confirmPassword && password !== confirmPassword" class="field-error" role="alert">Пароли не совпадают.</p>
-          <button class="primary-action" :disabled="password !== confirmPassword">Изменить пароль</button>
+          <button class="primary-action" :disabled="password.length < 6 || password.length > 128 || password !== confirmPassword">Изменить пароль</button>
           <RouterLink class="auth-text-link" to="/auth/login">Вернуться ко входу</RouterLink>
         </form>
       </div>

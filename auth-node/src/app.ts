@@ -450,7 +450,7 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
   app.post<{ Body: { token: string; password: string } }>("/api/auth/password/reset", {
     config: { rateLimit: { max: options.config.rateLimit.tokenIpPer15Minutes, timeWindow: 15 * 60_000 } },
   }, async (request, reply) => {
-    if (!validatePassword(request.body.password ?? "")) return error(reply, 400, "PASSWORD_INVALID", "Пароль должен содержать от 12 до 128 символов.");
+    if (!validatePassword(request.body.password ?? "")) return error(reply, 400, "PASSWORD_INVALID", "Пароль должен содержать от 6 до 128 символов.");
     const rawToken = request.body.token ?? "";
     const tokenLimit = await tokenAttempts(request, `password-reset:${digestToken(rawToken)}`);
     if (rateLimitExceeded(tokenLimit)) return rejectRateLimit(reply, tokenLimit);
@@ -506,7 +506,7 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     const requestedPassword = request.body.password;
     if (!requestedEmail.includes("@")) return error(reply, 400, "EMAIL_INVALID", "Введите корректный адрес электронной почты.");
     if (requestedPassword !== undefined && !validatePassword(requestedPassword)) {
-      return error(reply, 400, "PASSWORD_INVALID", "Пароль должен содержать от 12 до 128 символов.");
+      return error(reply, 400, "PASSWORD_INVALID", "Пароль должен содержать от 6 до 128 символов.");
     }
     if (requestedEmail === current.account.email && requestedPassword === undefined) {
       return error(reply, 400, "CREDENTIALS_UNCHANGED", "Укажите новый адрес или пароль.");
