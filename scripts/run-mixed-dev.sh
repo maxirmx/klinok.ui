@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-for command in docker node npm; do
+for command in docker node npm curl; do
   if ! command -v "$command" >/dev/null 2>&1; then
     printf 'Missing required command: %s\n' "$command" >&2
     exit 1
@@ -28,7 +28,7 @@ export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-klinok_local}"
 export KLINOK_BOOTSTRAP_EMAIL="${KLINOK_BOOTSTRAP_EMAIL:-maxirmx@sw.consulting}"
 export KLINOK_BOOTSTRAP_PASSWORD="${KLINOK_BOOTSTRAP_PASSWORD:-Password&Spaniel&26}"
 export KLINOK_RECOVERY_PASSPHRASE="${KLINOK_RECOVERY_PASSPHRASE:-Bene facta me clarum non fecerunt}"
-export KLINOK_PUBLIC_ORIGIN="${KLINOK_PUBLIC_ORIGIN:-http://127.0.0.1:5173}"
+export KLINOK_PUBLIC_ORIGIN="${KLINOK_PUBLIC_ORIGIN:-http://localhost:8080}"
 
 compose=(docker compose -f docker-compose.yml -f docker-compose.mixed-dev.yml)
 
@@ -44,13 +44,44 @@ diagnose() {
 }
 trap diagnose EXIT
 
+stop_services_before_provisioning() {
+  local running_services service
+
+  # In mixed mode the UI container is normally absent, so stop each service
+  # separately. `docker compose stop ui auth` aborts at the missing UI
+  # container and leaves auth holding the LevelDB lock.
+  for service in ui auth; do
+    "${compose[@]}" stop "$service" >/dev/null 2>&1 || true
+  done
+
+  if ! running_services=$("${compose[@]}" ps --status running --services); then
+    printf 'Unable to inspect the mixed development services before provisioning.\n' >&2
+    return 1
+  fi
+
+  for service in ui auth; do
+    if grep -Fxq "$service" <<<"$running_services"; then
+      printf 'Could not stop %s before provisioning. Stop the service and try again.\n' "$service" >&2
+      return 1
+    fi
+  done
+}
+
+auth_is_healthy() {
+  local container_id health
+  container_id=$("${compose[@]}" ps -q auth 2>/dev/null || true)
+  [[ -n "$container_id" ]] || return 1
+  health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)
+  [[ "$health" == "healthy" ]]
+}
+
 if [[ "${KLINOK_SKIP_BUILD:-false}" != "true" ]]; then
   "${compose[@]}" build auth p2p
 fi
 
 # A running auth process holds the LevelDB lock. Stop it before the idempotent
 # provision step; named volumes and existing data remain intact.
-"${compose[@]}" stop ui auth >/dev/null 2>&1 || true
+stop_services_before_provisioning
 
 # Provisioning is idempotent and reuses the same named volumes as the complete
 # local stack.
@@ -90,14 +121,19 @@ export KLINOK_P2P_TRUSTED_NODES="/dns4/p2p/tcp/8089/ws/p2p/$P2P_PEER_ID"
 "${compose[@]}" up -d auth mail
 
 for _ in {1..60}; do
-  if node -e "fetch('http://127.0.0.1:8090/healthz').then(response=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+  if auth_is_healthy; then
     break
   fi
   sleep 1
 done
 
-if ! node -e "fetch('http://127.0.0.1:8090/healthz').then(response=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+if ! auth_is_healthy; then
   printf 'Timed out waiting for the authentication service.\n' >&2
+  exit 1
+fi
+
+if ! curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8090/healthz >/dev/null; then
+  printf 'Authentication service is healthy in Docker but unavailable from the host on 127.0.0.1:8090.\n' >&2
   exit 1
 fi
 

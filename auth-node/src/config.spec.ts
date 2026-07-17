@@ -5,6 +5,7 @@ describe("auth configuration", () => {
   it("disables proxy trust and uses secure rate-limit defaults", () => {
     const config = loadAuthConfig({});
     expect(config.trustProxy).toBe(false);
+    expect(config.publicOrigin).toBe("http://localhost:8080");
     expect(config.rateLimit).toEqual(DEFAULT_AUTH_RATE_LIMITS);
   });
 

@@ -28,6 +28,7 @@ export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-klinok_local}"
 export KLINOK_BOOTSTRAP_EMAIL="${KLINOK_BOOTSTRAP_EMAIL:-administrator@example.ru}"
 export KLINOK_BOOTSTRAP_PASSWORD="${KLINOK_BOOTSTRAP_PASSWORD:-bootstrap-password-2026}"
 export KLINOK_RECOVERY_PASSPHRASE="${KLINOK_RECOVERY_PASSPHRASE:-offline-recovery-passphrase-2026}"
+export KLINOK_PUBLIC_ORIGIN="http://localhost:8080"
 
 diagnose() {
   status=$?
@@ -41,12 +42,35 @@ diagnose() {
 }
 trap diagnose EXIT
 
+stop_services_before_provisioning() {
+  local running_services service
+
+  # Stop services separately because a missing UI container must not prevent
+  # auth from releasing the LevelDB lock before the one-off provision command.
+  for service in ui auth; do
+    docker compose stop "$service" >/dev/null 2>&1 || true
+  done
+
+  if ! running_services=$(docker compose ps --status running --services); then
+    printf 'Unable to inspect the local services before provisioning.\n' >&2
+    return 1
+  fi
+
+  for service in ui auth; do
+    if grep -Fxq "$service" <<<"$running_services"; then
+      printf 'Could not stop %s before provisioning. Stop the service and try again.\n' "$service" >&2
+      return 1
+    fi
+  done
+}
+
 if [[ "${KLINOK_SKIP_BUILD:-false}" != "true" ]]; then
   docker compose build
 fi
 
 # Provisioning is idempotent: existing local volumes keep the original account
 # and trust material; on first run these values create them.
+stop_services_before_provisioning
 docker compose run --rm -T \
   -e KLINOK_BOOTSTRAP_EMAIL \
   -e KLINOK_BOOTSTRAP_PASSWORD \
@@ -83,13 +107,13 @@ export KLINOK_P2P_TRUSTED_NODES="/dns4/p2p/tcp/8089/ws/p2p/$P2P_PEER_ID"
 docker compose up -d auth mail ui
 
 for _ in {1..60}; do
-  if curl --fail --silent http://localhost:8080/api/auth/session >/dev/null; then
+  if curl --fail --silent "$KLINOK_PUBLIC_ORIGIN/api/auth/session" >/dev/null; then
     break
   fi
   sleep 1
 done
 
-if ! curl --fail --silent http://localhost:8080/api/auth/session >/dev/null; then
+if ! curl --fail --silent "$KLINOK_PUBLIC_ORIGIN/api/auth/session" >/dev/null; then
   printf 'Timed out waiting for the application.\n' >&2
   exit 1
 fi
@@ -102,7 +126,7 @@ chmod 600 .klinok-local/bootstrap-recovery.bundle.json
 
 trap - EXIT
 printf '\nKlinok is running:\n'
-printf '  Application: http://localhost:8080\n'
+printf '  Application: %s\n' "$KLINOK_PUBLIC_ORIGIN"
 printf '  Test email: %s\n' "$KLINOK_BOOTSTRAP_EMAIL"
 printf '  Test password: %s\n' "$KLINOK_BOOTSTRAP_PASSWORD"
 printf '  Mailpit: http://localhost:8025\n'

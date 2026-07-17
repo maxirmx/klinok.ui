@@ -85,7 +85,7 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
     host: env.KLINOK_AUTH_HOST ?? "0.0.0.0",
     port: Number(env.KLINOK_AUTH_PORT ?? 8090),
     dataDir: env.KLINOK_AUTH_DATA_DIR ?? ".klinok-auth",
-    publicOrigin: env.KLINOK_PUBLIC_ORIGIN ?? "http://127.0.0.1:5173",
+    publicOrigin: env.KLINOK_PUBLIC_ORIGIN ?? "http://localhost:8080",
     attestationKeyPath: env.KLINOK_AUTH_ATTESTATION_KEY_PATH ?? `${env.KLINOK_AUTH_DATA_DIR ?? ".klinok-auth"}/auth-attestation-key.json`,
     cookieSecure: bool(env.KLINOK_AUTH_COOKIE_SECURE, env.NODE_ENV === "production"),
     enforceOrigin: bool(env.KLINOK_AUTH_ENFORCE_ORIGIN, true),
