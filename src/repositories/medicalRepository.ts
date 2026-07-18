@@ -271,6 +271,8 @@ export class MedicalRepository {
   }
 
   async grantDoctor(petId: string, doctorAccountId: string, actions: PetGrantAction[], requestId?: string): Promise<string> {
+    doctorAccountId = doctorAccountId.trim();
+    if (!doctorAccountId) throw new Error("Идентификатор аккаунта врача не указан.");
     const stored = await getPetKey(this.context.accountId, petId);
     if (!stored) throw new Error("Ключ питомца недоступен.");
     const existing = [...this.control.signed.state.grants.values()].find((grant) =>
