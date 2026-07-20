@@ -201,16 +201,22 @@ describe("Owner pages", () => {
       sex: "Кобель",
       color: undefined,
       weightKg: undefined,
+      photoDataUrl: "data:image/png;base64,AA==",
       legacyOptionalField: "drop-me",
     } as unknown as PetProfile;
     await setMedical(snapshot({ pets: [legacyPet] }));
     const wrapper = await mountAt("/owner/pets/pet-1/edit", "owner-pet-edit");
 
     expect(wrapper.get<HTMLSelectElement>("select").element.value).toBe("");
-    expect(wrapper.get(".owner-birth-row").find(".segmented").exists()).toBe(true);
+    const birthModeRadios = wrapper.findAll<HTMLInputElement>('.owner-birth-selector input[type="radio"]');
+    expect(birthModeRadios).toHaveLength(2);
+    expect(birthModeRadios[0]!.element.checked).toBe(true);
     expect(wrapper.get(".owner-birth-row").find('input[type="date"]').exists()).toBe(true);
-    expect(wrapper.find(".owner-birth-row label").exists()).toBe(false);
-    expect(wrapper.find(".owner-birth-row span").exists()).toBe(false);
+    expect(wrapper.find(".owner-birth-row button").exists()).toBe(false);
+    expect(wrapper.get(".owner-photo-actions").findAll("[title]").map((node) => node.attributes("title")))
+      .toEqual(["Выбрать фотографию", "Удалить фотографию"]);
+    expect(wrapper.get('.owner-photo-actions [title="Выбрать фотографию"]').getComponent(AppIcon).props("name")).toBe("edit");
+    expect(wrapper.get('.owner-photo-actions [title="Удалить фотографию"]').getComponent(AppIcon).props("name")).toBe("trash");
     const formActions = wrapper.get(".owner-pet-form-actions");
     expect(formActions.get('button[title="Сохранить изменения"]').getComponent(AppIcon).props("name")).toBe("check");
     expect(formActions.get('a[title="Отмена"]').getComponent(AppIcon).props("name")).toBe("close");

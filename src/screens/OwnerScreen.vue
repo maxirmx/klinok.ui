@@ -400,35 +400,47 @@ function formatDate(value?: string) {
 
     <section v-else-if="isForm && (isCreate || selectedPet)" class="owner-form-layout">
       <form class="panel form-stack owner-pet-form" @submit.prevent="savePet">
-        <div class="row-actions owner-pet-form-actions">
-          <button
-            class="primary-action inline owner-profile-action"
-            type="submit"
-            :disabled="photoBusy"
-            :title="isEdit ? 'Сохранить изменения' : 'Сохранить питомца'"
-            :aria-label="isEdit ? 'Сохранить изменения' : 'Сохранить питомца'"
-          >
-            <AppIcon name="check" />
-          </button>
-          <RouterLink
-            class="outline-action inline owner-profile-action"
-            :to="selectedPet ? `/owner/pets/${selectedPet.petId}` : '/owner/home'"
-            title="Отмена"
-            aria-label="Отмена"
-          >
-            <AppIcon name="close" />
-          </RouterLink>
-        </div>
-
-        <div class="owner-photo-editor">
+        <div class="owner-pet-form-header">
           <img v-if="draft.photoDataUrl" :src="draft.photoDataUrl" alt="Предпросмотр фотографии питомца" />
           <span v-else class="owner-pet-placeholder" aria-hidden="true">{{ draft.species.slice(0, 1).toLocaleUpperCase('ru') }}</span>
-          <div>
-            <label class="outline-action inline">
-              {{ photoBusy ? 'Обработка…' : 'Выбрать фотографию' }}
+          <div class="owner-photo-actions">
+            <label
+              class="outline-action inline owner-profile-action"
+              :title="photoBusy ? 'Обработка фотографии' : 'Выбрать фотографию'"
+              :aria-label="photoBusy ? 'Обработка фотографии' : 'Выбрать фотографию'"
+            >
+              <AppIcon :name="draft.photoDataUrl ? 'edit' : 'plus'" />
               <input class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" :disabled="photoBusy" @change="selectPhoto" />
             </label>
-            <button v-if="draft.photoDataUrl" class="link-action danger-link" type="button" @click="draft.photoDataUrl = ''">Удалить фотографию</button>
+            <button
+              v-if="draft.photoDataUrl"
+              class="outline-action inline danger-outline owner-profile-action"
+              type="button"
+              title="Удалить фотографию"
+              aria-label="Удалить фотографию"
+              @click="draft.photoDataUrl = ''"
+            >
+              <AppIcon name="trash" />
+            </button>
+          </div>
+          <div class="row-actions owner-pet-form-actions">
+            <button
+              class="primary-action inline owner-profile-action"
+              type="submit"
+              :disabled="photoBusy"
+              :title="isEdit ? 'Сохранить изменения' : 'Сохранить питомца'"
+              :aria-label="isEdit ? 'Сохранить изменения' : 'Сохранить питомца'"
+            >
+              <AppIcon name="check" />
+            </button>
+            <RouterLink
+              class="outline-action inline owner-profile-action"
+              :to="selectedPet ? `/owner/pets/${selectedPet.petId}` : '/owner/home'"
+              title="Отмена"
+              aria-label="Отмена"
+            >
+              <AppIcon name="close" />
+            </RouterLink>
           </div>
         </div>
 
@@ -446,9 +458,15 @@ function formatDate(value?: string) {
           <fieldset class="owner-birth-field">
             <legend>Дата рождения</legend>
             <div class="owner-birth-row">
-              <div class="segmented owner-birth-selector">
-                <button type="button" :class="{ active: birthMode === 'date' }" @click="birthMode = 'date'">Точная дата</button>
-                <button type="button" :class="{ active: birthMode === 'year' }" @click="birthMode = 'year'">Только год</button>
+              <div class="owner-birth-selector" role="radiogroup" aria-label="Точность даты рождения">
+                <label>
+                  <input v-model="birthMode" type="radio" value="date" />
+                  <span>Точная дата</span>
+                </label>
+                <label>
+                  <input v-model="birthMode" type="radio" value="year" />
+                  <span>Только год</span>
+                </label>
               </div>
               <input
                 v-if="birthMode === 'date'"
