@@ -112,6 +112,7 @@ describe("operational Russian UI", () => {
     expect(statuses.text()).toContain("Настройки пользователя");
     expect(statuses.text()).toContain("Электронная почта и пароль");
     expect(statuses.text()).not.toContain("Повторите электронную почту");
+    expect(statuses.text()).toContain("Синхронизация данных");
     expect(statuses.text()).toContain("Аккаунт и устройства");
     expect(statuses.findAll(".role-selection-title").map((node) => node.text())).toEqual(["Владелец животного", "Ветеринар", "Администратор"]);
     expect(statuses.findAll(".role-selection-card")).toHaveLength(3);

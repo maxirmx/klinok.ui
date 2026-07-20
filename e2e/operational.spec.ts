@@ -1,3 +1,7 @@
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok applicationi
+
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
@@ -74,6 +78,15 @@ async function newPage(context: BrowserContext, label: string): Promise<Page> {
   page.on("pageerror", (error) => console.error(`[browser:${label}:pageerror] ${error.message}`));
   page.on("requestfailed", (request) => console.error(`[browser:${label}:requestfailed] ${request.method()} ${request.url()} ${request.failure()?.errorText ?? "unknown"}`));
   return page;
+}
+
+async function openProfileAndWaitForSync(page: Page) {
+  if (new URL(page.url()).pathname !== "/profile") {
+    await page.locator(".workspace-sidebar").getByRole("button", { name: "Настройки пользователя" }).click();
+  }
+  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page.locator(".profile-sync-status .sync-status"))
+    .toContainText("Сохранено", { timeout: replicationTimeout });
 }
 
 async function clearBrowserEventCaches(page: Page) {
@@ -166,7 +179,9 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await ownerPage.getByLabel("Заметки").fill("Наблюдать за аппетитом");
   await ownerPage.getByRole("button", { name: "Сохранить изменения" }).click();
   await expect(ownerPage.getByText("Наблюдать за аппетитом")).toBeVisible();
-  await expect(ownerPage.locator(".sync-status")).toContainText("Сохранено", { timeout: replicationTimeout });
+  await openProfileAndWaitForSync(ownerPage);
+  await ownerPage.locator(".workspace-sidebar").getByRole("link", { name: "Шарик", exact: true }).click();
+  await expect(ownerPage).toHaveURL(new RegExp(`/owner/pets/${petId}$`));
 
   await doctorPage.bringToFront();
   await doctorPage.getByLabel("Идентификатор питомца").fill(petId);
@@ -194,12 +209,14 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await expect(ownerPage.getByText("Состояние стабильное")).toBeVisible({ timeout: replicationTimeout });
   await ownerPage.getByRole("button", { name: "Подтвердить" }).click();
   await expect(ownerPage.getByText("Подтверждена")).toBeVisible();
-  await expect(ownerPage.locator(".sync-status")).toContainText("Сохранено", { timeout: replicationTimeout });
+  await openProfileAndWaitForSync(ownerPage);
+  await ownerPage.locator(".workspace-sidebar").getByRole("link", { name: "Шарик", exact: true }).click();
+  await expect(ownerPage).toHaveURL(new RegExp(`/owner/pets/${petId}$`));
   await ownerPage.getByRole("link", { name: "Доступ врачей" }).click();
   const activeAccess = ownerPage.locator(".owner-access-table tbody tr").filter({ hasText: "Анна Врач" });
   await activeAccess.getByRole("button", { name: "Отозвать доступ" }).click();
   await expect(ownerPage.getByText("Доступ отозван.")).toBeVisible();
-  await expect(ownerPage.locator(".sync-status")).toContainText("Сохранено", { timeout: replicationTimeout });
+  await openProfileAndWaitForSync(ownerPage);
 
   if (process.env.KLINOK_E2E_RESTART_P2P === "true") await restartTrustedNode();
   await ownerPage.getByRole("button", { name: "Выйти", exact: true }).click();
@@ -210,9 +227,9 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   if (new URL(ownerPage.url()).pathname === "/profile") {
     const ownerRole = ownerPage.locator(".role-selection-card").filter({ hasText: "Владелец животного" });
     await expect(ownerRole.getByText("Одобрена", { exact: true })).toBeVisible({ timeout: replicationTimeout });
-    await ownerPage.locator(".workspace-sidebar").getByRole("link", { name: "Главная страница" }).click();
   }
+  await openProfileAndWaitForSync(ownerPage);
+  await ownerPage.locator(".workspace-sidebar").getByRole("link", { name: "Главная страница" }).click();
   await expect(ownerPage).toHaveURL(/\/owner\/home/);
-  await expect(ownerPage.locator(".sync-status")).toContainText("Сохранено", { timeout: replicationTimeout });
   await expect(ownerPage.locator(".owner-pet-card strong").filter({ hasText: "Шарик" })).toBeVisible({ timeout: replicationTimeout });
 });

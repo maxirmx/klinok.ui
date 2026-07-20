@@ -42,6 +42,8 @@ vi.mock("../src/appStore", async () => {
     },
     medical: { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], events: [] },
     conflicts: [],
+    sync: { pendingCount: 0, failedCount: 0, syncing: false, lastError: "" },
+    repositoryConnected: true,
     keyRecoveryRequired: false,
     devicePending: false,
   });
@@ -49,6 +51,7 @@ vi.mock("../src/appStore", async () => {
     appState: readonly(state),
     setMockActiveRole: (role: "owner" | "doctor" | "administrator" | null) => { state.activeRole = role; },
     setMockDevices: (devices: typeof state.session.devices) => { state.session.devices = devices; },
+    setMockSync: (sync: typeof state.sync) => { state.sync = sync; },
     approveDeviceEnrollment: vi.fn(),
     bootstrapApp: vi.fn(),
     cancelRole: vi.fn(),
@@ -84,11 +87,13 @@ async function mountAt(component: object, path: string, props: Record<string, un
 beforeEach(async () => {
   const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
     setMockDevices: (devices: Array<{ deviceId: string; deviceName: string; status: string }>) => void;
+    setMockSync: (sync: { pendingCount: number; failedCount: number; syncing: boolean; lastError: string }) => void;
   };
   mockedStore.setMockDevices([
     { deviceId: "current-device", deviceName: "Домашний ноутбук", status: "active" },
     { deviceId: "revoked-device", deviceName: "Старый телефон", status: "revoked" },
   ]);
+  mockedStore.setMockSync({ pendingCount: 0, failedCount: 0, syncing: false, lastError: "" });
   vi.mocked(deleteAccount).mockClear();
   vi.mocked(logout).mockClear();
   vi.mocked(revokeDevice).mockClear();
@@ -141,6 +146,26 @@ describe("logout navigation", () => {
       .find((button) => button.text() === "Отозвать устройство");
     expect(revokeButton?.element.disabled).toBe(true);
     expect(revokeButton?.attributes("title")).toBe("Нельзя отозвать последнее действующее устройство.");
+  });
+
+  it("shows current-session sync status immediately above account and device management", async () => {
+    const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+      setMockSync: (sync: { pendingCount: number; failedCount: number; syncing: boolean; lastError: string }) => void;
+    };
+    const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+    const sections = wrapper.findAll(".profile-layout > .profile-section");
+    const syncSectionIndex = sections.findIndex((section) => section.classes().includes("profile-sync-status"));
+    const accountSectionIndex = sections.findIndex((section) => section.classes().includes("account-security"));
+
+    expect(syncSectionIndex).toBeGreaterThanOrEqual(0);
+    expect(accountSectionIndex).toBe(syncSectionIndex + 1);
+    expect(sections[syncSectionIndex]!.text()).toContain("Синхронизация данных");
+    expect(sections[syncSectionIndex]!.text()).toContain("текущего сеанса");
+    expect(sections[syncSectionIndex]!.get(".sync-status").text()).toBe("Сохранено");
+
+    mockedStore.setMockSync({ pendingCount: 0, failedCount: 1, syncing: false, lastError: "" });
+    await flushPromises();
+    expect(sections[syncSectionIndex]!.get(".sync-status").text()).toBe("Конфликты: 1");
   });
 
   it("confirms account deletion in a modal before executing it", async () => {

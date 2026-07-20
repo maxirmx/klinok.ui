@@ -2649,6 +2649,7 @@ dd {
 }
 .profile-page .critical-panel { margin: 0 auto 8px; }
 .profile-page .profile-roles,
+.profile-page .profile-sync-status,
 .profile-page .account-security { grid-column: 1 / -1; }
 .profile-section-heading {
   display: flex;
@@ -2757,6 +2758,11 @@ dd {
 .profile-page .list-row small { font-size: 11px; }
 .profile-page .row-actions { align-items: center; flex-wrap: wrap; gap: 4px; }
 .profile-page .account-actions { margin-top: 8px; }
+.profile-page .profile-sync-status .profile-section-heading {
+  align-items: center;
+  margin-bottom: 0;
+}
+.profile-page .profile-sync-status .sync-status { flex: 0 0 auto; }
 
 @media (max-width: 1180px) {
   .profile-page { padding: 0; }
@@ -2766,6 +2772,7 @@ dd {
   .profile-header .sync-status { justify-self: end; }
   .profile-layout { grid-template-columns: 1fr; }
   .profile-page .profile-roles,
+  .profile-page .profile-sync-status,
   .profile-page .account-security { grid-column: auto; }
   .profile-page .role-selection-grid.with-administrator { grid-template-columns: 1fr; }
   .profile-page .role-selection-card {

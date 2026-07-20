@@ -6,6 +6,7 @@ import AppIcon from "../components/AppIcon.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import PasswordInput from "../components/PasswordInput.vue";
 import RoleSelectionCards from "../components/RoleSelectionCards.vue";
+import SyncStatus from "../components/SyncStatus.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
 import { getDeviceName } from "../repositories/deviceVault";
 import {
@@ -352,6 +353,16 @@ async function confirmDeviceRevocation() {
             <button v-else-if="requests.get(role)?.status !== 'approved'" class="outline-action inline" @click="action('roles', 'Запрос на роль отправлен.', () => requestRole(role))">{{ requests.has(role) ? 'Отправить повторно' : 'Запросить роль' }}</button>
           </template>
         </RoleSelectionCards>
+      </section>
+
+      <section class="panel profile-section profile-sync-status" aria-labelledby="profile-sync-status-title">
+        <div class="profile-section-heading">
+          <div>
+            <h2 id="profile-sync-status-title">Синхронизация данных</h2>
+            <p>Показывается состояние текущего сеанса без ошибок из завершённых сеансов.</p>
+          </div>
+          <SyncStatus />
+        </div>
       </section>
 
       <section class="panel profile-section account-security">

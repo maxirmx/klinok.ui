@@ -1,3 +1,7 @@
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok applicationi
+
 import { describe, expect, it } from "vitest";
 import { DEFAULT_AUTH_RATE_LIMITS, loadAuthConfig } from "./config.js";
 

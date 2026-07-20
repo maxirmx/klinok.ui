@@ -67,10 +67,14 @@ export class IndexedDbEventTransport implements EventTransport {
   private db: IDBDatabase | null = null;
   private readonly listeners = new Map<DatabaseKind, Set<() => void>>([["control", new Set()], ["medical", new Set()]]);
   private readonly syncListeners = new Set<(status: EventSyncStatus) => void>();
+  private readonly sessionConflictIds = new Set<string>();
   protected syncing = false;
   protected lastSyncError = "";
 
   async initialize() {
+    this.sessionConflictIds.clear();
+    this.syncing = false;
+    this.lastSyncError = "";
     this.db = await new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, 2);
       request.onupgradeneeded = () => {
@@ -129,6 +133,7 @@ export class IndexedDbEventTransport implements EventTransport {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+    this.sessionConflictIds.add(conflict.eventId);
     await this.emitSyncStatus();
   }
 
@@ -161,10 +166,10 @@ export class IndexedDbEventTransport implements EventTransport {
   }
 
   async syncStatus(): Promise<EventSyncStatus> {
-    const [pending, conflicts] = await Promise.all([this.pendingOutbox(), this.listConflicts()]);
+    const pending = await this.pendingOutbox();
     return {
       pendingCount: pending.length,
-      failedCount: conflicts.length,
+      failedCount: this.sessionConflictIds.size,
       syncing: this.syncing,
       lastError: this.lastSyncError,
     };
@@ -191,5 +196,8 @@ export class IndexedDbEventTransport implements EventTransport {
   async dispose(): Promise<void> {
     this.db?.close();
     this.db = null;
+    this.sessionConflictIds.clear();
+    this.syncing = false;
+    this.lastSyncError = "";
   }
 }
