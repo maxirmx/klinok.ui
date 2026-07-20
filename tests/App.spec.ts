@@ -2,11 +2,13 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent } from "vue";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it } from "vitest";
+import AppIcon from "../src/components/AppIcon.vue";
 import PasswordInput from "../src/components/PasswordInput.vue";
 import RoleSelectionCards from "../src/components/RoleSelectionCards.vue";
 import AuthScreen from "../src/screens/AuthScreen.vue";
 import RoleStatusScreen from "../src/screens/RoleStatusScreen.vue";
 import WorkspaceScreen from "../src/screens/WorkspaceScreen.vue";
+import OwnerScreen from "../src/screens/OwnerScreen.vue";
 import { getOrCreateDeviceId, setDeviceName } from "../src/repositories/deviceVault";
 import { routes } from "../src/router";
 
@@ -45,9 +47,6 @@ describe("operational Russian UI", () => {
   it("uses one initial role and confirms the password during registration", async () => {
     const wrapper = await mountScreen(AuthScreen, "/auth/register", { scenarioId: "auth-register" });
     expect(wrapper.text()).not.toContain("Заполните профиль и выберите хотя бы одну роль");
-    expect(wrapper.text()).not.toContain("Администратор");
-    expect(wrapper.text()).not.toContain("Мои питомцы и их медицинская история");
-    expect(wrapper.text()).not.toContain("Работа с предоставленными медкартами");
     expect(wrapper.text()).toContain("Я - ветеринар");
     expect(wrapper.text()).toContain("Я - владелец животного");
     expect(wrapper.findAll(".role-selection-graphic")).toHaveLength(2);
@@ -113,14 +112,23 @@ describe("operational Russian UI", () => {
     expect(statuses.text()).toContain("Настройки пользователя");
     expect(statuses.text()).toContain("Электронная почта и пароль");
     expect(statuses.text()).not.toContain("Повторите электронную почту");
+    expect(statuses.text()).toContain("Синхронизация данных");
     expect(statuses.text()).toContain("Аккаунт и устройства");
     expect(statuses.findAll(".role-selection-title").map((node) => node.text())).toEqual(["Владелец животного", "Ветеринар", "Администратор"]);
     expect(statuses.findAll(".role-selection-card")).toHaveLength(3);
     expect(statuses.findAll('.profile-roles input[type="radio"]')).toHaveLength(3);
     expect(statuses.get(".profile-form").find('button[type="submit"]').exists()).toBe(false);
     expect(statuses.get(".credentials-form").find('button[type="submit"]').exists()).toBe(false);
-    expect(statuses.get('.profile-section-heading button[form="profile-form"]').text()).toBe("Сохранить");
-    expect(statuses.get('.profile-section-heading button[form="credentials-form"]').text()).toBe("Сохранить");
+    const profileSave = statuses.get('.profile-section-heading button[form="profile-form"]');
+    const credentialsSave = statuses.get('.profile-section-heading button[form="credentials-form"]');
+    expect(profileSave.text()).toBe("");
+    expect(credentialsSave.text()).toBe("");
+    expect(profileSave.attributes("title")).toBe("Сохранить личные данные");
+    expect(credentialsSave.attributes("title")).toBe("Сохранить электронную почту и пароль");
+    expect(profileSave.getComponent(AppIcon).props("name")).toBe("check");
+    expect(credentialsSave.getComponent(AppIcon).props("name")).toBe("check");
+    expect(statuses.get('button[title="Восстановить личные данные"]').getComponent(AppIcon).props("name")).toBe("restore");
+    expect(statuses.get('button[title="Восстановить электронную почту и пароль"]').getComponent(AppIcon).props("name")).toBe("restore");
     expect(statuses.findAll(".profile-form > label").map((label) => label.text())).toEqual([
       "Имя", "Отчество, если есть", "Фамилия",
     ]);
@@ -135,15 +143,18 @@ describe("operational Russian UI", () => {
 
   it.each([
     ["administrator", "/admin/home", ["Главная страница", "Заявки", "Аккаунты", "Конфликты", "Журнал"]],
-    ["doctor", "/doctor/home", ["Главная страница", "Питомцы", "Новая запись", "Делегирование", "Медкарта"]],
-    ["owner", "/owner/home", ["Главная страница", "Добавить", "Питомцы", "Дать доступ", "Доступы", "Медкарта"]],
+    ["doctor", "/doctor/home", ["Главная страница", "Запросить доступ", "Питомцы", "Новая запись", "Делегирование", "Медкарта"]],
   ] as const)("renders responsive %s navigation for the current feature set", async (role, path, labels) => {
     const workspace = await mountScreen(WorkspaceScreen, path, { scenarioId: `${role}-home`, role });
     const sidebarLabels = workspace.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text());
-    const bottomLabels = workspace.findAll(".workspace-bottom-nav a span").map((node) => node.text());
+    const sidebarMenuLabels = [
+      ...sidebarLabels,
+      ...workspace.findAll(".workspace-sidebar-footer .workspace-nav-item span").map((node) => node.text()),
+    ];
+    const bottomLabels = workspace.findAll(".workspace-bottom-nav :is(a, button) span").map((node) => node.text());
 
     expect(sidebarLabels).toEqual(labels);
-    expect(bottomLabels).toEqual(labels);
+    expect(bottomLabels).toEqual(sidebarMenuLabels);
     expect(workspace.find(".workspace-sidebar").attributes("aria-label")).toBe("Основная навигация");
     expect(workspace.find(".workspace-bottom-nav").attributes("aria-label")).toBe("Нижняя навигация");
     expect(workspace.text()).toContain("Настройки пользователя");
@@ -153,5 +164,17 @@ describe("operational Russian UI", () => {
     await flushPromises();
     expect(workspace.vm.$route.hash).toBe(target.attributes("href"));
     expect(target.classes()).toContain("active");
+  });
+
+  it("renders the Owner route hierarchy and compact mobile actions", async () => {
+    const owner = await mountScreen(OwnerScreen, "/owner/home", { scenarioId: "owner-home", role: "owner" });
+    const sidebarLabels = owner.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text());
+    expect(sidebarLabels).toEqual([
+      "Главная страница", "Добавить питомца",
+    ]);
+    expect(owner.findAll(".workspace-bottom-nav :is(a, button) span").map((node) => node.text())).toEqual([
+      "Главная страница", "Настройки пользователя", "Выйти",
+    ]);
+    expect(owner.text()).toContain("Мои питомцы");
   });
 });

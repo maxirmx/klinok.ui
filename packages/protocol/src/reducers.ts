@@ -1,6 +1,7 @@
 import { chooseConcurrentRoleStatus, roleProjectionKey, shouldDeferEventVerification, verifySignedEvent } from "./authorization.js";
 import type {
   DeviceCertificate,
+  PetAccessRequest,
   PetAccessGrant,
   ProtocolState,
   Role,
@@ -20,6 +21,31 @@ export interface ProjectionResult {
   state: ProtocolState;
   accepted: SignedEvent[];
   conflicts: ProjectionConflict[];
+}
+
+function replayOrderedEvents(events: SignedEvent[]): SignedEvent[] {
+  const ordered: SignedEvent[] = [];
+  const remaining = new Map(events.map((event) => [event.eventId, event]));
+  while (remaining.size) {
+    const candidates = [...remaining.values()]
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.eventId.localeCompare(right.eventId));
+    let progressed = false;
+    for (const event of candidates) {
+      const dependencies = [
+        ...event.parents,
+        ...((event.metadata.priorAuthorizedEventIds as string[] | undefined) ?? []),
+      ];
+      if (dependencies.some((eventId) => remaining.has(eventId))) continue;
+      ordered.push(event);
+      remaining.delete(event.eventId);
+      progressed = true;
+    }
+    if (!progressed) {
+      ordered.push(...candidates);
+      break;
+    }
+  }
+  return ordered;
 }
 
 function applyRoleEvent(event: SignedEvent, state: ProtocolState): void {
@@ -82,12 +108,54 @@ export function applyAcceptedEvent(event: SignedEvent, state: ProtocolState): vo
     });
   }
   if (event.eventType === "pet.created") state.petOwners.set(event.aggregateId, event.actorAccountId);
+  if (event.eventType === "grant.requested") {
+    state.grantRequests.set(event.resourceId, {
+      request: event.metadata.request as unknown as PetAccessRequest,
+      eventId: event.eventId,
+    });
+  }
+  if (event.eventType === "grant.request.cancelled" || event.eventType === "grant.request.rejected") {
+    const projection = state.grantRequests.get(event.resourceId);
+    if (projection) {
+      state.grantRequests.set(event.resourceId, {
+        request: {
+          ...projection.request,
+          status: event.eventType === "grant.request.cancelled" ? "cancelled" : "rejected",
+          decidedAt: event.createdAt,
+          decidedBy: event.actorAccountId,
+        },
+        eventId: event.eventId,
+      });
+    }
+  }
   if (["grant.created", "grant.delegated"].includes(event.eventType)) {
-    state.grants.set(event.resourceId, event.metadata.grant as unknown as PetAccessGrant);
+    const grant = event.metadata.grant as unknown as PetAccessGrant;
+    state.grants.set(event.resourceId, grant);
+    if (event.eventType === "grant.created" && grant.requestId) {
+      const projection = state.grantRequests.get(grant.requestId);
+      if (projection) {
+        state.grantRequests.set(grant.requestId, {
+          request: {
+            ...projection.request,
+            status: "approved",
+            decidedAt: event.createdAt,
+            decidedBy: event.actorAccountId,
+          },
+          eventId: event.eventId,
+        });
+      }
+    }
   }
   if (event.eventType === "grant.revoked") {
     const grant = state.grants.get(event.resourceId);
     if (grant) state.grants.set(event.resourceId, { ...grant, status: "revoked", revokedAt: event.createdAt });
+  }
+  if (event.eventType === "grant.actions.updated") {
+    const grant = state.grants.get(event.resourceId);
+    if (grant) state.grants.set(event.resourceId, {
+      ...grant,
+      actions: [...event.metadata.actions as PetAccessGrant["actions"]],
+    });
   }
   if (event.eventType === "medical.record.confirmed") state.confirmedRecords.add(event.resourceId);
 }
@@ -95,7 +163,7 @@ export function applyAcceptedEvent(event: SignedEvent, state: ProtocolState): vo
 export async function reduceSignedEvents(events: SignedEvent[], state: ProtocolState, options: VerificationOptions = {}): Promise<ProjectionResult> {
   const accepted: SignedEvent[] = [];
   const conflicts: ProjectionConflict[] = [];
-  const remaining = new Map(events.map((event) => [event.eventId, event]));
+  const remaining = new Map(replayOrderedEvents(events).map((event) => [event.eventId, event]));
   const deferredResults = new Map<string, VerificationResult>();
   while (remaining.size) {
     let progressed = false;

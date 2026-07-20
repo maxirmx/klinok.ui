@@ -5,12 +5,12 @@ import type { Role } from "@klinok/protocol";
 import packageJson from "../../package.json";
 import AppIcon from "./AppIcon.vue";
 import BrandLogo from "./BrandLogo.vue";
-import SyncStatus from "./SyncStatus.vue";
 import { appState } from "../appStore";
 import { roleHomePath } from "../roleNavigation";
 
 type WorkspaceIcon = "home" | "pets" | "plus" | "user" | "book" | "bell" | "eye" | "medical-tools";
 type WorkspaceNavItem = { id: string; label: string; icon: WorkspaceIcon };
+type WorkspacePathNavItem = WorkspaceNavItem & { path: string; exact: boolean };
 
 const props = defineProps<{
   role: Role | null;
@@ -42,13 +42,30 @@ const navigationByRole: Record<Role, WorkspaceNavItem[]> = {
   ],
   doctor: [
     { id: "workspace-top", label: "Главная страница", icon: "home" },
+    { id: "doctor-request-access", label: "Запросить доступ", icon: "plus" },
     { id: "doctor-pets", label: "Питомцы", icon: "pets" },
     { id: "doctor-new-record", label: "Новая запись", icon: "plus" },
     { id: "doctor-delegation", label: "Делегирование", icon: "user" },
     { id: "doctor-records", label: "Медкарта", icon: "medical-tools" },
   ],
 };
-
+const ownerRootNavigation: WorkspacePathNavItem = {
+  id: "owner-home",
+  label: "Главная страница",
+  icon: "home",
+  path: "/owner/home",
+  exact: true,
+};
+const ownerChildNavigation = computed<WorkspacePathNavItem[]>(() => [
+  { id: "owner-add-pet", label: "Добавить питомца", icon: "plus", path: "/owner/pets/new", exact: true },
+  ...appState.medical.pets.map((pet) => ({
+    id: `owner-pet-${pet.petId}`,
+    label: pet.name,
+    icon: "pets" as const,
+    path: `/owner/pets/${pet.petId}`,
+    exact: false,
+  })),
+]);
 const effectiveRole = computed<Role | null>(() => props.role
   ?? (props.settings
     ? appState.activeRole ?? appState.control.roles.find((request) => request.status === "approved")?.role ?? null
@@ -67,6 +84,15 @@ function selectSection(id: string) {
     hash: `#${id}`,
   });
 }
+
+function ownerPathActive(path: string, exact = false) {
+  if (props.settings) return false;
+  return exact ? route.path === path : route.path === path || route.path.startsWith(`${path}/`);
+}
+
+function selectOwnerPath(path: string) {
+  void router.push(path);
+}
 </script>
 
 <template>
@@ -77,7 +103,36 @@ function selectSection(id: string) {
         <span>Здоровье питомца под контролем</span>
       </a>
 
-      <nav class="workspace-sidebar-nav">
+      <nav v-if="effectiveRole === 'owner'" class="workspace-sidebar-nav owner-navigation">
+        <ul class="workspace-nav-tree">
+          <li>
+            <a
+              class="workspace-nav-item"
+              :class="{ active: ownerPathActive(ownerRootNavigation.path, ownerRootNavigation.exact) }"
+              :href="ownerRootNavigation.path"
+              @click.prevent="selectOwnerPath(ownerRootNavigation.path)"
+            >
+              <AppIcon :name="ownerRootNavigation.icon" />
+              <span>{{ ownerRootNavigation.label }}</span>
+            </a>
+            <ul>
+              <li v-for="item in ownerChildNavigation" :key="item.id">
+                <a
+                  class="workspace-nav-item owner-child"
+                  :class="{ active: ownerPathActive(item.path, item.exact) }"
+                  :href="item.path"
+                  @click.prevent="selectOwnerPath(item.path)"
+                >
+                  <AppIcon :name="item.icon" />
+                  <span>{{ item.label }}</span>
+                </a>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </nav>
+
+      <nav v-else class="workspace-sidebar-nav">
         <a
           v-for="item in navigation"
           :key="item.id"
@@ -110,12 +165,6 @@ function selectSection(id: string) {
           <h1>{{ title }}</h1>
           <p>{{ profileName }}</p>
         </div>
-        <nav class="workspace-account-actions" aria-label="Действия аккаунта">
-          <SyncStatus />
-          <button v-if="settings && effectiveRole" class="link-action" type="button" @click="router.push(roleHomePath(effectiveRole))">Вернуться в кабинет</button>
-          <button v-else class="link-action" type="button" @click="router.push('/profile')">Настройки пользователя</button>
-          <button class="link-action" type="button" @click="emit('signOut')">Выйти</button>
-        </nav>
       </header>
 
       <div class="workspace-content">
@@ -123,16 +172,36 @@ function selectSection(id: string) {
       </div>
 
       <nav class="workspace-bottom-nav" aria-label="Нижняя навигация">
-        <a
-          v-for="item in navigation"
-          :key="item.id"
-          :class="{ active: !settings && activeSection === item.id }"
-          :href="settings && effectiveRole ? `${roleHomePath(effectiveRole)}#${item.id}` : `#${item.id}`"
-          @click.prevent="selectSection(item.id)"
-        >
-          <AppIcon :name="item.icon" />
-          <span>{{ item.label }}</span>
-        </a>
+        <template v-if="effectiveRole === 'owner'">
+          <a
+            :class="{ active: ownerPathActive(ownerRootNavigation.path, ownerRootNavigation.exact) }"
+            :href="ownerRootNavigation.path"
+            @click.prevent="selectOwnerPath(ownerRootNavigation.path)"
+          >
+            <AppIcon :name="ownerRootNavigation.icon" />
+            <span>{{ ownerRootNavigation.label }}</span>
+          </a>
+        </template>
+        <template v-else>
+          <a
+            v-for="item in navigation"
+            :key="item.id"
+            :class="{ active: !settings && activeSection === item.id }"
+            :href="settings && effectiveRole ? `${roleHomePath(effectiveRole)}#${item.id}` : `#${item.id}`"
+            @click.prevent="selectSection(item.id)"
+          >
+            <AppIcon :name="item.icon" />
+            <span>{{ item.label }}</span>
+          </a>
+        </template>
+        <button :class="{ active: settings }" type="button" @click="router.push('/profile')">
+          <AppIcon name="user" />
+          <span>Настройки пользователя</span>
+        </button>
+        <button class="danger-link" type="button" @click="emit('signOut')">
+          <AppIcon name="close" />
+          <span>Выйти</span>
+        </button>
       </nav>
     </main>
   </section>

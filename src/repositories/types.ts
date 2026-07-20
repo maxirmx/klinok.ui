@@ -2,7 +2,9 @@ import type {
   AccountProfile,
   DeviceCertificate,
   MedicalRecordConfirmation,
+  PetAccessRequest,
   PetAccessGrant,
+  PetSex,
   Role,
   RoleRequest,
   SignedEvent,
@@ -14,12 +16,35 @@ export interface PetProfile {
   name: string;
   species: string;
   breed: string;
-  sex: string;
+  sex?: PetSex;
+  photoDataUrl?: string;
   birthDate?: string;
+  birthYear?: number;
+  color?: string;
   chip?: string;
+  brandMark?: string;
+  latestVaccination?: { date: string; name: string };
+  weightKg?: number;
+  notes?: string;
   keyVersion: number;
   tombstoned: boolean;
   updatedAt: string;
+}
+
+export interface PetProfileInput {
+  name: string;
+  species: string;
+  breed: string;
+  sex: PetSex;
+  photoDataUrl?: string;
+  birthDate?: string;
+  birthYear?: number;
+  color: string;
+  chip?: string;
+  brandMark?: string;
+  latestVaccination?: { date: string; name: string };
+  weightKg: number;
+  notes?: string;
 }
 
 export interface MedicalRecordDraft {
@@ -48,6 +73,7 @@ export interface ControlSnapshot {
 export interface MedicalSnapshot {
   pets: PetProfile[];
   grants: PetAccessGrant[];
+  accessRequests: PetAccessRequest[];
   records: MedicalRecordDraft[];
   confirmations: MedicalRecordConfirmation[];
   events: SignedEvent[];

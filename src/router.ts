@@ -4,13 +4,18 @@ import type { Role } from "@klinok/protocol";
 import AuthScreen from "./screens/AuthScreen.vue";
 import RoleStatusScreen from "./screens/RoleStatusScreen.vue";
 import WorkspaceScreen from "./screens/WorkspaceScreen.vue";
+import OwnerScreen from "./screens/OwnerScreen.vue";
 import { appState, bootstrapApp } from "./appStore";
 import { roleHomePath } from "./roleNavigation";
 import { scenarioRegistry, type ScenarioComponentName } from "./scenarios";
 
-const components: Record<ScenarioComponentName, Component> = { AuthScreen, RoleStatusScreen, WorkspaceScreen };
+const components: Record<ScenarioComponentName, Component> = { AuthScreen, RoleStatusScreen, WorkspaceScreen, OwnerScreen };
 const roleByScenario: Partial<Record<string, Role>> = {
   "owner-home": "owner",
+  "owner-pet-create": "owner",
+  "owner-pet-detail": "owner",
+  "owner-pet-edit": "owner",
+  "owner-pet-access": "owner",
   "doctor-home": "doctor",
   "administrator-home": "administrator",
 };
@@ -18,6 +23,7 @@ const roleByScenario: Partial<Record<string, Role>> = {
 export const routes: RouteRecordRaw[] = [
   { path: "/", redirect: "/auth/login" },
   { path: "/roles", redirect: "/profile" },
+  { path: "/owner/pets", redirect: "/owner/home" },
   ...scenarioRegistry.map((scenario) => ({
     path: scenario.path,
     name: scenario.id,

@@ -4,6 +4,7 @@ import {
   ROLE_STATUSES,
   ROLES,
   type DatabaseKind,
+  type PetAccessRequest,
   type PetAccessGrant,
   type PetGrantAction,
   type ProtocolState,
@@ -32,6 +33,7 @@ export function createProtocolState(bootstrapAccountId = "bootstrap-administrato
     accounts: new Map(),
     roles: new Map(),
     grants: new Map(),
+    grantRequests: new Map(),
     petOwners: new Map(),
     confirmedRecords: new Set(),
     roleConflicts: [],
@@ -74,6 +76,9 @@ const STATE_DEPENDENT_VERIFICATION_FAILURES = new Set([
   "COMPANION_PROOF_INVALID",
   "PET_CREATE_FORBIDDEN",
   "PET_SHARE_FORBIDDEN",
+  "PET_ACCESS_REQUEST_UNKNOWN",
+  "PET_ACCESS_REQUEST_TRANSITION_INVALID",
+  "PET_GRANT_ACTIONS_UPDATE_INVALID",
   "OWNER_SCOPE_FORBIDDEN",
   "DOCTOR_ROLE_REQUIRED",
   "PET_GRANT_REQUIRED",
@@ -216,6 +221,75 @@ function capabilityResult(event: SignedEvent, state: ProtocolState): Verificatio
       isGrantEffectivelyActive(state, parent) && grantAllows(parent, "delegate") && event.proofIds.includes(parent!.grantId)
       ? { accepted: true }
       : { accepted: false, code: "PET_SHARE_FORBIDDEN", message: "A pet may be shared only by its Owner or an authorized delegating Doctor." };
+  }
+  if (event.eventType === "grant.requested") {
+    const request = event.metadata.request as unknown as PetAccessRequest | undefined;
+    if (!ownerId || !request || request.requestId !== event.resourceId || request.petId !== petId ||
+      request.ownerAccountId !== ownerId || request.requesterAccountId !== event.actorAccountId || request.status !== "pending") {
+      return { accepted: false, code: "PET_ACCESS_REQUEST_UNKNOWN", message: "The access request does not match a known pet and owner." };
+    }
+    if (!hasActiveRoleProof(state, event, "doctor")) {
+      return { accepted: false, code: "DOCTOR_ROLE_REQUIRED", message: "An approved Doctor role is required." };
+    }
+    const activeGrant = [...state.grants.values()].some((grant) =>
+      grant.petId === petId && grant.granteeAccountId === event.actorAccountId && isGrantEffectivelyActive(state, grant),
+    );
+    if (activeGrant) {
+      return { accepted: false, code: "PET_ACCESS_ALREADY_GRANTED", message: "This Doctor already has access to the pet." };
+    }
+    const duplicate = [...state.grantRequests.values()].some(({ request: candidate }) =>
+      candidate.status === "pending" && candidate.petId === petId && candidate.requesterAccountId === event.actorAccountId,
+    );
+    return duplicate
+      ? { accepted: false, code: "PET_ACCESS_REQUEST_DUPLICATE", message: "A pending request already exists for this pet and Doctor." }
+      : { accepted: true };
+  }
+  if (event.eventType === "grant.request.cancelled" || event.eventType === "grant.request.rejected") {
+    const projection = state.grantRequests.get(event.resourceId);
+    if (!projection || projection.request.petId !== petId || projection.request.status !== "pending" ||
+      !event.parents.includes(projection.eventId)) {
+      return { accepted: false, code: "PET_ACCESS_REQUEST_TRANSITION_INVALID", message: "The access request is not pending." };
+    }
+    if (event.eventType === "grant.request.cancelled") {
+      return projection.request.requesterAccountId === event.actorAccountId && hasActiveRoleProof(state, event, "doctor")
+        ? { accepted: true }
+        : { accepted: false, code: "PET_ACCESS_REQUEST_FORBIDDEN", message: "Only the requesting Doctor may cancel this request." };
+    }
+    return projection.request.ownerAccountId === event.actorAccountId && ownerId === event.actorAccountId &&
+      hasActiveRoleProof(state, event, "owner")
+      ? { accepted: true }
+      : { accepted: false, code: "PET_ACCESS_REQUEST_FORBIDDEN", message: "Only the pet Owner may reject this request." };
+  }
+  if (event.eventType === "grant.created" && event.metadata.requestId) {
+    const requestId = String(event.metadata.requestId);
+    const projection = state.grantRequests.get(requestId);
+    const grant = event.metadata.grant as unknown as PetAccessGrant | undefined;
+    if (!projection || projection.request.status !== "pending" || projection.request.petId !== petId ||
+      projection.request.requesterAccountId !== grant?.granteeAccountId || grant.requestId !== requestId ||
+      !event.parents.includes(projection.eventId)) {
+      return { accepted: false, code: "PET_ACCESS_REQUEST_TRANSITION_INVALID", message: "The linked access request cannot be approved." };
+    }
+  }
+  if (event.eventType === "grant.actions.updated") {
+    const grant = state.grants.get(event.resourceId);
+    const actions = event.metadata.actions as PetGrantAction[] | undefined;
+    const expectedActions = grant?.actions.filter((action) => action !== "delegate");
+    const validUpdate = grant?.petId === petId &&
+      isGrantEffectivelyActive(state, grant) &&
+      grant.actions.includes("delegate") &&
+      Array.isArray(actions) &&
+      actions.length === expectedActions?.length &&
+      actions.every((action, index) => action === expectedActions?.[index]);
+    if (!validUpdate) {
+      return {
+        accepted: false,
+        code: "PET_GRANT_ACTIONS_UPDATE_INVALID",
+        message: "A grant action update may only disable delegation on an active grant.",
+      };
+    }
+    return hasActiveRoleProof(state, event, "owner") && ownerId === event.actorAccountId
+      ? { accepted: true }
+      : { accepted: false, code: "OWNER_SCOPE_FORBIDDEN", message: "Only the pet Owner may perform this command." };
   }
   if (["pet.updated", "pet.tombstoned", "pet.key.rotated", "grant.created", "grant.revoked", "medical.record.confirmed"].includes(event.eventType)) {
     if (event.eventType === "medical.record.confirmed" && state.confirmedRecords.has(event.resourceId)) {

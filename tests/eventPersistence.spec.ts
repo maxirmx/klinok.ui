@@ -53,7 +53,7 @@ afterEach(async () => {
 });
 
 describe("durable browser event storage", () => {
-  it("retains events, outbox entries, conflicts, and sync counts after reopening", async () => {
+  it("retains events, pending work, and conflict history without carrying failure status into a new session", async () => {
     const first = new IndexedDbEventTransport();
     await first.initialize();
     const saved = event("event-1");
@@ -66,6 +66,7 @@ describe("durable browser event storage", () => {
       message: "Rejected",
       createdAt: saved.createdAt,
     });
+    expect(await first.syncStatus()).toMatchObject({ pendingCount: 1, failedCount: 1 });
     await first.dispose();
 
     const reopened = new IndexedDbEventTransport();
@@ -73,6 +74,14 @@ describe("durable browser event storage", () => {
     expect(await reopened.list("control")).toEqual([saved]);
     expect(await reopened.pendingOutbox()).toEqual([saved]);
     expect(await reopened.listConflicts()).toEqual([expect.objectContaining({ eventId: "rejected-event" })]);
+    expect(await reopened.syncStatus()).toMatchObject({ pendingCount: 1, failedCount: 0 });
+    await reopened.recordConflict({
+      eventId: "current-session-rejection",
+      database: "control",
+      code: "EVENT_REJECTED",
+      message: "Rejected in the current session",
+      createdAt: saved.createdAt,
+    });
     expect(await reopened.syncStatus()).toMatchObject({ pendingCount: 1, failedCount: 1 });
     await reopened.dispose();
   });

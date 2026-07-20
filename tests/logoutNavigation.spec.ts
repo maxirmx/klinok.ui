@@ -1,9 +1,10 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import AppIcon from "../src/components/AppIcon.vue";
 import RoleStatusScreen from "../src/screens/RoleStatusScreen.vue";
 import WorkspaceScreen from "../src/screens/WorkspaceScreen.vue";
-import { logout, switchRole, updateCredentials, updateProfile } from "../src/appStore";
+import { deleteAccount, logout, revokeDevice, switchRole, updateCredentials, updateProfile } from "../src/appStore";
 
 vi.mock("../src/appStore", async () => {
   const { reactive, readonly } = await import("vue");
@@ -16,7 +17,10 @@ vi.mock("../src/appStore", async () => {
       accountId: "account-1",
       email: "owner@example.ru",
       device: { deviceId: "current-device", deviceName: "Домашний ноутбук" },
-      devices: [{ deviceId: "current-device", deviceName: "Домашний ноутбук", status: "active" }],
+      devices: [
+        { deviceId: "current-device", deviceName: "Домашний ноутбук", status: "active" },
+        { deviceId: "revoked-device", deviceName: "Старый телефон", status: "revoked" },
+      ],
       enrollments: [{
         enrollmentId: "pending-enrollment",
         deviceId: "pending-device",
@@ -36,14 +40,18 @@ vi.mock("../src/appStore", async () => {
       ],
       pendingQueue: [], notifications: [], events: [],
     },
-    medical: { pets: [], grants: [], records: [], confirmations: [], events: [] },
+    medical: { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], events: [] },
     conflicts: [],
+    sync: { pendingCount: 0, failedCount: 0, syncing: false, lastError: "" },
+    repositoryConnected: true,
     keyRecoveryRequired: false,
     devicePending: false,
   });
   return {
     appState: readonly(state),
     setMockActiveRole: (role: "owner" | "doctor" | "administrator" | null) => { state.activeRole = role; },
+    setMockDevices: (devices: typeof state.session.devices) => { state.session.devices = devices; },
+    setMockSync: (sync: typeof state.sync) => { state.sync = sync; },
     approveDeviceEnrollment: vi.fn(),
     bootstrapApp: vi.fn(),
     cancelRole: vi.fn(),
@@ -76,8 +84,19 @@ async function mountAt(component: object, path: string, props: Record<string, un
   return { router, wrapper };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+    setMockDevices: (devices: Array<{ deviceId: string; deviceName: string; status: string }>) => void;
+    setMockSync: (sync: { pendingCount: number; failedCount: number; syncing: boolean; lastError: string }) => void;
+  };
+  mockedStore.setMockDevices([
+    { deviceId: "current-device", deviceName: "Домашний ноутбук", status: "active" },
+    { deviceId: "revoked-device", deviceName: "Старый телефон", status: "revoked" },
+  ]);
+  mockedStore.setMockSync({ pendingCount: 0, failedCount: 0, syncing: false, lastError: "" });
+  vi.mocked(deleteAccount).mockClear();
   vi.mocked(logout).mockClear();
+  vi.mocked(revokeDevice).mockClear();
   vi.mocked(updateCredentials).mockClear();
   vi.mocked(updateProfile).mockClear();
   vi.mocked(switchRole).mockClear();
@@ -86,7 +105,13 @@ beforeEach(() => {
 describe("logout navigation", () => {
   it("leaves the workspace after logout", async () => {
     const { router, wrapper } = await mountAt(WorkspaceScreen, "/owner/home", { scenarioId: "owner-home", role: "owner" });
-    await wrapper.get("header .link-action:last-child").trigger("click");
+    expect(wrapper.find("header .link-action").exists()).toBe(false);
+    expect(wrapper.get(".workspace-bottom-nav").text()).toContain("Настройки пользователя");
+    expect(wrapper.get(".workspace-bottom-nav").text()).toContain("Выйти");
+    const bottomBarButtons = wrapper.findAll(".workspace-bottom-nav button");
+    expect(bottomBarButtons[0]!.findComponent(AppIcon).props("name")).toBe("user");
+    expect(bottomBarButtons[1]!.findComponent(AppIcon).props("name")).toBe("close");
+    await wrapper.get(".workspace-bottom-nav button:last-of-type").trigger("click");
     await flushPromises();
     expect(logout).toHaveBeenCalledWith();
     expect(router.currentRoute.value.path).toBe("/auth/login");
@@ -105,13 +130,85 @@ describe("logout navigation", () => {
   it("shows recognizable names before device IDs", async () => {
     const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
     expect(wrapper.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text())).toEqual([
-      "Главная страница", "Добавить", "Питомцы", "Дать доступ", "Доступы", "Медкарта",
+      "Главная страница", "Добавить питомца",
     ]);
     expect(wrapper.find(".workspace-sidebar-footer .workspace-nav-item.active").text()).toContain("Настройки пользователя");
     expect(wrapper.text()).toContain("Телефон Максима");
     expect(wrapper.text()).toContain("Домашний ноутбук");
     expect(wrapper.text()).toContain("ID: pending-device");
     expect(wrapper.text()).toContain("Это устройство");
+    expect(wrapper.text()).not.toContain("Старый телефон");
+    expect(wrapper.text()).not.toContain("revoked-device");
+    expect(wrapper.find(".workspace-account-actions").exists()).toBe(false);
+    expect(wrapper.get(".workspace-bottom-nav").text()).toContain("Настройки пользователя");
+    expect(wrapper.get(".workspace-bottom-nav").text()).toContain("Выйти");
+    const revokeButton = wrapper.findAll<HTMLButtonElement>("button")
+      .find((button) => button.text() === "Отозвать устройство");
+    expect(revokeButton?.element.disabled).toBe(true);
+    expect(revokeButton?.attributes("title")).toBe("Нельзя отозвать последнее действующее устройство.");
+  });
+
+  it("shows current-session sync status immediately above account and device management", async () => {
+    const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+      setMockSync: (sync: { pendingCount: number; failedCount: number; syncing: boolean; lastError: string }) => void;
+    };
+    const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+    const sections = wrapper.findAll(".profile-layout > .profile-section");
+    const syncSectionIndex = sections.findIndex((section) => section.classes().includes("profile-sync-status"));
+    const accountSectionIndex = sections.findIndex((section) => section.classes().includes("account-security"));
+
+    expect(syncSectionIndex).toBeGreaterThanOrEqual(0);
+    expect(accountSectionIndex).toBe(syncSectionIndex + 1);
+    expect(sections[syncSectionIndex]!.text()).toContain("Синхронизация данных");
+    expect(sections[syncSectionIndex]!.text()).toContain("текущего сеанса");
+    expect(sections[syncSectionIndex]!.get(".sync-status").text()).toBe("Сохранено");
+
+    mockedStore.setMockSync({ pendingCount: 0, failedCount: 1, syncing: false, lastError: "" });
+    await flushPromises();
+    expect(sections[syncSectionIndex]!.get(".sync-status").text()).toBe("Конфликты: 1");
+  });
+
+  it("confirms account deletion in a modal before executing it", async () => {
+    const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+    const deleteButton = wrapper.findAll("button").find((button) => button.text() === "Удалить аккаунт");
+    await deleteButton!.trigger("click");
+
+    const dialog = wrapper.get('[role="alertdialog"]');
+    expect(dialog.attributes("aria-modal")).toBe("true");
+    expect(dialog.text()).toContain("Удалить аккаунт?");
+    expect(deleteAccount).not.toHaveBeenCalled();
+
+    await dialog.findAll("button").find((button) => button.text() === "Отмена")!.trigger("click");
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+    expect(deleteAccount).not.toHaveBeenCalled();
+
+    await deleteButton!.trigger("click");
+    await wrapper.get('[role="alertdialog"]').findAll("button")
+      .find((button) => button.text() === "Удалить аккаунт")!
+      .trigger("click");
+    await flushPromises();
+    expect(deleteAccount).toHaveBeenCalledOnce();
+  });
+
+  it("confirms device revocation before executing it", async () => {
+    const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+      setMockDevices: (devices: Array<{ deviceId: string; deviceName: string; status: string }>) => void;
+    };
+    mockedStore.setMockDevices([
+      { deviceId: "current-device", deviceName: "Домашний ноутбук", status: "active" },
+      { deviceId: "second-device", deviceName: "Рабочий ноутбук", status: "active" },
+    ]);
+    const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+    const revokeButton = wrapper.findAll("button").find((button) => button.text() === "Отозвать устройство");
+    expect((revokeButton!.element as HTMLButtonElement).disabled).toBe(false);
+    await revokeButton!.trigger("click");
+
+    const dialog = wrapper.get('[role="alertdialog"]');
+    expect(dialog.text()).toContain("Отозвать устройство «Домашний ноутбук»?");
+    expect(revokeDevice).not.toHaveBeenCalled();
+    await dialog.findAll("button").find((button) => button.text() === "Отозвать устройство")!.trigger("click");
+    await flushPromises();
+    expect(revokeDevice).toHaveBeenCalledWith("current-device");
   });
 
   it("shows role navigation when an active role becomes available on the profile page", async () => {
@@ -121,7 +218,7 @@ describe("logout navigation", () => {
     mockedStore.setMockActiveRole(null);
     const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
     expect(wrapper.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text())).toEqual([
-      "Главная страница", "Добавить", "Питомцы", "Дать доступ", "Доступы", "Медкарта",
+      "Главная страница", "Добавить питомца",
     ]);
 
     mockedStore.setMockActiveRole("administrator");
@@ -136,6 +233,8 @@ describe("logout navigation", () => {
     const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
     const profileSave = wrapper.get<HTMLButtonElement>('button[form="profile-form"]');
     const credentialsSave = wrapper.get<HTMLButtonElement>('button[form="credentials-form"]');
+    const profileRestore = wrapper.get<HTMLButtonElement>('button[title="Восстановить личные данные"]');
+    const credentialsRestore = wrapper.get<HTMLButtonElement>('button[title="Восстановить электронную почту и пароль"]');
 
     expect(wrapper.get<HTMLInputElement>('input[autocomplete="given-name"]').element.value).toBe("Максим");
     expect(wrapper.get<HTMLInputElement>('input[autocomplete="additional-name"]').element.value).toBe("Сергеевич");
@@ -145,9 +244,16 @@ describe("logout navigation", () => {
     expect(wrapper.get(".workspace-topbar p").text()).toBe("Максим Сергеевич Иванов");
     expect(profileSave.element.disabled).toBe(true);
     expect(credentialsSave.element.disabled).toBe(true);
+    expect(profileRestore.element.disabled).toBe(true);
+    expect(credentialsRestore.element.disabled).toBe(true);
 
     await wrapper.get<HTMLInputElement>('input[autocomplete="given-name"]').setValue("Мария");
     expect(profileSave.element.disabled).toBe(false);
+    expect(profileRestore.element.disabled).toBe(false);
+    await profileRestore.trigger("click");
+    expect(wrapper.get<HTMLInputElement>('input[autocomplete="given-name"]').element.value).toBe("Максим");
+    expect(profileRestore.element.disabled).toBe(true);
+    await wrapper.get<HTMLInputElement>('input[autocomplete="given-name"]').setValue("Мария");
     await wrapper.get(".profile-form").trigger("submit");
     await flushPromises();
     expect(updateProfile).toHaveBeenCalledWith({ firstName: "Мария", patronymic: "Сергеевич", lastName: "Иванов" });
@@ -160,6 +266,11 @@ describe("logout navigation", () => {
     expect(emailFields).toHaveLength(1);
     await emailFields[0]!.setValue("new-owner@example.ru");
     expect(credentialsSave.element.disabled).toBe(false);
+    expect(credentialsRestore.element.disabled).toBe(false);
+    await credentialsRestore.trigger("click");
+    expect(emailFields[0]!.element.value).toBe("owner@example.ru");
+    expect(credentialsRestore.element.disabled).toBe(true);
+    await emailFields[0]!.setValue("new-owner@example.ru");
     await wrapper.get(".credentials-form").trigger("submit");
     await flushPromises();
     expect(updateCredentials).toHaveBeenCalledWith({ email: "new-owner@example.ru" });

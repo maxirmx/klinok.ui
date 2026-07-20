@@ -78,6 +78,25 @@ export function parentOrdered(events: SignedEvent[]): SignedEvent[] {
   return ordered;
 }
 
+export const MAX_OUTBOX_BATCH_BYTES = 900 * 1024;
+
+export function sizeBoundEventBatch(
+  events: SignedEvent[],
+  maxBytes = MAX_OUTBOX_BATCH_BYTES,
+  maxCount = 100,
+): SignedEvent[] {
+  const selected: SignedEvent[] = [];
+  const ordered = parentOrdered(events).slice(0, maxCount);
+  const encoder = new TextEncoder();
+  for (const event of ordered) {
+    const candidate = [...selected, event];
+    const bytes = encoder.encode(JSON.stringify({ events: candidate })).byteLength;
+    if (bytes > maxBytes) break;
+    selected.push(event);
+  }
+  return selected;
+}
+
 function controller(
   state: ProtocolState,
   database: DatabaseKind,
@@ -296,8 +315,24 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
 
   private async flushOutboxNow(): Promise<void> {
     if (this.disposing) return;
-    const pending = parentOrdered(await this.pendingOutbox()).slice(0, 100);
+    const ordered = parentOrdered(await this.pendingOutbox());
+    const pending = sizeBoundEventBatch(ordered);
     if (!pending.length) {
+      const oversized = ordered[0];
+      if (oversized) {
+        const message = "Событие превышает допустимый размер синхронизации.";
+        await this.recordConflict({
+          eventId: oversized.eventId,
+          database: oversized.database,
+          code: "EVENT_TOO_LARGE",
+          message,
+          createdAt: oversized.createdAt,
+        });
+        await this.removeOutbox(oversized.eventId);
+        await this.setSyncState({ syncing: false, lastError: message });
+        if ((await this.pendingOutbox()).length) this.scheduleRetry();
+        return;
+      }
       await this.setSyncState({ syncing: false, lastError: "" });
       return;
     }

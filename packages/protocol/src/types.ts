@@ -76,12 +76,41 @@ export interface DeviceCertificate {
 
 export type PetGrantAction = "read" | "write_unconfirmed" | "delegate";
 
+export const PET_SEXES = [
+  "Интактный самец",
+  "Интактная самка",
+  "Кастрированный самец",
+  "Кастрированная самка",
+] as const;
+export type PetSex = (typeof PET_SEXES)[number];
+
+export type PetAccessRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+export interface PetAccessRequest {
+  requestId: string;
+  petId: string;
+  ownerAccountId: string;
+  requesterAccountId: string;
+  requesterDisplayName?: string;
+  status: PetAccessRequestStatus;
+  requestedAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+}
+
+export interface PetAccessRequestProjection {
+  request: PetAccessRequest;
+  eventId: string;
+}
+
 export interface PetAccessGrant {
   grantId: string;
   petId: string;
   grantorAccountId: string;
   granteeAccountId: string;
+  granteeDisplayName?: string;
   actions: PetGrantAction[];
+  requestId?: string;
   parentGrantId?: string;
   petKeyVersion: number;
   status: "active" | "revoked";
@@ -185,6 +214,7 @@ export interface ProtocolState {
   accounts: Map<string, AccountStatus>;
   roles: Map<string, RoleProjection>;
   grants: Map<string, PetAccessGrant>;
+  grantRequests: Map<string, PetAccessRequestProjection>;
   petOwners: Map<string, string>;
   confirmedRecords: Set<string>;
   roleConflicts: Array<{ roleKey: string; losingEventId: string; winningEventId: string }>;

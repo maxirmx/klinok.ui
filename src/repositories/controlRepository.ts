@@ -327,6 +327,19 @@ export class ControlRepository {
     return this.buildSnapshot();
   }
 
+  async profile(accountId = this.context.accountId): Promise<AccountProfile | null> {
+    let profile: AccountProfile | null = null;
+    for (const event of this.events) {
+      if (!["profile.updated", "profile.key.rewrapped"].includes(event.eventType) || event.aggregateId !== accountId) continue;
+      const candidate = await this.decrypt<AccountProfile>(event);
+      if (candidate && (!profile || candidate.revision > profile.revision ||
+        (candidate.revision === profile.revision && candidate.updatedAt > profile.updatedAt))) {
+        profile = candidate;
+      }
+    }
+    return profile;
+  }
+
   private async buildSnapshot(): Promise<ControlSnapshot> {
     let profile: AccountProfile | null = null;
     const profiles = new Map<string, AccountProfile>();

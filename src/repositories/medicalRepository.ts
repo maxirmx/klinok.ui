@@ -6,6 +6,7 @@ import {
   type ActiveRoleContext,
   type DeviceCertificate,
   type MedicalRecordConfirmation,
+  type PetAccessRequest,
   type PetAccessGrant,
   type PetGrantAction,
   type SignedEvent,
@@ -15,10 +16,15 @@ import type { EventTransport } from "./eventTransport";
 import { EventFactory } from "./eventFactory";
 import { getPetKey, putPetKey } from "./petKeyVault";
 import { loadUserKeys } from "./deviceVault";
-import type { MedicalRecordDraft, MedicalSnapshot, PetProfile } from "./types";
+import { normalizePetInput, normalizePetProfile } from "../petProfile";
+import type { MedicalRecordDraft, MedicalSnapshot, PetProfile, PetProfileInput } from "./types";
 import type { ControlRepository } from "./controlRepository";
 
 type Listener = (snapshot: MedicalSnapshot) => void;
+type GrantDoctorOptions = {
+  requestId?: string;
+  granteeDisplayName?: string;
+};
 
 export class MedicalRepository {
   private readonly factory: EventFactory;
@@ -136,12 +142,17 @@ export class MedicalRepository {
     }
   }
 
-  async createPet(input: Omit<PetProfile, "petId" | "ownerAccountId" | "keyVersion" | "tombstoned" | "updatedAt">): Promise<string> {
+  async createPet(input: PetProfileInput): Promise<string> {
     const petId = crypto.randomUUID();
     const key = await generateDataKey();
     await putPetKey(this.context.accountId, petId, 1, key);
     const pet: PetProfile = {
-      ...input, petId, ownerAccountId: this.context.accountId, keyVersion: 1, tombstoned: false, updatedAt: new Date().toISOString(),
+      ...normalizePetInput(input),
+      petId,
+      ownerAccountId: this.context.accountId,
+      keyVersion: 1,
+      tombstoned: false,
+      updatedAt: new Date().toISOString(),
     };
     await this.append(await this.factory.create({
       database: "medical", eventType: "pet.created", aggregateId: petId,
@@ -157,25 +168,162 @@ export class MedicalRepository {
   async updatePet(pet: PetProfile): Promise<void> {
     const stored = await getPetKey(this.context.accountId, pet.petId);
     if (!stored) throw new Error("Ключ питомца недоступен.");
+    const normalized = normalizePetProfile(pet);
     const parent = this.events.findLast((event) => event.aggregateId === pet.petId && event.eventType.startsWith("pet."))?.eventId;
+    const recipientIds = new Set([pet.ownerAccountId]);
+    for (const grant of this.control.signed.state.grants.values()) {
+      if (grant.petId === pet.petId && isGrantEffectivelyActive(this.control.signed.state, grant)) {
+        recipientIds.add(grant.granteeAccountId);
+      }
+    }
     await this.append(await this.factory.create({
       database: "medical", eventType: pet.tombstoned ? "pet.tombstoned" : "pet.updated", aggregateId: pet.petId,
-      metadata: { petId: pet.petId, ownerAccountId: pet.ownerAccountId, keyVersion: stored.version }, cleartext: { ...pet, updatedAt: new Date().toISOString() },
-      parents: parent ? [parent] : [], recipients: this.activeCertificates([pet.ownerAccountId]), dataKey: stored.key,
+      metadata: { petId: pet.petId, ownerAccountId: pet.ownerAccountId, keyVersion: stored.version },
+      cleartext: { ...normalized, keyVersion: stored.version, updatedAt: new Date().toISOString() },
+      parents: parent ? [parent] : [], recipients: this.activeCertificates([...recipientIds]), dataKey: stored.key,
     }));
   }
 
-  async grantDoctor(petId: string, doctorAccountId: string, actions: PetGrantAction[]): Promise<string> {
+  async requestAccess(petId: string): Promise<string> {
+    const ownerAccountId = this.control.signed.state.petOwners.get(petId);
+    if (!ownerAccountId) throw new Error("Питомец с таким идентификатором не найден.");
+    const activeGrant = [...this.control.signed.state.grants.values()].some((grant) =>
+      grant.petId === petId && grant.granteeAccountId === this.context.accountId &&
+      isGrantEffectivelyActive(this.control.signed.state, grant),
+    );
+    if (activeGrant) throw new Error("У вас уже есть доступ к этому питомцу.");
+    const duplicate = [...this.control.signed.state.grantRequests.values()].some(({ request }) =>
+      request.petId === petId && request.requesterAccountId === this.context.accountId && request.status === "pending",
+    );
+    if (duplicate) throw new Error("Запрос этому владельцу уже отправлен.");
+    const recipients = this.activeCertificates([ownerAccountId, this.context.accountId]);
+    if (!recipients.some((certificate) => certificate.accountId === ownerAccountId)) {
+      throw new Error("У владельца нет активного устройства для получения запроса.");
+    }
+    const profile = await this.control.profile();
+    const displayName = [profile?.firstName, profile?.patronymic, profile?.lastName].filter(Boolean).join(" ");
+    const request: PetAccessRequest = {
+      requestId: crypto.randomUUID(),
+      petId,
+      ownerAccountId,
+      requesterAccountId: this.context.accountId,
+      ...(displayName ? { requesterDisplayName: displayName } : {}),
+      status: "pending",
+      requestedAt: new Date().toISOString(),
+    };
+    const publicRequest: PetAccessRequest = {
+      requestId: request.requestId,
+      petId: request.petId,
+      ownerAccountId: request.ownerAccountId,
+      requesterAccountId: request.requesterAccountId,
+      status: request.status,
+      requestedAt: request.requestedAt,
+    };
+    await this.append(await this.factory.create({
+      database: "medical",
+      eventType: "grant.requested",
+      aggregateId: petId,
+      resourceId: request.requestId,
+      metadata: { petId, request: publicRequest as unknown as Record<string, unknown> },
+      cleartext: request,
+      recipients,
+    }));
+    return request.requestId;
+  }
+
+  async cancelAccessRequest(requestId: string): Promise<void> {
+    const projection = this.control.signed.state.grantRequests.get(requestId);
+    if (!projection || projection.request.status !== "pending") throw new Error("Ожидающий запрос не найден.");
+    const request = projection.request;
+    await this.append(await this.factory.create({
+      database: "medical",
+      eventType: "grant.request.cancelled",
+      aggregateId: request.petId,
+      resourceId: requestId,
+      metadata: { petId: request.petId, requestId },
+      cleartext: { requestId, status: "cancelled" },
+      parents: [projection.eventId],
+      recipients: this.activeCertificates([request.ownerAccountId, request.requesterAccountId]),
+    }));
+  }
+
+  async rejectAccessRequest(requestId: string): Promise<void> {
+    const projection = this.control.signed.state.grantRequests.get(requestId);
+    if (!projection || projection.request.status !== "pending") throw new Error("Ожидающий запрос не найден.");
+    const request = projection.request;
+    await this.append(await this.factory.create({
+      database: "medical",
+      eventType: "grant.request.rejected",
+      aggregateId: request.petId,
+      resourceId: requestId,
+      metadata: { petId: request.petId, requestId },
+      cleartext: { requestId, status: "rejected" },
+      parents: [projection.eventId],
+      recipients: this.activeCertificates([request.ownerAccountId, request.requesterAccountId]),
+    }));
+  }
+
+  async approveAccessRequest(requestId: string): Promise<string> {
+    const projection = this.control.signed.state.grantRequests.get(requestId);
+    if (!projection || projection.request.status !== "pending") throw new Error("Ожидающий запрос не найден.");
+    const request = (await this.buildSnapshot()).accessRequests.find((candidate) => candidate.requestId === requestId);
+    return this.grantDoctor(
+      projection.request.petId,
+      projection.request.requesterAccountId,
+      ["read", "write_unconfirmed"],
+      {
+        requestId,
+        ...(request?.requesterDisplayName ? { granteeDisplayName: request.requesterDisplayName } : {}),
+      },
+    );
+  }
+
+  async grantDoctor(
+    petId: string,
+    doctorAccountId: string,
+    actions: PetGrantAction[],
+    options: GrantDoctorOptions = {},
+  ): Promise<string> {
+    doctorAccountId = doctorAccountId.trim();
+    if (!doctorAccountId) throw new Error("Идентификатор аккаунта врача не указан.");
+    const granteeDisplayName = options.granteeDisplayName?.trim();
     const stored = await getPetKey(this.context.accountId, petId);
     if (!stored) throw new Error("Ключ питомца недоступен.");
+    const existing = [...this.control.signed.state.grants.values()].find((grant) =>
+      grant.petId === petId && grant.granteeAccountId === doctorAccountId &&
+      isGrantEffectivelyActive(this.control.signed.state, grant),
+    );
+    if (existing) throw new Error("У этого врача уже есть действующий доступ.");
+    const requestProjection = options.requestId
+      ? this.control.signed.state.grantRequests.get(options.requestId)
+      : undefined;
     const grantId = crypto.randomUUID();
     const grant: PetAccessGrant = {
       grantId, petId, grantorAccountId: this.context.accountId, granteeAccountId: doctorAccountId,
-      actions: [...new Set(actions)], petKeyVersion: stored.version, status: "active", createdAt: new Date().toISOString(),
+      ...(granteeDisplayName ? { granteeDisplayName } : {}),
+      actions: [...new Set(actions)], ...(options.requestId ? { requestId: options.requestId } : {}),
+      petKeyVersion: stored.version, status: "active", createdAt: new Date().toISOString(),
+    };
+    const publicGrant: PetAccessGrant = {
+      grantId: grant.grantId,
+      petId: grant.petId,
+      grantorAccountId: grant.grantorAccountId,
+      granteeAccountId: grant.granteeAccountId,
+      actions: grant.actions,
+      ...(grant.requestId ? { requestId: grant.requestId } : {}),
+      petKeyVersion: grant.petKeyVersion,
+      status: grant.status,
+      createdAt: grant.createdAt,
     };
     await this.append(await this.factory.create({
       database: "medical", eventType: "grant.created", aggregateId: petId, resourceId: grantId,
-      metadata: { petId, grant: grant as unknown as Record<string, unknown> }, cleartext: grant,
+      metadata: {
+        petId,
+        grant: publicGrant as unknown as Record<string, unknown>,
+        ...(options.requestId ? { requestId: options.requestId } : {}),
+      },
+      cleartext: grant,
+      parents: requestProjection ? [requestProjection.eventId] : [],
       recipients: this.activeCertificates([this.context.accountId, doctorAccountId]), dataKey: stored.key,
     }));
     const petEvent = this.events.findLast((event) => event.aggregateId === petId && event.eventType.startsWith("pet."));
@@ -189,6 +337,27 @@ export class MedicalRepository {
       }));
     }
     return grantId;
+  }
+
+  async deletePet(petId: string): Promise<void> {
+    const snapshot = await this.buildSnapshot();
+    const pet = snapshot.pets.find((candidate) => candidate.petId === petId);
+    if (!pet) throw new Error("Питомец не найден.");
+    for (const request of snapshot.accessRequests.filter((candidate) => candidate.petId === petId && candidate.status === "pending")) {
+      await this.rejectAccessRequest(request.requestId);
+    }
+    const stored = await getPetKey(this.context.accountId, petId);
+    if (!stored) throw new Error("Ключ питомца недоступен.");
+    const activeGrants = [...this.control.signed.state.grants.values()].filter((grant) =>
+      grant.petId === petId && isGrantEffectivelyActive(this.control.signed.state, grant),
+    );
+    const revocationEventIds: string[] = [];
+    for (const grant of activeGrants) {
+      revocationEventIds.push(await this.appendGrantRevocation(grant, stored));
+    }
+    await this.rotatePetKey(petId, stored, revocationEventIds);
+    const refreshed = (await this.buildSnapshot()).pets.find((candidate) => candidate.petId === petId) ?? pet;
+    await this.updatePet({ ...refreshed, tombstoned: true });
   }
 
   async delegateGrant(parentGrantId: string, doctorAccountId: string, actions: PetGrantAction[]): Promise<string> {
@@ -226,39 +395,77 @@ export class MedicalRepository {
     if (!grant) throw new Error("Доступ не найден.");
     const stored = await getPetKey(this.context.accountId, grant.petId);
     if (!stored) throw new Error("Ключ питомца недоступен.");
+    const revocationEventId = await this.appendGrantRevocation(grant, stored);
+    await this.rotatePetKey(grant.petId, stored, [revocationEventId]);
+  }
+
+  async disableGrantDelegation(grantId: string): Promise<void> {
+    const grant = this.control.signed.state.grants.get(grantId);
+    if (!grant || !isGrantEffectivelyActive(this.control.signed.state, grant)) {
+      throw new Error("Действующий доступ не найден.");
+    }
+    if (!grant.actions.includes("delegate")) throw new Error("Делегирование уже отключено.");
+    const stored = await getPetKey(this.context.accountId, grant.petId);
+    if (!stored) throw new Error("Ключ питомца недоступен.");
+    const actions = grant.actions.filter((candidate) => candidate !== "delegate");
     await this.append(await this.factory.create({
-      database: "medical", eventType: "grant.revoked", aggregateId: grant.petId, resourceId: grantId,
+      database: "medical",
+      eventType: "grant.actions.updated",
+      aggregateId: grant.petId,
+      resourceId: grant.grantId,
+      metadata: { petId: grant.petId, grantId: grant.grantId, actions },
+      cleartext: { grantId: grant.grantId, actions },
+      parents: this.events.filter((event) => event.resourceId === grant.grantId).map((event) => event.eventId).slice(-1),
+      recipients: this.activeCertificates([grant.grantorAccountId, grant.granteeAccountId]),
+      dataKey: stored.key,
+    }));
+  }
+
+  private async appendGrantRevocation(
+    grant: PetAccessGrant,
+    stored: { version: number; key: CryptoKey },
+  ): Promise<string> {
+    const event = await this.factory.create({
+      database: "medical", eventType: "grant.revoked", aggregateId: grant.petId, resourceId: grant.grantId,
       metadata: {
         petId: grant.petId,
-        grantId,
+        grantId: grant.grantId,
         nextKeyVersion: stored.version + 1,
         priorAuthorizedEventIds: this.events
           .filter((event) => event.actorAccountId === grant.granteeAccountId && String(event.metadata.petId ?? event.aggregateId) === grant.petId)
           .map((event) => event.eventId),
       },
-      cleartext: { grantId },
-      parents: this.events.filter((event) => event.resourceId === grantId).map((event) => event.eventId).slice(-1),
+      cleartext: { grantId: grant.grantId },
+      parents: this.events.filter((event) => event.resourceId === grant.grantId).map((event) => event.eventId).slice(-1),
       recipients: this.activeCertificates([grant.grantorAccountId, grant.granteeAccountId]), dataKey: stored.key,
-    }));
-    const nextKey = await generateDataKey();
-    await putPetKey(this.context.accountId, grant.petId, stored.version + 1, nextKey);
-    const currentPetEvent = this.events.findLast((event) => event.aggregateId === grant.petId && event.eventType.startsWith("pet."));
+    });
+    await this.append(event);
+    return event.eventId;
+  }
+
+  private async rotatePetKey(
+    petId: string,
+    stored: { version: number; key: CryptoKey },
+    revocationEventIds: string[],
+  ): Promise<void> {
+    const currentPetEvent = this.events.findLast((event) => event.aggregateId === petId && event.eventType.startsWith("pet."));
     const pet = currentPetEvent ? await this.decrypt<PetProfile>(currentPetEvent) : null;
-    if (pet) {
-      const activeRecipients = new Set([grant.grantorAccountId]);
-      for (const candidate of this.control.signed.state.grants.values()) {
-        if (candidate.petId === grant.petId && candidate.grantId !== grantId && isGrantEffectivelyActive(this.control.signed.state, candidate)) {
-          activeRecipients.add(candidate.granteeAccountId);
-        }
+    if (!pet || !currentPetEvent) throw new Error("Профиль питомца недоступен для ротации ключа.");
+    const nextKey = await generateDataKey();
+    await putPetKey(this.context.accountId, petId, stored.version + 1, nextKey);
+    const activeRecipients = new Set([pet.ownerAccountId]);
+    for (const candidate of this.control.signed.state.grants.values()) {
+      if (candidate.petId === petId && isGrantEffectivelyActive(this.control.signed.state, candidate)) {
+        activeRecipients.add(candidate.granteeAccountId);
       }
-      await this.append(await this.factory.create({
-        database: "medical", eventType: "pet.key.rotated", aggregateId: grant.petId, resourceId: grant.petId,
-        metadata: { petId: grant.petId, ownerAccountId: pet.ownerAccountId, keyVersion: stored.version + 1 },
-        cleartext: { ...pet, keyVersion: stored.version + 1, updatedAt: new Date().toISOString() },
-        parents: this.events.filter((event) => event.aggregateId === grant.petId && event.eventType.startsWith("pet.")).map((event) => event.eventId).slice(-1),
-        recipients: this.activeCertificates([...activeRecipients]), dataKey: nextKey,
-      }));
     }
+    await this.append(await this.factory.create({
+      database: "medical", eventType: "pet.key.rotated", aggregateId: petId, resourceId: petId,
+      metadata: { petId, ownerAccountId: pet.ownerAccountId, keyVersion: stored.version + 1 },
+      cleartext: { ...pet, keyVersion: stored.version + 1, updatedAt: new Date().toISOString() },
+      parents: [...new Set([currentPetEvent.eventId, ...revocationEventIds])],
+      recipients: this.activeCertificates([...activeRecipients]), dataKey: nextKey,
+    }));
   }
 
   async saveRecord(input: Omit<MedicalRecordDraft, "recordId" | "revision" | "authorAccountId" | "createdAt" | "updatedAt"> & { recordId?: string }): Promise<string> {
@@ -311,6 +518,7 @@ export class MedicalRepository {
   private async buildSnapshot(): Promise<MedicalSnapshot> {
     const pets = new Map<string, PetProfile>();
     const grants = new Map<string, PetAccessGrant>();
+    const requestDetails = new Map<string, PetAccessRequest>();
     const records = new Map<string, MedicalRecordDraft>();
     const confirmations: MedicalRecordConfirmation[] = [];
     for (const event of this.events) {
@@ -318,9 +526,14 @@ export class MedicalRepository {
       if (event.eventType.startsWith("pet.")) {
         const decrypted = await this.decryptWithKey<PetProfile>(event);
         if (decrypted) {
-          pets.set(decrypted.value.petId, decrypted.value);
-          await putPetKey(this.context.accountId, decrypted.value.petId, Number(event.metadata.keyVersion ?? decrypted.value.keyVersion), decrypted.key);
+          const pet = normalizePetProfile(decrypted.value);
+          pets.set(pet.petId, pet);
+          await putPetKey(this.context.accountId, pet.petId, Number(event.metadata.keyVersion ?? pet.keyVersion), decrypted.key);
         }
+      }
+      if (event.eventType === "grant.requested") {
+        const request = await this.decrypt<PetAccessRequest>(event);
+        if (request) requestDetails.set(request.requestId, request);
       }
       if (["grant.created", "grant.delegated"].includes(event.eventType)) {
         const grant = await this.decrypt<PetAccessGrant>(event);
@@ -329,6 +542,11 @@ export class MedicalRepository {
       if (event.eventType === "grant.revoked") {
         const grant = grants.get(event.resourceId);
         if (grant) grants.set(grant.grantId, { ...grant, status: "revoked", revokedAt: event.createdAt });
+      }
+      if (event.eventType === "grant.actions.updated") {
+        const grant = grants.get(event.resourceId);
+        const actions = event.metadata.actions as PetGrantAction[] | undefined;
+        if (grant && Array.isArray(actions)) grants.set(grant.grantId, { ...grant, actions: [...actions] });
       }
       if (["medical.record.created", "medical.record.updated", "medical.addendum.created"].includes(event.eventType)) {
         const record = await this.decrypt<MedicalRecordDraft>(event);
@@ -339,7 +557,9 @@ export class MedicalRepository {
         if (confirmation) confirmations.push(confirmation);
       }
     }
-    if (this.context.role === "administrator") return { pets: [], grants: [], records: [], confirmations: [], events: [...this.events] };
+    if (this.context.role === "administrator") {
+      return { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], events: [...this.events] };
+    }
     const accessiblePetIds = new Set<string>();
     if (this.context.role === "owner") {
       for (const pet of pets.values()) if (pet.ownerAccountId === this.context.accountId) accessiblePetIds.add(pet.petId);
@@ -350,9 +570,15 @@ export class MedicalRepository {
         }
       }
     }
+    const accessRequests = [...this.control.signed.state.grantRequests.values()]
+      .map(({ request }) => ({ ...requestDetails.get(request.requestId), ...request }))
+      .filter((request) => this.context.role === "owner"
+        ? request.ownerAccountId === this.context.accountId && accessiblePetIds.has(request.petId)
+        : request.requesterAccountId === this.context.accountId);
     return {
       pets: [...pets.values()].filter((pet) => accessiblePetIds.has(pet.petId) && !pet.tombstoned),
       grants: [...grants.values()].filter((grant) => accessiblePetIds.has(grant.petId)),
+      accessRequests,
       records: [...records.values()].filter((record) => accessiblePetIds.has(record.petId)),
       confirmations: confirmations.filter((confirmation) => accessiblePetIds.has(confirmation.petId)),
       events: [...this.events],

@@ -8,10 +8,9 @@ import { appState, decideRole, getConfig, logout, requireRepository } from "../a
 defineProps<{ role: Role; scenarioId: string }>();
 const router = useRouter();
 const roleLabels: Record<Role, string> = { administrator: "Администратор", doctor: "Врач", owner: "Владелец животного" };
-const petDraft = reactive({ name: "", species: "Собака", breed: "", sex: "Не указан", chip: "" });
 const recordDraft = reactive({ recordId: "", petId: "", title: "", text: "", addendumTo: "" });
-const grantDraft = reactive({ petId: "", doctorAccountId: "", read: true, write: true, delegate: false });
 const delegationDraft = reactive({ parentGrantId: "", doctorAccountId: "", read: true, write: false, delegate: false });
+const accessRequestPetId = ref("");
 const decisionReason = ref("");
 const adminSearch = ref("");
 const actionError = ref("");
@@ -51,20 +50,6 @@ async function action(task: () => Promise<unknown>) {
   try { await task(); } catch (reason) { actionError.value = reason instanceof Error ? reason.message : "Операция не выполнена."; }
 }
 
-async function createPet() {
-  await action(async () => {
-    await requireRepository().medical.createPet({ ...petDraft, chip: petDraft.chip || undefined });
-    Object.assign(petDraft, { name: "", species: "Собака", breed: "", sex: "Не указан", chip: "" });
-  });
-}
-
-async function grantDoctor() {
-  const actions: PetGrantAction[] = ["read"];
-  if (grantDraft.write) actions.push("write_unconfirmed");
-  if (grantDraft.delegate) actions.push("delegate");
-  await action(() => requireRepository().medical.grantDoctor(grantDraft.petId, grantDraft.doctorAccountId, actions));
-}
-
 async function saveRecord() {
   await action(async () => {
     await requireRepository().medical.saveRecord({
@@ -88,6 +73,13 @@ async function delegateGrant() {
   if (delegationDraft.write) actions.push("write_unconfirmed");
   if (delegationDraft.delegate) actions.push("delegate");
   await action(() => requireRepository().medical.delegateGrant(delegationDraft.parentGrantId, delegationDraft.doctorAccountId, actions));
+}
+
+async function requestPetAccess() {
+  await action(async () => {
+    await requireRepository().medical.requestAccess(accessRequestPetId.value.trim());
+    accessRequestPetId.value = "";
+  });
 }
 
 </script>
@@ -156,69 +148,39 @@ async function delegateGrant() {
     </template>
 
     <template v-else-if="role === 'owner'">
-      <section class="workspace-grid">
-        <article id="owner-add-pet" class="panel" data-workspace-section>
-          <h2>Добавить питомца</h2>
-          <form class="form-stack" @submit.prevent="createPet">
-            <label><span>Кличка</span><input v-model="petDraft.name" required /></label>
-            <label><span>Вид</span><select v-model="petDraft.species"><option>Собака</option><option>Кошка</option><option>Другой</option></select></label>
-            <label><span>Порода</span><input v-model="petDraft.breed" required /></label>
-            <label><span>Пол</span><input v-model="petDraft.sex" /></label>
-            <label><span>Чип, если есть</span><input v-model="petDraft.chip" /></label>
-            <button class="primary-action">Сохранить питомца</button>
-          </form>
-        </article>
-
-        <article id="owner-pets" class="panel wide-panel" data-workspace-section>
-          <h2>Мои питомцы</h2>
-          <p v-if="!appState.medical.pets.length">Питомцев пока нет.</p>
-          <div v-for="pet in appState.medical.pets" :key="pet.petId" class="pet-operational-card">
-            <div><strong>{{ pet.name }}</strong><span>{{ pet.species }} · {{ pet.breed }}</span><small>Версия ключа {{ pet.keyVersion }}</small></div>
-            <button class="outline-action inline" @click="action(() => requireRepository().medical.updatePet({ ...pet, tombstoned: true }))">Удалить карточку</button>
-          </div>
-        </article>
-
-        <article id="owner-grant-access" class="panel" data-workspace-section>
-          <h2>Предоставить врачу доступ</h2>
-          <form class="form-stack" @submit.prevent="grantDoctor">
-            <label><span>Питомец</span><select v-model="grantDraft.petId" required><option value="" disabled>Выберите</option><option v-for="pet in appState.medical.pets" :key="pet.petId" :value="pet.petId">{{ pet.name }}</option></select></label>
-            <label><span>Идентификатор аккаунта врача</span><input v-model="grantDraft.doctorAccountId" required /></label>
-            <label><input v-model="grantDraft.write" type="checkbox" /> Создание и изменение неподтверждённых записей</label>
-            <label><input v-model="grantDraft.delegate" type="checkbox" /> Делегирование другому врачу</label>
-            <button class="primary-action">Предоставить доступ</button>
-          </form>
-        </article>
-
-        <article id="owner-active-access" class="panel" data-workspace-section>
-          <h2>Действующие доступы</h2>
-          <div v-for="grant in appState.medical.grants" :key="grant.grantId" class="list-row">
-            <strong>{{ grant.granteeAccountId }}</strong><span>{{ grant.actions.join(', ') }}</span>
-            <button v-if="grant.status === 'active'" class="outline-action inline" @click="action(() => requireRepository().medical.revokeGrant(grant.grantId))">Отозвать</button>
-            <small v-else>Отозван</small>
-          </div>
-        </article>
-
-        <article id="owner-records" class="panel wide-panel" data-workspace-section>
-          <h2>Медицинские записи</h2>
-          <div v-for="record in appState.medical.records" :key="record.recordId" class="record-card">
-            <div><strong>{{ record.title }}</strong><p>{{ record.text }}</p><small>Редакция {{ record.revision }}</small></div>
-            <span v-if="confirmedIds.has(record.recordId)" class="status-badge approved">Подтверждена</span>
-            <button v-else class="primary-action inline" @click="action(() => requireRepository().medical.confirmRecord(record.petId, record.recordId, record.revision))">Подтвердить</button>
-          </div>
-        </article>
-
+      <section class="owner-empty-state">
+        <p>Кабинет владельца доступен на новой главной странице.</p>
+        <button class="primary-action inline" @click="router.push('/owner/home')">Открыть</button>
       </section>
     </template>
 
     <template v-else>
       <section class="workspace-grid">
+        <article id="doctor-request-access" class="panel" data-workspace-section>
+          <h2>Запросить доступ к питомцу</h2>
+          <form class="form-stack" @submit.prevent="requestPetAccess">
+            <label><span>Идентификатор питомца</span><input v-model="accessRequestPetId" required /></label>
+            <button class="primary-action">Отправить запрос</button>
+          </form>
+          <div v-for="request in appState.medical.accessRequests" :key="request.requestId" class="list-row">
+            <strong>{{ request.petId }}</strong>
+            <span>{{ request.status === 'pending' ? 'Ожидает решения владельца' : request.status === 'approved' ? 'Одобрен' : request.status === 'rejected' ? 'Отклонён' : 'Отменён' }}</span>
+            <button
+              v-if="request.status === 'pending'"
+              class="outline-action inline"
+              @click="action(() => requireRepository().medical.cancelAccessRequest(request.requestId))"
+            >
+              Отменить
+            </button>
+          </div>
+        </article>
         <article id="doctor-pets" class="panel wide-panel" data-workspace-section>
           <h2>Доступные питомцы</h2>
           <div v-for="pet in appState.medical.pets" :key="pet.petId" class="pet-operational-card"><strong>{{ pet.name }}</strong><span>{{ pet.species }} · {{ pet.breed }}</span></div>
           <p v-if="!appState.medical.pets.length">Владельцы ещё не предоставили доступ.</p>
         </article>
         <article id="doctor-new-record" class="panel" data-workspace-section>
-          <h2>Новая медицинская запись</h2>
+          <h2>Новая запись</h2>
           <form class="form-stack" @submit.prevent="saveRecord">
             <label><span>Питомец</span><select v-model="recordDraft.petId" required><option value="" disabled>Выберите</option><option v-for="pet in appState.medical.pets" :key="pet.petId" :value="pet.petId">{{ pet.name }}</option></select></label>
             <label><span>Заголовок</span><input v-model="recordDraft.title" required /></label>
@@ -238,7 +200,7 @@ async function delegateGrant() {
           </form>
         </article>
         <article id="doctor-records" class="panel wide-panel" data-workspace-section>
-          <h2>Медицинские записи</h2>
+          <h2>Записи</h2>
           <div v-for="record in appState.medical.records" :key="record.recordId" class="record-card">
             <div><strong>{{ record.title }}</strong><p>{{ record.text }}</p><small>Редакция {{ record.revision }}</small></div>
             <span class="status-badge" :class="confirmedIds.has(record.recordId) ? 'approved' : 'pending'">{{ confirmedIds.has(record.recordId) ? 'Подтверждена владельцем' : 'Черновик' }}</span>
