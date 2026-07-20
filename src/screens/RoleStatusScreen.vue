@@ -324,7 +324,7 @@ async function confirmDeviceRevocation() {
     <ConfirmationDialog
       v-model="accountDeletionConfirmation"
       title="Удалить аккаунт?"
-      description="Удаление необратимо. Медицинская история останется в подписанном журнале, но аккаунт потеряет доступ."
+      description="Удаление необратимо. История болезни останется в журнале, но аккаунт потеряет доступ."
       confirm-label="Удалить аккаунт"
       @confirm="confirmAccountDeletion"
     />

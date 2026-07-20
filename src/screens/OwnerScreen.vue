@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { PET_SEXES, type PetSex } from "@klinok/protocol";
+import AppIcon from "../components/AppIcon.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
 import { appState, logout, requireRepository } from "../appStore";
@@ -19,7 +20,6 @@ const actionError = ref("");
 const actionMessage = ref("");
 const photoBusy = ref(false);
 const deleteConfirmation = ref(false);
-const copiedPetId = ref(false);
 const manualGrant = reactive({ doctorAccountId: "", delegate: false });
 const birthMode = ref<"date" | "year">("date");
 const draft = reactive({
@@ -230,13 +230,16 @@ async function selectPhoto(event: Event) {
   }
 }
 
-async function copyPetId() {
+async function copyPetLink() {
   if (!selectedPet.value) return;
+  actionError.value = "";
+  actionMessage.value = "";
   try {
-    await navigator.clipboard.writeText(selectedPet.value.petId);
-    copiedPetId.value = true;
+    const path = router.resolve(`/owner/pets/${selectedPet.value.petId}`).href;
+    await navigator.clipboard.writeText(new URL(path, window.location.origin).href);
+    actionMessage.value = "Ссылка скопирована.";
   } catch {
-    copiedPetId.value = false;
+    actionError.value = "Не удалось скопировать ссылку.";
   }
 }
 
@@ -373,8 +376,32 @@ function formatDate(value?: string) {
             <p>{{ petBirthSummary(selectedPet) }}</p>
           </div>
           <div class="row-actions owner-profile-actions">
-            <RouterLink class="primary-action inline" :to="`/owner/pets/${selectedPet.petId}/edit`">Редактировать</RouterLink>
-            <button class="outline-action inline danger-link" type="button" @click="deleteConfirmation = true">Удалить</button>
+            <RouterLink
+              class="primary-action inline owner-profile-action"
+              :to="`/owner/pets/${selectedPet.petId}/edit`"
+              title="Редактировать"
+              aria-label="Редактировать"
+            >
+              <AppIcon name="edit" />
+            </RouterLink>
+            <button
+              class="outline-action inline owner-profile-action"
+              type="button"
+              title="Копировать ссылку"
+              aria-label="Копировать ссылку"
+              @click="copyPetLink"
+            >
+              <AppIcon name="link" />
+            </button>
+            <button
+              class="outline-action inline danger-outline owner-profile-action"
+              type="button"
+              title="Удалить"
+              aria-label="Удалить"
+              @click="deleteConfirmation = true"
+            >
+              <AppIcon name="trash" />
+            </button>
           </div>
         </div>
         <dl class="owner-profile-fields">
@@ -388,7 +415,6 @@ function formatDate(value?: string) {
           <div><dt>Клеймо</dt><dd>{{ selectedPet.brandMark || 'Нет' }}</dd></div>
           <div><dt>Последняя вакцинация</dt><dd>{{ selectedPet.latestVaccination ? `${formatDate(selectedPet.latestVaccination.date)} · ${selectedPet.latestVaccination.name}` : 'Не указана' }}</dd></div>
           <div><dt>Вес</dt><dd>{{ selectedPet.weightKg ? `${selectedPet.weightKg} кг` : 'Не указан' }}</dd></div>
-          <div class="owner-pet-id"><dt>ID питомца</dt><dd><code>{{ selectedPet.petId }}</code><button class="link-action" type="button" @click="copyPetId">{{ copiedPetId ? 'Скопировано' : 'Копировать' }}</button></dd></div>
         </dl>
         <div v-if="selectedPet.notes" class="owner-pet-notes">
           <h3>Заметки</h3>
@@ -397,8 +423,8 @@ function formatDate(value?: string) {
       </article>
 
       <article class="panel owner-medical-placeholder">
-        <h2>Медицинская история</h2>
-        <p v-if="!petRecords.length">Медицинские записи появятся здесь после приёма у врача.</p>
+        <h2>История болезни</h2>
+        <p v-if="!petRecords.length">Записи появятся здесь после приёма у врача.</p>
         <div v-for="record in petRecords" :key="record.recordId" class="record-card">
           <div><strong>{{ record.title }}</strong><p>{{ record.text }}</p><small>Редакция {{ record.revision }}</small></div>
           <span v-if="confirmedIds.has(record.recordId)" class="status-badge approved">Подтверждена</span>

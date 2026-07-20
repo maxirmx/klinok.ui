@@ -25,6 +25,9 @@ defineProps<{
     | "calendar"
     | "star"
     | "check"
+    | "edit"
+    | "link"
+    | "trash"
     | "more";
 }>();
 </script>
@@ -102,6 +105,18 @@ defineProps<{
     <path v-else-if="name === 'star'" fill="currentColor" d="m12 3.9 2.3 4.7 5.2.8-3.8 3.7.9 5.2-4.6-2.4-4.6 2.4.9-5.2-3.8-3.7 5.2-.8L12 3.9Z" />
     <g v-else-if="name === 'check'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
       <path d="m5 12 4.2 4.2L19 6.5" />
+    </g>
+    <g v-else-if="name === 'edit'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
+      <path d="M4.5 19.5h4l10.2-10.2a2.1 2.1 0 0 0-3-3L5.5 16.5l-1 3Z" />
+      <path d="m14.5 7.5 3 3" />
+    </g>
+    <g v-else-if="name === 'link'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
+      <path d="m9.5 14.5 5-5" />
+      <path d="m7.3 16.7-1.1 1.1a3.5 3.5 0 0 1-5-5l3.2-3.2a3.5 3.5 0 0 1 5 0" transform="translate(2.8 -2.8)" />
+      <path d="m16.7 7.3 1.1-1.1a3.5 3.5 0 0 1 5 5l-3.2 3.2a3.5 3.5 0 0 1-5 0" transform="translate(-2.8 2.8)" />
+    </g>
+    <g v-else-if="name === 'trash'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
+      <path d="M5 7h14M9 7V4.5h6V7M7 7l.8 13h8.4L17 7M10 10.5v6M14 10.5v6" />
     </g>
     <g v-else-if="name === 'more'" fill="currentColor">
       <circle cx="12" cy="5" r="1.7" />

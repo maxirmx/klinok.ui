@@ -1,6 +1,7 @@
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import AppIcon from "../src/components/AppIcon.vue";
 import OwnerScreen from "../src/screens/OwnerScreen.vue";
 import type { MedicalSnapshot, PetProfile } from "../src/repositories/types";
 
@@ -14,6 +15,7 @@ const repositoryMocks = vi.hoisted(() => ({
   rejectAccessRequest: vi.fn().mockResolvedValue(undefined),
   confirmRecord: vi.fn().mockResolvedValue(undefined),
 }));
+const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("../src/appStore", async () => {
   const { reactive, readonly } = await import("vue");
@@ -113,6 +115,10 @@ function labelled(wrapper: VueWrapper, text: string) {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: clipboardWriteText },
+  });
   repositoryMocks.createPet.mockResolvedValue("pet-new");
   repositoryMocks.grantDoctor.mockResolvedValue("grant-new");
   repositoryMocks.approveAccessRequest.mockResolvedValue("grant-approved");
@@ -284,8 +290,24 @@ describe("Owner pages", () => {
       .find((field) => field.get("dt").text() === "Возраст")!;
     expect(ageField.get("dd").text()).toMatch(/\d+ полн(?:ый|ых) (?:год|года|лет) · дата рождения 17\.06\.2022/);
     expect(detail.findAll(".owner-profile-fields dt").map((node) => node.text())).not.toContain("Дата рождения");
-    const deleteButton = detail.findAll("button").find((button) => button.text() === "Удалить");
-    await deleteButton!.trigger("click");
+    expect(detail.findAll(".owner-profile-fields dt").map((node) => node.text())).not.toContain("ID питомца");
+
+    const actions = detail.get(".owner-profile-actions");
+    const editLink = actions.get('[title="Редактировать"]');
+    const copyLinkButton = actions.get('button[title="Копировать ссылку"]');
+    const deleteButton = actions.get('button[title="Удалить"]');
+    expect(editLink.text()).toBe("");
+    expect(copyLinkButton.text()).toBe("");
+    expect(deleteButton.text()).toBe("");
+    expect(editLink.getComponent(AppIcon).props("name")).toBe("edit");
+    expect(copyLinkButton.getComponent(AppIcon).props("name")).toBe("link");
+    expect(deleteButton.getComponent(AppIcon).props("name")).toBe("trash");
+
+    await copyLinkButton.trigger("click");
+    await flushPromises();
+    expect(clipboardWriteText).toHaveBeenCalledWith(new URL("/owner/pets/pet-1", window.location.origin).href);
+
+    await deleteButton.trigger("click");
     expect(detail.get('[role="alertdialog"]').text()).toContain("Удалить профиль Шарик?");
     await detail.get('[role="alertdialog"]').findAll("button")
       .find((button) => button.text() === "Удалить питомца")!

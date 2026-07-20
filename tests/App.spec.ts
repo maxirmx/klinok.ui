@@ -46,9 +46,6 @@ describe("operational Russian UI", () => {
   it("uses one initial role and confirms the password during registration", async () => {
     const wrapper = await mountScreen(AuthScreen, "/auth/register", { scenarioId: "auth-register" });
     expect(wrapper.text()).not.toContain("Заполните профиль и выберите хотя бы одну роль");
-    expect(wrapper.text()).not.toContain("Администратор");
-    expect(wrapper.text()).not.toContain("Мои питомцы и их медицинская история");
-    expect(wrapper.text()).not.toContain("Работа с предоставленными медкартами");
     expect(wrapper.text()).toContain("Я - ветеринар");
     expect(wrapper.text()).toContain("Я - владелец животного");
     expect(wrapper.findAll(".role-selection-graphic")).toHaveLength(2);

@@ -180,7 +180,7 @@ async function requestPetAccess() {
           <p v-if="!appState.medical.pets.length">Владельцы ещё не предоставили доступ.</p>
         </article>
         <article id="doctor-new-record" class="panel" data-workspace-section>
-          <h2>Новая медицинская запись</h2>
+          <h2>Новая запись</h2>
           <form class="form-stack" @submit.prevent="saveRecord">
             <label><span>Питомец</span><select v-model="recordDraft.petId" required><option value="" disabled>Выберите</option><option v-for="pet in appState.medical.pets" :key="pet.petId" :value="pet.petId">{{ pet.name }}</option></select></label>
             <label><span>Заголовок</span><input v-model="recordDraft.title" required /></label>
@@ -200,7 +200,7 @@ async function requestPetAccess() {
           </form>
         </article>
         <article id="doctor-records" class="panel wide-panel" data-workspace-section>
-          <h2>Медицинские записи</h2>
+          <h2>Записи</h2>
           <div v-for="record in appState.medical.records" :key="record.recordId" class="record-card">
             <div><strong>{{ record.title }}</strong><p>{{ record.text }}</p><small>Редакция {{ record.revision }}</small></div>
             <span class="status-badge" :class="confirmedIds.has(record.recordId) ? 'approved' : 'pending'">{{ confirmedIds.has(record.recordId) ? 'Подтверждена владельцем' : 'Черновик' }}</span>
