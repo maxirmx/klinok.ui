@@ -536,7 +536,7 @@ function formatDate(value?: string) {
             <thead>
               <tr>
                 <th><span class="visually-hidden">Действия</span></th>
-                <th>Фио врача</th>
+                <th>ФИО врача</th>
                 <th>Доступ</th>
                 <th>Делегирование</th>
               </tr>
@@ -597,8 +597,7 @@ function formatDate(value?: string) {
                       <AppIcon name="check" />
                     </button>
                   </div>
-                </td>
-                <td class="owner-access-doctor" data-label="Фио врача">
+                <td class="owner-access-doctor" data-label="ФИО врача">
                   <strong>{{ row.displayName }}</strong>
                   <small>{{ row.accountId }}</small>
                 </td>

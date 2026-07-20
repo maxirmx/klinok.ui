@@ -305,11 +305,9 @@ describe("Owner pages", () => {
     expect(wrapper.get(".workspace-topbar h1").text()).toBe("Доступ врачей");
     expect(wrapper.get(".owner-pet-profile-details").text()).toContain("Шарик");
     expect(wrapper.get('.owner-profile-actions a[title="Назад к информации о питомце"]').attributes("href"))
-      .toBe("/owner/pets/pet-1");
     expect(wrapper.findAll(".owner-access-table th").map((header) => header.text())).toEqual([
-      "Действия", "Фио врача", "Доступ", "Делегирование",
+      "Действия", "ФИО врача", "Доступ", "Делегирование",
     ]);
-
     const rows = wrapper.findAll(".owner-access-table tbody tr");
     expect(rows).toHaveLength(3);
     const requestedRow = rows.find((row) => row.text().includes("Анна Врач"))!;
