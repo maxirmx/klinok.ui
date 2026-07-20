@@ -9,6 +9,7 @@ import AuthScreen from "../src/screens/AuthScreen.vue";
 import RoleStatusScreen from "../src/screens/RoleStatusScreen.vue";
 import WorkspaceScreen from "../src/screens/WorkspaceScreen.vue";
 import OwnerScreen from "../src/screens/OwnerScreen.vue";
+import AdministratorScreen from "../src/screens/AdministratorScreen.vue";
 import { getOrCreateDeviceId, setDeviceName } from "../src/repositories/deviceVault";
 import { routes } from "../src/router";
 
@@ -136,16 +137,17 @@ describe("operational Russian UI", () => {
     expect(statuses.findAll<HTMLInputElement>('.credentials-form input[type="password"]')).toHaveLength(2);
     expect(statuses.findAll<HTMLInputElement>('.credentials-form input[type="password"]').every((input) => input.attributes("minlength") === "6")).toBe(true);
     expect(statuses.findAll<HTMLInputElement>('.credentials-form input[type="password"]').every((input) => input.element.value === "")).toBe(true);
-    const administrator = await mountScreen(WorkspaceScreen, "/admin/home", { scenarioId: "administrator-home", role: "administrator" });
-    expect(administrator.text()).toContain("Заявки на роли");
-    expect(administrator.text()).toContain("Конфликты авторизации");
+    const administrator = await mountScreen(AdministratorScreen, "/admin/home", { scenarioId: "administrator-home", role: "administrator" });
+    expect(administrator.text()).toContain("Ветеринары и администраторы");
+    expect(administrator.get(".administrator-audit-link").attributes("title")).toBe("Открыть журнал действий");
+    expect(administrator.text()).not.toContain("Конфликты авторизации");
   });
 
   it.each([
-    ["administrator", "/admin/home", ["Главная страница", "Заявки", "Аккаунты", "Конфликты", "Журнал"]],
-    ["doctor", "/doctor/home", ["Главная страница", "Запросить доступ", "Питомцы", "Новая запись", "Делегирование", "Медкарта"]],
-  ] as const)("renders responsive %s navigation for the current feature set", async (role, path, labels) => {
-    const workspace = await mountScreen(WorkspaceScreen, path, { scenarioId: `${role}-home`, role });
+    ["administrator", AdministratorScreen, "/admin/home", ["Пользователи", "Журнал"]],
+    ["doctor", WorkspaceScreen, "/doctor/home", ["Главная страница", "Запросить доступ", "Питомцы", "Новая запись", "Делегирование", "Медкарта"]],
+  ] as const)("renders responsive %s navigation for the current feature set", async (role, component, path, labels) => {
+    const workspace = await mountScreen(component, path, { scenarioId: `${role}-home`, role });
     const sidebarLabels = workspace.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text());
     const sidebarMenuLabels = [
       ...sidebarLabels,
@@ -162,7 +164,8 @@ describe("operational Russian UI", () => {
     const target = workspace.findAll(".workspace-sidebar-nav .workspace-nav-item")[1]!;
     await target.trigger("click");
     await flushPromises();
-    expect(workspace.vm.$route.hash).toBe(target.attributes("href"));
+    if (role === "administrator") expect(workspace.vm.$route.path).toBe("/admin/audit");
+    else expect(workspace.vm.$route.hash).toBe(target.attributes("href"));
     expect(target.classes()).toContain("active");
   });
 
@@ -170,10 +173,10 @@ describe("operational Russian UI", () => {
     const owner = await mountScreen(OwnerScreen, "/owner/home", { scenarioId: "owner-home", role: "owner" });
     const sidebarLabels = owner.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text());
     expect(sidebarLabels).toEqual([
-      "Главная страница", "Добавить питомца",
+      "Питомцы", "Добавить питомца",
     ]);
     expect(owner.findAll(".workspace-bottom-nav :is(a, button) span").map((node) => node.text())).toEqual([
-      "Главная страница", "Настройки пользователя", "Выйти",
+      "Питомцы", "Настройки пользователя", "Выйти",
     ]);
     expect(owner.text()).toContain("Мои питомцы");
   });

@@ -26,14 +26,14 @@ const activeSection = ref(route.hash.slice(1) || "workspace-top");
 
 const navigationByRole: Record<Role, WorkspaceNavItem[]> = {
   administrator: [
-    { id: "workspace-top", label: "Главная страница", icon: "home" },
+    { id: "workspace-top", label: "Пользователи", icon: "home" },
     { id: "administrator-requests", label: "Заявки", icon: "bell" },
     { id: "administrator-accounts", label: "Аккаунты", icon: "user" },
     { id: "administrator-conflicts", label: "Конфликты", icon: "eye" },
     { id: "administrator-journal", label: "Журнал", icon: "book" },
   ],
   owner: [
-    { id: "workspace-top", label: "Главная страница", icon: "home" },
+    { id: "workspace-top", label: "Питомцы", icon: "home" },
     { id: "owner-add-pet", label: "Добавить", icon: "plus" },
     { id: "owner-pets", label: "Питомцы", icon: "pets" },
     { id: "owner-grant-access", label: "Дать доступ", icon: "user" },
@@ -51,7 +51,7 @@ const navigationByRole: Record<Role, WorkspaceNavItem[]> = {
 };
 const ownerRootNavigation: WorkspacePathNavItem = {
   id: "owner-home",
-  label: "Главная страница",
+  label: "Питомцы",
   icon: "home",
   path: "/owner/home",
   exact: true,
@@ -66,6 +66,10 @@ const ownerChildNavigation = computed<WorkspacePathNavItem[]>(() => [
     exact: false,
   })),
 ]);
+const administratorNavigation: WorkspacePathNavItem[] = [
+  { id: "administrator-home", label: "Пользователи", icon: "home", path: "/admin/home", exact: true },
+  { id: "administrator-audit", label: "Журнал", icon: "book", path: "/admin/audit", exact: true },
+];
 const effectiveRole = computed<Role | null>(() => props.role
   ?? (props.settings
     ? appState.activeRole ?? appState.control.roles.find((request) => request.status === "approved")?.role ?? null
@@ -85,12 +89,12 @@ function selectSection(id: string) {
   });
 }
 
-function ownerPathActive(path: string, exact = false) {
+function pathActive(path: string, exact = false) {
   if (props.settings) return false;
   return exact ? route.path === path : route.path === path || route.path.startsWith(`${path}/`);
 }
 
-function selectOwnerPath(path: string) {
+function selectPath(path: string) {
   void router.push(path);
 }
 </script>
@@ -98,7 +102,11 @@ function selectOwnerPath(path: string) {
 <template>
   <section class="workspace-shell">
     <aside class="workspace-sidebar" aria-label="Основная навигация">
-      <a class="workspace-brand" :href="settings && effectiveRole ? roleHomePath(effectiveRole) : '#workspace-top'" @click.prevent="selectSection('workspace-top')">
+      <a
+        class="workspace-brand"
+        :href="effectiveRole === 'administrator' ? '/admin/home' : settings && effectiveRole ? roleHomePath(effectiveRole) : '#workspace-top'"
+        @click.prevent="effectiveRole === 'administrator' ? selectPath('/admin/home') : selectSection('workspace-top')"
+      >
         <BrandLogo variant="full" size="compact" />
         <span>Здоровье питомца под контролем</span>
       </a>
@@ -108,9 +116,9 @@ function selectOwnerPath(path: string) {
           <li>
             <a
               class="workspace-nav-item"
-              :class="{ active: ownerPathActive(ownerRootNavigation.path, ownerRootNavigation.exact) }"
+              :class="{ active: pathActive(ownerRootNavigation.path, ownerRootNavigation.exact) }"
               :href="ownerRootNavigation.path"
-              @click.prevent="selectOwnerPath(ownerRootNavigation.path)"
+              @click.prevent="selectPath(ownerRootNavigation.path)"
             >
               <AppIcon :name="ownerRootNavigation.icon" />
               <span>{{ ownerRootNavigation.label }}</span>
@@ -119,9 +127,9 @@ function selectOwnerPath(path: string) {
               <li v-for="item in ownerChildNavigation" :key="item.id">
                 <a
                   class="workspace-nav-item owner-child"
-                  :class="{ active: ownerPathActive(item.path, item.exact) }"
+                  :class="{ active: pathActive(item.path, item.exact) }"
                   :href="item.path"
-                  @click.prevent="selectOwnerPath(item.path)"
+                  @click.prevent="selectPath(item.path)"
                 >
                   <AppIcon :name="item.icon" />
                   <span>{{ item.label }}</span>
@@ -130,6 +138,20 @@ function selectOwnerPath(path: string) {
             </ul>
           </li>
         </ul>
+      </nav>
+
+      <nav v-else-if="effectiveRole === 'administrator'" class="workspace-sidebar-nav">
+        <a
+          v-for="item in administratorNavigation"
+          :key="item.id"
+          class="workspace-nav-item"
+          :class="{ active: pathActive(item.path, item.exact) }"
+          :href="item.path"
+          @click.prevent="selectPath(item.path)"
+        >
+          <AppIcon :name="item.icon" />
+          <span>{{ item.label }}</span>
+        </a>
       </nav>
 
       <nav v-else class="workspace-sidebar-nav">
@@ -174,12 +196,24 @@ function selectOwnerPath(path: string) {
       <nav class="workspace-bottom-nav" aria-label="Нижняя навигация">
         <template v-if="effectiveRole === 'owner'">
           <a
-            :class="{ active: ownerPathActive(ownerRootNavigation.path, ownerRootNavigation.exact) }"
+            :class="{ active: pathActive(ownerRootNavigation.path, ownerRootNavigation.exact) }"
             :href="ownerRootNavigation.path"
-            @click.prevent="selectOwnerPath(ownerRootNavigation.path)"
+            @click.prevent="selectPath(ownerRootNavigation.path)"
           >
             <AppIcon :name="ownerRootNavigation.icon" />
             <span>{{ ownerRootNavigation.label }}</span>
+          </a>
+        </template>
+        <template v-else-if="effectiveRole === 'administrator'">
+          <a
+            v-for="item in administratorNavigation"
+            :key="item.id"
+            :class="{ active: pathActive(item.path, item.exact) }"
+            :href="item.path"
+            @click.prevent="selectPath(item.path)"
+          >
+            <AppIcon :name="item.icon" />
+            <span>{{ item.label }}</span>
           </a>
         </template>
         <template v-else>

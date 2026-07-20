@@ -132,13 +132,19 @@ describe("Owner pages", () => {
     await setMedical(snapshot({ pets: [pet] }));
     const wrapper = await mountAt("/owner/home", "owner-home");
 
+    expect(wrapper.get(".workspace-topbar h1").text()).toBe("Кабинет владельца");
+    expect(wrapper.get(".owner-section-heading h2").text()).toBe("Мои питомцы");
+    const addPetLink = wrapper.get('.owner-page-heading a[title="Добавить питомца"]');
+    expect(addPetLink.attributes("aria-label")).toBe("Добавить питомца");
+    expect(addPetLink.text()).toBe("");
+    expect(addPetLink.getComponent(AppIcon).props("name")).toBe("plus");
     expect(wrapper.findAll(".workspace-nav-tree .workspace-nav-item span").map((node) => node.text())).toEqual([
-      "Главная страница",
+      "Питомцы",
       "Добавить питомца",
       "Шарик",
     ]);
     expect(wrapper.findAll(".workspace-bottom-nav :is(a, button) span").map((node) => node.text())).toEqual([
-      "Главная страница",
+      "Питомцы",
       "Настройки пользователя",
       "Выйти",
     ]);
@@ -150,6 +156,8 @@ describe("Owner pages", () => {
 
   it("offers exactly four sex values and creates a complete profile with notes", async () => {
     const wrapper = await mountAt("/owner/pets/new", "owner-pet-create");
+    expect(wrapper.get(".workspace-topbar h1").text()).toBe("Кабинет владельца");
+    expect(wrapper.get(".owner-section-heading h2").text()).toBe("Добавить питомца");
     expect(wrapper.findAll<HTMLSelectElement>('select option').slice(1).map((option) => option.text())).toEqual([
       "Интактный самец",
       "Интактная самка",
@@ -207,6 +215,8 @@ describe("Owner pages", () => {
     await setMedical(snapshot({ pets: [legacyPet] }));
     const wrapper = await mountAt("/owner/pets/pet-1/edit", "owner-pet-edit");
 
+    expect(wrapper.get(".workspace-topbar h1").text()).toBe("Кабинет владельца");
+    expect(wrapper.get(".owner-section-heading h2").text()).toBe("Редактировать: Шарик");
     expect(wrapper.get<HTMLSelectElement>("select").element.value).toBe("");
     const birthModeRadios = wrapper.findAll<HTMLInputElement>('.owner-birth-selector input[type="radio"]');
     expect(birthModeRadios).toHaveLength(2);
@@ -295,6 +305,8 @@ describe("Owner pages", () => {
     }));
     const detail = await mountAt("/owner/pets/pet-1", "owner-pet-detail");
 
+    expect(detail.get(".workspace-topbar h1").text()).toBe("Кабинет владельца");
+    expect(detail.get(".owner-page-heading h2").text()).toBe("Шарик");
     expect(detail.text()).toContain("Любит длительные прогулки");
     expect(detail.text()).toContain("Состояние стабильное");
     expect(detail.text()).not.toContain("Анна Врач");
@@ -302,7 +314,8 @@ describe("Owner pages", () => {
     expect(detail.find(".owner-pet-profile-details").exists()).toBe(false);
 
     const wrapper = await mountAt("/owner/pets/pet-1/access", "owner-pet-access");
-    expect(wrapper.get(".workspace-topbar h1").text()).toBe("Доступ врачей");
+    expect(wrapper.get(".workspace-topbar h1").text()).toBe("Кабинет владельца");
+    expect(wrapper.get(".owner-page-heading h2").text()).toBe("Доступ врачей");
     expect(wrapper.get(".owner-pet-profile-details").text()).toContain("Шарик");
     expect(wrapper.get('.owner-profile-actions a[title="Назад к информации о питомце"]').attributes("href"))
     expect(wrapper.findAll(".owner-access-table th").map((header) => header.text())).toEqual([
@@ -343,7 +356,7 @@ describe("Owner pages", () => {
     await setMedical(snapshot({ pets: [pet] }));
     const wrapper = await mountAt("/owner/pets/pet-1/access", "owner-pet-access");
 
-    const opener = wrapper.get('.owner-access-heading button[title="Предоставить доступ"]');
+    const opener = wrapper.get('.owner-page-heading button[title="Предоставить доступ"]');
     await opener.trigger("click");
     const dialog = wrapper.get('[role="dialog"]');
     expect(dialog.attributes("aria-modal")).toBe("true");

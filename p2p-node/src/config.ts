@@ -1,3 +1,7 @@
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok application
+
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { generateKeyPair, privateKeyFromProtobuf, privateKeyToProtobuf } from "@libp2p/crypto/keys";

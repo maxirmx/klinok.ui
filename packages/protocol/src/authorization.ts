@@ -58,10 +58,10 @@ export function isLegalRoleTransition(from: RoleStatus, to: RoleStatus): boolean
     not_requested: ["pending", "approved"],
     pending: ["approved", "rejected", "not_requested"],
     approved: ["suspended", "revoked"],
-    rejected: ["pending"],
+    rejected: ["pending", "approved"],
     suspended: ["approved", "pending", "revoked"],
-    revoked: ["pending"],
-    expired: [],
+    revoked: ["pending", "approved"],
+    expired: ["approved"],
   };
   return transitions[from].includes(to);
 }
@@ -148,7 +148,13 @@ function roleEventResult(event: SignedEvent, state: ProtocolState): Verification
   const targetAccountId = String(event.metadata.accountId ?? event.aggregateId);
   const role = event.metadata.role as Role;
   const nextStatus = event.metadata.status as RoleStatus;
-  if (!ROLES.includes(role) || !ROLE_STATUSES.includes(nextStatus) || nextStatus === "expired") {
+  if (!ROLES.includes(role) || !ROLE_STATUSES.includes(nextStatus)) {
+    return { accepted: false, code: "ROLE_EVENT_INVALID", message: "Invalid role transition metadata." };
+  }
+  if (targetAccountId === state.bootstrapAccountId && role === "administrator" && nextStatus !== "approved") {
+    return { accepted: false, code: "BOOTSTRAP_PROTECTED", message: "Bootstrap Administrator is immutable." };
+  }
+  if (nextStatus === "expired") {
     return { accepted: false, code: "ROLE_EVENT_INVALID", message: "Invalid role transition metadata." };
   }
   const current = state.roles.get(roleProjectionKey(targetAccountId, role));
@@ -161,9 +167,6 @@ function roleEventResult(event: SignedEvent, state: ProtocolState): Verification
     ["not_requested", "rejected", "suspended", "revoked"].includes(from);
   if (!concurrentSibling && !isLegalRoleTransition(from, nextStatus) && !immediateOwnerReactivation) {
     return { accepted: false, code: "ROLE_TRANSITION_INVALID", message: `${from} cannot transition to ${nextStatus}.` };
-  }
-  if (targetAccountId === state.bootstrapAccountId && role === "administrator" && nextStatus !== "approved") {
-    return { accepted: false, code: "BOOTSTRAP_PROTECTED", message: "Bootstrap Administrator is immutable." };
   }
   const selfService = event.actorAccountId === targetAccountId && ["pending", "not_requested"].includes(nextStatus);
   const immediateOwner = role === "owner" && nextStatus === "approved" && event.actorAccountId === targetAccountId;
@@ -188,7 +191,7 @@ function capabilityResult(event: SignedEvent, state: ProtocolState): Verificatio
       : { accepted: false, code: "BOOTSTRAP_IDENTITY_INVALID", message: "Only the pinned bootstrap account may initialize the trust root." };
   }
   if (event.eventType === "device.attested") return { accepted: true };
-  if (event.eventType === "account.deleted" && event.actorAccountId === state.bootstrapAccountId) {
+  if (event.eventType === "account.deleted" && event.aggregateId === state.bootstrapAccountId) {
     return { accepted: false, code: "BOOTSTRAP_PROTECTED", message: "Bootstrap account cannot be deleted." };
   }
   if (["profile.updated", "consent.accepted", "account.deleted", "device.enrollment.requested", "device.revoked", "device.rotated"].includes(event.eventType)) {

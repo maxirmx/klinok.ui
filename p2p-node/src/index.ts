@@ -1,3 +1,7 @@
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok application
+
 import { gossipsub } from "@libp2p/gossipsub";
 import { withBitswap } from "@helia/bitswap";
 import { withHTTP } from "@helia/http";

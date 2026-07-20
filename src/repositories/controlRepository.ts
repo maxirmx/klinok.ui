@@ -233,11 +233,13 @@ export class ControlRepository {
     const current = this.signed.state.roles.get(roleKey(input.accountId, input.role));
     if (!current) throw new Error("Заявка роли не найдена.");
     const operationId = crypto.randomUUID();
+    const restoring = input.status === "approved" &&
+      ["not_requested", "rejected", "suspended", "revoked", "expired"].includes(current.request.status);
     const recipients = [...this.signed.state.devices.values()].filter((device) =>
       device.status === "active" && (device.accountId === input.accountId || device.accountId === this.context.accountId),
     );
     const decision = await this.factory.create({
-      database: "control", eventType: `role.${input.status}`, aggregateId: input.accountId,
+      database: "control", eventType: restoring ? "role.restored" : `role.${input.status}`, aggregateId: input.accountId,
       resourceId: current.request.requestId, operationId, parents: [current.eventId],
       metadata: {
         requestId: current.request.requestId,

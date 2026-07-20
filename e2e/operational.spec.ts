@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
-// This file is a part of Klinok applicationi
+// This file is a part of Klinok application
 
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
 import { execFile as execFileCallback } from "node:child_process";
@@ -145,11 +145,15 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   });
   await administratorPage.getByLabel("Пароль пакета").fill(process.env.KLINOK_E2E_RECOVERY_PASSPHRASE ?? "offline-recovery-passphrase-2026");
   await administratorPage.getByRole("button", { name: "Импортировать ключи" }).click();
-  await administratorPage.locator(".workspace-sidebar").getByRole("link", { name: "Главная страница" }).click();
+  await administratorPage.locator(".workspace-sidebar").getByRole("link", { name: "Пользователи" }).click();
   await expect(administratorPage).toHaveURL(/\/admin\/home/);
-  const requestRow = administratorPage.locator(".request-row").filter({ hasText: doctorAccountId });
+  const requestRow = administratorPage.locator(".administrator-table tbody tr").filter({ hasText: doctorAccountId });
   await expect(requestRow).toBeVisible({ timeout: replicationTimeout });
-  await requestRow.getByRole("button", { name: "Одобрить" }).click();
+  await requestRow.getByRole("button", { name: "Одобрить роль «Ветеринар»", exact: true }).click();
+  const approvalDialog = administratorPage.getByRole("dialog", { name: "Одобрить роль «Ветеринар»?" });
+  await expect(approvalDialog).toBeVisible();
+  await approvalDialog.getByRole("button", { name: "Одобрить", exact: true }).click();
+  await expect(approvalDialog).toBeHidden();
 
   await doctorPage.bringToFront();
   const doctorHome = doctorPage.locator(".workspace-sidebar").getByRole("link", { name: "Главная страница" });
@@ -229,7 +233,7 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
     await expect(ownerRole.getByText("Одобрена", { exact: true })).toBeVisible({ timeout: replicationTimeout });
   }
   await openProfileAndWaitForSync(ownerPage);
-  await ownerPage.locator(".workspace-sidebar").getByRole("link", { name: "Главная страница" }).click();
+  await ownerPage.locator(".workspace-sidebar").getByRole("link", { name: "Питомцы" }).click();
   await expect(ownerPage).toHaveURL(/\/owner\/home/);
   await expect(ownerPage.locator(".owner-pet-card strong").filter({ hasText: "Шарик" })).toBeVisible({ timeout: replicationTimeout });
 });

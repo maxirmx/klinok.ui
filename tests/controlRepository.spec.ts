@@ -85,4 +85,39 @@ describe("control repository", () => {
     ]));
     expect(new Set(operationEvents.map((event) => event.operationId)).size).toBe(1);
   });
+
+  it("records a direct restoration and its audit companion", async () => {
+    const transport = new MemoryEventTransport();
+    await transport.initialize();
+    const administrator = await repositoryFor(transport, "bootstrap-administrator", "administrator");
+    await administrator.initialize({ profile: { firstName: "Начальный", lastName: "Администратор" }, requestedRoles: ["administrator"] });
+    const doctor = await repositoryFor(transport, "doctor-account", "doctor");
+    await doctor.initialize({ profile: { firstName: "Анна", lastName: "Врач" }, requestedRoles: ["doctor"] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const pending = (await administrator.snapshot()).pendingQueue.find((request) => request.accountId === "doctor-account")!;
+    await administrator.decideRole({ accountId: pending.accountId, role: pending.role, status: "rejected", reason: "Проверка не пройдена" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const rejected = (await administrator.snapshot()).allRoles.find((request) =>
+      request.accountId === "doctor-account" && request.role === "doctor",
+    )!;
+
+    await administrator.decideRole({ accountId: rejected.accountId, role: rejected.role, status: "approved" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const events = await transport.list("control");
+    const restoration = events.find((event) =>
+      event.eventType === "role.restored" && event.aggregateId === "doctor-account",
+    )!;
+    expect(restoration).toBeDefined();
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: "audit.role-transition",
+        operationId: restoration.operationId,
+        parents: [restoration.eventId],
+      }),
+    ]));
+    expect((await doctor.snapshot()).roles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "doctor", status: "approved" }),
+    ]));
+  });
 });

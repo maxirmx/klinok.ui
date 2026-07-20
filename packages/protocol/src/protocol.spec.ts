@@ -352,6 +352,90 @@ describe("klinok protocol", () => {
     expect(state.roleConflicts).toEqual([expect.objectContaining({ losingEventId: approved.eventId, winningEventId: rejected.eventId })]);
   });
 
+  it("allows an Administrator to restore a previously rejected advanced role", async () => {
+    const { keys, state } = await actorFixture("administrator");
+    state.knownEvents.add("rejected-event");
+    state.roles.set(roleProjectionKey("doctor-account", "doctor"), {
+      request: {
+        requestId: "doctor-request",
+        accountId: "doctor-account",
+        role: "doctor",
+        status: "rejected",
+        profileRevision: 1,
+        requestedAt: "2026-07-10T10:00:00.000Z",
+      },
+      eventId: "rejected-event",
+      parents: [],
+    });
+    const restored = await signedFor(state, keys, {
+      eventType: "role.restored",
+      aggregateId: "doctor-account",
+      resourceId: "doctor-request",
+      activeRole: "administrator",
+      parents: ["rejected-event"],
+      metadata: {
+        accountId: "doctor-account",
+        requestId: "doctor-request",
+        role: "doctor",
+        status: "approved",
+        profileRevision: 1,
+      },
+    });
+
+    await expect(verifySignedEvent(restored, state)).resolves.toMatchObject({ accepted: true });
+    applyAcceptedEvent(restored, state);
+    expect(state.roles.get(roleProjectionKey("doctor-account", "doctor"))?.request.status).toBe("approved");
+  });
+
+  it("rejects deletion and every non-approved transition of the bootstrap Administrator", async () => {
+    const { keys, state } = await actorFixture("administrator");
+    state.knownEvents.add("bootstrap-role-event");
+    state.roles.set(roleProjectionKey(state.bootstrapAccountId, "administrator"), {
+      request: {
+        requestId: "bootstrap-role",
+        accountId: state.bootstrapAccountId,
+        role: "administrator",
+        status: "approved",
+        profileRevision: 1,
+        requestedAt: "2026-07-10T10:00:00.000Z",
+      },
+      eventId: "bootstrap-role-event",
+      parents: [],
+    });
+
+    for (const status of ["not_requested", "pending", "rejected", "suspended", "revoked", "expired"] as const) {
+      const transition = await signedFor(state, keys, {
+        eventType: status === "not_requested" ? "role.cancelled" : `role.${status}`,
+        aggregateId: state.bootstrapAccountId,
+        resourceId: "bootstrap-role",
+        activeRole: "administrator",
+        parents: ["bootstrap-role-event"],
+        metadata: {
+          accountId: state.bootstrapAccountId,
+          requestId: "bootstrap-role",
+          role: "administrator",
+          status,
+          profileRevision: 1,
+        },
+      });
+      await expect(verifySignedEvent(transition, state)).resolves.toMatchObject({
+        accepted: false,
+        code: "BOOTSTRAP_PROTECTED",
+      });
+    }
+
+    const deletion = await signedFor(state, keys, {
+      eventType: "account.deleted",
+      aggregateId: state.bootstrapAccountId,
+      resourceId: state.bootstrapAccountId,
+      activeRole: "administrator",
+    });
+    await expect(verifySignedEvent(deletion, state)).resolves.toMatchObject({
+      accepted: false,
+      code: "BOOTSTRAP_PROTECTED",
+    });
+  });
+
   it("lets a causally later valid transition supersede a losing sibling branch", async () => {
     const { keys, state } = await actorFixture("administrator");
     const pending = await signedFor(state, keys, {
