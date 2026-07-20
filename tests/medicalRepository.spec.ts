@@ -31,6 +31,13 @@ async function client(transport: MemoryEventTransport, accountId: string, role: 
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+async function waitFor(condition: () => boolean) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (condition()) return;
+    await tick();
+  }
+  throw new Error("Timed out waiting for repository synchronization.");
+}
 const petInput = (name = "Шарик"): PetProfileInput => ({
   name,
   species: "Собака",
@@ -73,11 +80,33 @@ describe("medical authorization repository", () => {
     const petId = await owner.medical.createPet(petInput());
     await tick();
     expect((await doctor.medical.snapshot()).pets).toHaveLength(0);
-    const grantId = await owner.medical.grantDoctor(petId, "doctor-account", ["read", "write_unconfirmed", "delegate"]);
+    const grantId = await owner.medical.grantDoctor(
+      petId,
+      "doctor-account",
+      ["read", "write_unconfirmed", "delegate"],
+      { granteeDisplayName: "Анна Врач" },
+    );
     await tick();
     expect((await doctor.medical.snapshot()).pets).toEqual([expect.objectContaining({ petId, name: "Шарик" })]);
     await doctor.medical.delegateGrant(grantId, "delegated-doctor-account", ["read"]);
     expect((await delegatedDoctor.medical.snapshot()).pets).toEqual([expect.objectContaining({ petId, name: "Шарик" })]);
+
+    await owner.medical.disableGrantDelegation(grantId);
+    await tick();
+    expect((await owner.medical.snapshot()).grants).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        grantId,
+        granteeDisplayName: "Анна Врач",
+        actions: ["read", "write_unconfirmed"],
+      }),
+    ]));
+    const publicGrant = owner.control.signed.list()
+      .find((event) => event.eventType === "grant.created" && event.resourceId === grantId)
+      ?.metadata.grant as Record<string, unknown>;
+    expect(publicGrant).not.toHaveProperty("granteeDisplayName");
+    expect((await delegatedDoctor.medical.snapshot()).pets).toEqual([expect.objectContaining({ petId, name: "Шарик" })]);
+    await expect(doctor.medical.delegateGrant(grantId, "delegated-doctor-account", ["read"]))
+      .rejects.toMatchObject({ code: "GRANT_DELEGATION_FORBIDDEN" });
 
     const recordId = await doctor.medical.saveRecord({ petId, title: "Осмотр", text: "Состояние стабильное" });
     await tick();
@@ -125,7 +154,7 @@ describe("medical authorization repository", () => {
     await doctor.medical.initialize();
 
     const petId = await owner.medical.createPet({ ...petInput("Боня"), birthDate: undefined, birthYear: 2021 });
-    await tick();
+    await waitFor(() => doctor.control.signed.state.petOwners.get(petId) === "owner-account");
     const requestId = await doctor.medical.requestAccess(petId);
     await tick();
     expect((await owner.medical.snapshot()).accessRequests).toEqual([
@@ -143,6 +172,8 @@ describe("medical authorization repository", () => {
       expect.objectContaining({ petId, name: "Боня", notes: "Спокойно переносит осмотры" }),
     ]);
     expect((await owner.medical.snapshot()).accessRequests[0]?.status).toBe("approved");
+    expect((await owner.medical.snapshot()).grants.find((grant) => grant.grantId === grantId)?.granteeDisplayName)
+      .toBe("Анна Врач");
 
     const pet = (await owner.medical.snapshot()).pets[0]!;
     await owner.medical.updatePet({

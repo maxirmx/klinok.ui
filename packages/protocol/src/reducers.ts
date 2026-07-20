@@ -150,6 +150,13 @@ export function applyAcceptedEvent(event: SignedEvent, state: ProtocolState): vo
     const grant = state.grants.get(event.resourceId);
     if (grant) state.grants.set(event.resourceId, { ...grant, status: "revoked", revokedAt: event.createdAt });
   }
+  if (event.eventType === "grant.actions.updated") {
+    const grant = state.grants.get(event.resourceId);
+    if (grant) state.grants.set(event.resourceId, {
+      ...grant,
+      actions: [...event.metadata.actions as PetAccessGrant["actions"]],
+    });
+  }
   if (event.eventType === "medical.record.confirmed") state.confirmedRecords.add(event.resourceId);
 }
 

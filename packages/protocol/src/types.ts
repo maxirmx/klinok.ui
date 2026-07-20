@@ -108,6 +108,7 @@ export interface PetAccessGrant {
   petId: string;
   grantorAccountId: string;
   granteeAccountId: string;
+  granteeDisplayName?: string;
   actions: PetGrantAction[];
   requestId?: string;
   parentGrantId?: string;

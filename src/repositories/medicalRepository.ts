@@ -21,6 +21,10 @@ import type { MedicalRecordDraft, MedicalSnapshot, PetProfile, PetProfileInput }
 import type { ControlRepository } from "./controlRepository";
 
 type Listener = (snapshot: MedicalSnapshot) => void;
+type GrantDoctorOptions = {
+  requestId?: string;
+  granteeDisplayName?: string;
+};
 
 export class MedicalRepository {
   private readonly factory: EventFactory;
@@ -262,17 +266,27 @@ export class MedicalRepository {
   async approveAccessRequest(requestId: string): Promise<string> {
     const projection = this.control.signed.state.grantRequests.get(requestId);
     if (!projection || projection.request.status !== "pending") throw new Error("Ожидающий запрос не найден.");
+    const request = (await this.buildSnapshot()).accessRequests.find((candidate) => candidate.requestId === requestId);
     return this.grantDoctor(
       projection.request.petId,
       projection.request.requesterAccountId,
       ["read", "write_unconfirmed"],
-      requestId,
+      {
+        requestId,
+        ...(request?.requesterDisplayName ? { granteeDisplayName: request.requesterDisplayName } : {}),
+      },
     );
   }
 
-  async grantDoctor(petId: string, doctorAccountId: string, actions: PetGrantAction[], requestId?: string): Promise<string> {
+  async grantDoctor(
+    petId: string,
+    doctorAccountId: string,
+    actions: PetGrantAction[],
+    options: GrantDoctorOptions = {},
+  ): Promise<string> {
     doctorAccountId = doctorAccountId.trim();
     if (!doctorAccountId) throw new Error("Идентификатор аккаунта врача не указан.");
+    const granteeDisplayName = options.granteeDisplayName?.trim();
     const stored = await getPetKey(this.context.accountId, petId);
     if (!stored) throw new Error("Ключ питомца недоступен.");
     const existing = [...this.control.signed.state.grants.values()].find((grant) =>
@@ -280,19 +294,33 @@ export class MedicalRepository {
       isGrantEffectivelyActive(this.control.signed.state, grant),
     );
     if (existing) throw new Error("У этого врача уже есть действующий доступ.");
-    const requestProjection = requestId ? this.control.signed.state.grantRequests.get(requestId) : undefined;
+    const requestProjection = options.requestId
+      ? this.control.signed.state.grantRequests.get(options.requestId)
+      : undefined;
     const grantId = crypto.randomUUID();
     const grant: PetAccessGrant = {
       grantId, petId, grantorAccountId: this.context.accountId, granteeAccountId: doctorAccountId,
-      actions: [...new Set(actions)], ...(requestId ? { requestId } : {}),
+      ...(granteeDisplayName ? { granteeDisplayName } : {}),
+      actions: [...new Set(actions)], ...(options.requestId ? { requestId: options.requestId } : {}),
       petKeyVersion: stored.version, status: "active", createdAt: new Date().toISOString(),
+    };
+    const publicGrant: PetAccessGrant = {
+      grantId: grant.grantId,
+      petId: grant.petId,
+      grantorAccountId: grant.grantorAccountId,
+      granteeAccountId: grant.granteeAccountId,
+      actions: grant.actions,
+      ...(grant.requestId ? { requestId: grant.requestId } : {}),
+      petKeyVersion: grant.petKeyVersion,
+      status: grant.status,
+      createdAt: grant.createdAt,
     };
     await this.append(await this.factory.create({
       database: "medical", eventType: "grant.created", aggregateId: petId, resourceId: grantId,
       metadata: {
         petId,
-        grant: grant as unknown as Record<string, unknown>,
-        ...(requestId ? { requestId } : {}),
+        grant: publicGrant as unknown as Record<string, unknown>,
+        ...(options.requestId ? { requestId: options.requestId } : {}),
       },
       cleartext: grant,
       parents: requestProjection ? [requestProjection.eventId] : [],
@@ -369,6 +397,28 @@ export class MedicalRepository {
     if (!stored) throw new Error("Ключ питомца недоступен.");
     const revocationEventId = await this.appendGrantRevocation(grant, stored);
     await this.rotatePetKey(grant.petId, stored, [revocationEventId]);
+  }
+
+  async disableGrantDelegation(grantId: string): Promise<void> {
+    const grant = this.control.signed.state.grants.get(grantId);
+    if (!grant || !isGrantEffectivelyActive(this.control.signed.state, grant)) {
+      throw new Error("Действующий доступ не найден.");
+    }
+    if (!grant.actions.includes("delegate")) throw new Error("Делегирование уже отключено.");
+    const stored = await getPetKey(this.context.accountId, grant.petId);
+    if (!stored) throw new Error("Ключ питомца недоступен.");
+    const actions = grant.actions.filter((candidate) => candidate !== "delegate");
+    await this.append(await this.factory.create({
+      database: "medical",
+      eventType: "grant.actions.updated",
+      aggregateId: grant.petId,
+      resourceId: grant.grantId,
+      metadata: { petId: grant.petId, grantId: grant.grantId, actions },
+      cleartext: { grantId: grant.grantId, actions },
+      parents: this.events.filter((event) => event.resourceId === grant.grantId).map((event) => event.eventId).slice(-1),
+      recipients: this.activeCertificates([grant.grantorAccountId, grant.granteeAccountId]),
+      dataKey: stored.key,
+    }));
   }
 
   private async appendGrantRevocation(
@@ -492,6 +542,11 @@ export class MedicalRepository {
       if (event.eventType === "grant.revoked") {
         const grant = grants.get(event.resourceId);
         if (grant) grants.set(grant.grantId, { ...grant, status: "revoked", revokedAt: event.createdAt });
+      }
+      if (event.eventType === "grant.actions.updated") {
+        const grant = grants.get(event.resourceId);
+        const actions = event.metadata.actions as PetGrantAction[] | undefined;
+        if (grant && Array.isArray(actions)) grants.set(grant.grantId, { ...grant, actions: [...actions] });
       }
       if (["medical.record.created", "medical.record.updated", "medical.addendum.created"].includes(event.eventType)) {
         const record = await this.decrypt<MedicalRecordDraft>(event);

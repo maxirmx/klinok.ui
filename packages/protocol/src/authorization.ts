@@ -78,6 +78,7 @@ const STATE_DEPENDENT_VERIFICATION_FAILURES = new Set([
   "PET_SHARE_FORBIDDEN",
   "PET_ACCESS_REQUEST_UNKNOWN",
   "PET_ACCESS_REQUEST_TRANSITION_INVALID",
+  "PET_GRANT_ACTIONS_UPDATE_INVALID",
   "OWNER_SCOPE_FORBIDDEN",
   "DOCTOR_ROLE_REQUIRED",
   "PET_GRANT_REQUIRED",
@@ -268,6 +269,27 @@ function capabilityResult(event: SignedEvent, state: ProtocolState): Verificatio
       !event.parents.includes(projection.eventId)) {
       return { accepted: false, code: "PET_ACCESS_REQUEST_TRANSITION_INVALID", message: "The linked access request cannot be approved." };
     }
+  }
+  if (event.eventType === "grant.actions.updated") {
+    const grant = state.grants.get(event.resourceId);
+    const actions = event.metadata.actions as PetGrantAction[] | undefined;
+    const expectedActions = grant?.actions.filter((action) => action !== "delegate");
+    const validUpdate = grant?.petId === petId &&
+      isGrantEffectivelyActive(state, grant) &&
+      grant.actions.includes("delegate") &&
+      Array.isArray(actions) &&
+      actions.length === expectedActions?.length &&
+      actions.every((action, index) => action === expectedActions?.[index]);
+    if (!validUpdate) {
+      return {
+        accepted: false,
+        code: "PET_GRANT_ACTIONS_UPDATE_INVALID",
+        message: "A grant action update may only disable delegation on an active grant.",
+      };
+    }
+    return hasActiveRoleProof(state, event, "owner") && ownerId === event.actorAccountId
+      ? { accepted: true }
+      : { accepted: false, code: "OWNER_SCOPE_FORBIDDEN", message: "Only the pet Owner may perform this command." };
   }
   if (["pet.updated", "pet.tombstoned", "pet.key.rotated", "grant.created", "grant.revoked", "medical.record.confirmed"].includes(event.eventType)) {
     if (event.eventType === "medical.record.confirmed" && state.confirmedRecords.has(event.resourceId)) {

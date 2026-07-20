@@ -15,6 +15,7 @@ const roleByScenario: Partial<Record<string, Role>> = {
   "owner-pet-create": "owner",
   "owner-pet-detail": "owner",
   "owner-pet-edit": "owner",
+  "owner-pet-access": "owner",
   "doctor-home": "doctor",
   "administrator-home": "administrator",
 };

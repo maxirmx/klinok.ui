@@ -8,6 +8,7 @@ describe("operational routes", () => {
     expect(paths).toEqual(expect.arrayContaining([
       "/auth/login", "/auth/register", "/auth/register/consent", "/auth/verify-email",
       "/profile", "/owner/home", "/owner/pets/new", "/owner/pets/:petId", "/owner/pets/:petId/edit",
+      "/owner/pets/:petId/access",
       "/doctor/home", "/admin/home",
     ]));
   });

@@ -11,6 +11,7 @@ const repositoryMocks = vi.hoisted(() => ({
   deletePet: vi.fn().mockResolvedValue(undefined),
   grantDoctor: vi.fn().mockResolvedValue("grant-new"),
   revokeGrant: vi.fn().mockResolvedValue(undefined),
+  disableGrantDelegation: vi.fn().mockResolvedValue(undefined),
   approveAccessRequest: vi.fn().mockResolvedValue("grant-approved"),
   rejectAccessRequest: vi.fn().mockResolvedValue(undefined),
   confirmRecord: vi.fn().mockResolvedValue(undefined),
@@ -92,6 +93,7 @@ async function mountAt(path: string, scenarioId: string) {
       { path: "/owner/pets/new", component: { template: "<div />" } },
       { path: "/owner/pets/:petId", component: { template: "<div />" } },
       { path: "/owner/pets/:petId/edit", component: { template: "<div />" } },
+      { path: "/owner/pets/:petId/access", component: { template: "<div />" } },
       { path: "/profile", component: { template: "<div />" } },
       { path: "/auth/login", component: { template: "<div />" } },
     ],
@@ -218,7 +220,7 @@ describe("Owner pages", () => {
     expect(saved).not.toHaveProperty("legacyOptionalField");
   });
 
-  it("shows notes, pet-scoped medical records, and all access states", async () => {
+  it("moves all current access states into one doctor table", async () => {
     await setMedical(snapshot({
       pets: [pet],
       accessRequests: [{
@@ -237,7 +239,8 @@ describe("Owner pages", () => {
           petId: pet.petId,
           grantorAccountId: pet.ownerAccountId,
           granteeAccountId: "doctor-2",
-          actions: ["read", "write_unconfirmed"],
+          granteeDisplayName: "Борис Врач",
+          actions: ["read", "write_unconfirmed", "delegate"],
           petKeyVersion: 1,
           status: "active",
           createdAt: "2026-07-17T10:00:00.000Z",
@@ -247,11 +250,24 @@ describe("Owner pages", () => {
           petId: pet.petId,
           grantorAccountId: pet.ownerAccountId,
           granteeAccountId: "doctor-3",
+          granteeDisplayName: "Виктор Врач",
           actions: ["read"],
           petKeyVersion: 1,
           status: "revoked",
           createdAt: "2026-07-16T10:00:00.000Z",
           revokedAt: "2026-07-17T10:00:00.000Z",
+        },
+        {
+          grantId: "grant-old-doctor-2",
+          petId: pet.petId,
+          grantorAccountId: pet.ownerAccountId,
+          granteeAccountId: "doctor-2",
+          granteeDisplayName: "Борис Врач",
+          actions: ["read"],
+          petKeyVersion: 1,
+          status: "revoked",
+          createdAt: "2026-07-15T10:00:00.000Z",
+          revokedAt: "2026-07-16T10:00:00.000Z",
         },
       ],
       records: [{
@@ -265,18 +281,76 @@ describe("Owner pages", () => {
         updatedAt: "2026-07-17T10:00:00.000Z",
       }],
     }));
-    const wrapper = await mountAt("/owner/pets/pet-1", "owner-pet-detail");
+    const detail = await mountAt("/owner/pets/pet-1", "owner-pet-detail");
 
-    expect(wrapper.text()).toContain("Любит длительные прогулки");
-    expect(wrapper.text()).toContain("Состояние стабильное");
-    expect(wrapper.text()).toContain("Анна Врач");
-    expect(wrapper.text()).toContain("Действующие доступы");
-    expect(wrapper.text()).toContain("Отозванные доступы");
+    expect(detail.text()).toContain("Любит длительные прогулки");
+    expect(detail.text()).toContain("Состояние стабильное");
+    expect(detail.text()).not.toContain("Анна Врач");
+    expect(detail.find(".owner-access-panel").exists()).toBe(false);
 
-    const approve = wrapper.findAll("button").find((button) => button.text() === "Предоставить доступ");
-    await approve!.trigger("click");
+    const wrapper = await mountAt("/owner/pets/pet-1/access", "owner-pet-access");
+    expect(wrapper.get(".workspace-topbar h1").text()).toBe("Доступ врачей");
+    expect(wrapper.get(".owner-pet-profile-header").text()).toContain("Шарик");
+    expect(wrapper.get('.owner-profile-actions a[title="Назад к информации о питомце"]').attributes("href"))
+      .toBe("/owner/pets/pet-1");
+    expect(wrapper.findAll(".owner-access-table th").map((header) => header.text())).toEqual([
+      "Действия", "Фио врача", "Доступ", "Делегирование",
+    ]);
+
+    const rows = wrapper.findAll(".owner-access-table tbody tr");
+    expect(rows).toHaveLength(3);
+    const requestedRow = rows.find((row) => row.text().includes("Анна Врач"))!;
+    const grantedRow = rows.find((row) => row.text().includes("Борис Врач"))!;
+    const revokedRow = rows.find((row) => row.text().includes("Виктор Врач"))!;
+    expect(requestedRow.text()).toContain("doctor-1");
+    expect(requestedRow.text()).toContain("Запрошен");
+    expect(requestedRow.get('td[data-label="Делегирование"]').text()).toBe("");
+    expect(grantedRow.text()).toContain("Предоставлен");
+    expect(grantedRow.get('td[data-label="Делегирование"]').text()).toBe("Да");
+    expect(revokedRow.text()).toContain("Отозван");
+    expect(revokedRow.get('td[data-label="Делегирование"]').text()).toBe("");
+
+    await requestedRow.get('button[title="Предоставить доступ"]').trigger("click");
     await flushPromises();
     expect(repositoryMocks.approveAccessRequest).toHaveBeenCalledWith("request-1");
+
+    await grantedRow.get('button[title="Отключить делегирование"]').trigger("click");
+    await flushPromises();
+    expect(repositoryMocks.disableGrantDelegation).toHaveBeenCalledWith("grant-1");
+
+    await revokedRow.get('button[title="Предоставить доступ повторно"]').trigger("click");
+    await flushPromises();
+    expect(repositoryMocks.grantDoctor).toHaveBeenCalledWith(
+      "pet-1",
+      "doctor-3",
+      ["read", "write_unconfirmed"],
+      { granteeDisplayName: "Виктор Врач" },
+    );
+  });
+
+  it("grants access with a persisted doctor name from an accessible modal", async () => {
+    await setMedical(snapshot({ pets: [pet] }));
+    const wrapper = await mountAt("/owner/pets/pet-1/access", "owner-pet-access");
+
+    const opener = wrapper.get('.owner-access-heading button[title="Предоставить доступ"]');
+    await opener.trigger("click");
+    const dialog = wrapper.get('[role="dialog"]');
+    expect(dialog.attributes("aria-modal")).toBe("true");
+
+    await labelled(wrapper, "ФИО врача").get("input").setValue("Мария Ветеринар");
+    await labelled(wrapper, "Идентификатор аккаунта врача").get("input").setValue("doctor-4");
+    await labelled(wrapper, "Разрешить врачу делегирование").get("input").setValue(true);
+    await dialog.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(repositoryMocks.grantDoctor).toHaveBeenCalledWith(
+      "pet-1",
+      "doctor-4",
+      ["read", "write_unconfirmed", "delegate"],
+      { granteeDisplayName: "Мария Ветеринар" },
+    );
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(wrapper.get('[role="status"]').text()).toContain("Доступ предоставлен.");
   });
 
   it("renders a missing-pet state and confirms deletion before returning home", async () => {
@@ -294,12 +368,16 @@ describe("Owner pages", () => {
 
     const actions = detail.get(".owner-profile-actions");
     const editLink = actions.get('[title="Редактировать"]');
+    const accessLink = actions.get('[title="Доступ врачей"]');
     const copyLinkButton = actions.get('button[title="Копировать ссылку"]');
     const deleteButton = actions.get('button[title="Удалить"]');
     expect(editLink.text()).toBe("");
+    expect(accessLink.text()).toBe("");
     expect(copyLinkButton.text()).toBe("");
     expect(deleteButton.text()).toBe("");
     expect(editLink.getComponent(AppIcon).props("name")).toBe("edit");
+    expect(accessLink.getComponent(AppIcon).props("name")).toBe("user");
+    expect(accessLink.attributes("href")).toBe("/owner/pets/pet-1/access");
     expect(copyLinkButton.getComponent(AppIcon).props("name")).toBe("link");
     expect(deleteButton.getComponent(AppIcon).props("name")).toBe("trash");
 
