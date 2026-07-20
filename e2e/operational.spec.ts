@@ -154,7 +154,7 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await ownerPage.getByLabel("Вид").fill("Собака");
   await ownerPage.getByLabel("Порода").fill("Бигль");
   await ownerPage.getByLabel("Пол").selectOption("Интактный самец");
-  await ownerPage.getByLabel("Дата", { exact: true }).fill("2022-06-17");
+  await ownerPage.getByLabel("Точная дата рождения", { exact: true }).fill("2022-06-17");
   await ownerPage.getByLabel("Окрас").fill("трёхцветный");
   await ownerPage.getByLabel("Вес, кг").fill("12.4");
   await ownerPage.getByLabel("Заметки").fill("Первичная заметка");
@@ -174,9 +174,13 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await expect(doctorPage.getByText("Ожидает решения владельца")).toBeVisible();
 
   await ownerPage.bringToFront();
-  const accessRequest = ownerPage.locator(".owner-access-row").filter({ hasText: doctorAccountId });
+  await ownerPage.getByRole("link", { name: "Доступ врачей" }).click();
+  await expect(ownerPage).toHaveURL(new RegExp(`/owner/pets/${petId}/access$`));
+  const accessRequest = ownerPage.locator(".owner-access-table tbody tr").filter({ hasText: doctorAccountId });
   await expect(accessRequest).toBeVisible({ timeout: replicationTimeout });
-  await accessRequest.getByRole("button", { name: "Предоставить доступ" }).click();
+  await accessRequest.getByRole("button", { name: "Предоставить доступ", exact: true }).click();
+  await ownerPage.getByRole("link", { name: "Назад к информации о питомце" }).click();
+  await expect(ownerPage).toHaveURL(new RegExp(`/owner/pets/${petId}$`));
 
   await doctorPage.bringToFront();
   await expect(doctorPage.locator(".pet-operational-card strong").filter({ hasText: "Шарик" })).toBeVisible({ timeout: replicationTimeout });
@@ -191,8 +195,9 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await ownerPage.getByRole("button", { name: "Подтвердить" }).click();
   await expect(ownerPage.getByText("Подтверждена")).toBeVisible();
   await expect(ownerPage.locator(".sync-status")).toContainText("Сохранено", { timeout: replicationTimeout });
-  const activeAccess = ownerPage.locator(".owner-access-row").filter({ hasText: "Анна Врач" });
-  await activeAccess.getByRole("button", { name: "Отозвать" }).click();
+  await ownerPage.getByRole("link", { name: "Доступ врачей" }).click();
+  const activeAccess = ownerPage.locator(".owner-access-table tbody tr").filter({ hasText: "Анна Врач" });
+  await activeAccess.getByRole("button", { name: "Отозвать доступ" }).click();
   await expect(ownerPage.getByText("Доступ отозван.")).toBeVisible();
   await expect(ownerPage.locator(".sync-status")).toContainText("Сохранено", { timeout: replicationTimeout });
 

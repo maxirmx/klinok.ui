@@ -597,6 +597,7 @@ function formatDate(value?: string) {
                       <AppIcon name="check" />
                     </button>
                   </div>
+                </td>
                 <td class="owner-access-doctor" data-label="ФИО врача">
                   <strong>{{ row.displayName }}</strong>
                   <small>{{ row.accountId }}</small>
