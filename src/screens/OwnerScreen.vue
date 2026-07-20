@@ -61,11 +61,12 @@ const isEdit = computed(() => props.scenarioId === "owner-pet-edit");
 const isAccess = computed(() => props.scenarioId === "owner-pet-access");
 const isForm = computed(() => isCreate.value || isEdit.value);
 const pageTitle = computed(() => {
+  if (isHome.value) return "Мои питомцы";
   if (isCreate.value) return "Добавить питомца";
   if (isEdit.value) return selectedPet.value ? `Редактировать: ${selectedPet.value.name}` : "Редактировать питомца";
   if (isAccess.value) return "Доступ врачей";
   if (selectedPet.value) return selectedPet.value.name;
-  return "Кабинет владельца";
+  return "Питомец не найден";
 });
 const petRecords = computed(() =>
   selectedPet.value ? appState.medical.records.filter((record) => record.petId === selectedPet.value!.petId) : [],
@@ -362,18 +363,38 @@ function formatDate(value?: string) {
 </script>
 
 <template>
-  <WorkspaceShell role="owner" :title="pageTitle" :profile-name="profileName" @sign-out="signOut">
+  <WorkspaceShell role="owner" title="Кабинет владельца" :profile-name="profileName" @sign-out="signOut">
     <p v-if="actionError || appState.error" class="form-alert error" role="alert">{{ actionError || appState.error }}</p>
     <p v-if="actionMessage" class="form-alert success" role="status">{{ actionMessage }}</p>
 
-    <section v-if="isHome" class="owner-home">
-      <div class="owner-section-heading">
-        <div>
-          <h2>Мои питомцы</h2>
-          <p>Профили и медицинская история ваших животных</p>
-        </div>
-        <RouterLink class="primary-action inline" to="/owner/pets/new">Добавить питомца</RouterLink>
+    <div class="owner-section-heading owner-page-heading">
+      <div>
+        <h2>{{ pageTitle }}</h2>
+        <p v-if="isHome">Профили и медицинская история ваших животных</p>
+        <p v-else-if="isAccess">Управляйте запросами, доступом и правом делегирования.</p>
       </div>
+      <RouterLink
+        v-if="isHome"
+        class="primary-action inline owner-profile-action"
+        to="/owner/pets/new"
+        title="Добавить питомца"
+        aria-label="Добавить питомца"
+      >
+        <AppIcon name="plus" />
+      </RouterLink>
+      <button
+        v-else-if="isAccess && selectedPet"
+        class="primary-action inline owner-profile-action"
+        type="button"
+        title="Предоставить доступ"
+        aria-label="Предоставить доступ"
+        @click="openGrantDialog"
+      >
+        <AppIcon name="plus" />
+      </button>
+    </div>
+
+    <section v-if="isHome" class="owner-home">
       <div v-if="appState.medical.pets.length" class="owner-pet-ribbon" aria-label="Питомцы">
         <RouterLink
           v-for="pet in appState.medical.pets"
@@ -514,22 +535,6 @@ function formatDate(value?: string) {
       </article>
 
       <article class="panel owner-access-panel">
-        <div class="owner-access-heading">
-          <div>
-            <h2>Доступ врачей</h2>
-            <p>Управляйте запросами, доступом и правом делегирования.</p>
-          </div>
-          <button
-            class="primary-action inline owner-profile-action"
-            type="button"
-            title="Предоставить доступ"
-            aria-label="Предоставить доступ"
-            @click="openGrantDialog"
-          >
-            <AppIcon name="plus" />
-          </button>
-        </div>
-
         <p v-if="!accessRows.length" class="owner-access-empty">Доступы и ожидающие запросы отсутствуют.</p>
         <div v-else class="owner-access-table-wrap">
           <table class="owner-access-table">
@@ -731,7 +736,6 @@ function formatDate(value?: string) {
     </section>
 
     <section v-else class="owner-empty-state">
-      <h2>Питомец не найден</h2>
       <p>Профиль отсутствует, удалён или ещё не синхронизирован.</p>
       <RouterLink class="primary-action inline" to="/owner/home">На главную страницу</RouterLink>
     </section>
