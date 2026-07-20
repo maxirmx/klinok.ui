@@ -3361,12 +3361,14 @@ dd {
 .administrator-audit-filters .administrator-search { max-width: none; }
 .administrator-audit-table {
   min-width: 980px;
-  table-layout: auto;
+  table-layout: fixed;
 }
-.administrator-audit-table th:first-child { width: 120px; }
-.administrator-audit-table th:nth-child(2) { width: 190px; }
-.administrator-audit-table th:nth-child(3) { width: 130px; }
-.administrator-audit-table th:last-child { width: 180px; }
+.administrator-audit-table th:nth-child(1) { width: 12%; }
+.administrator-audit-table th:nth-child(2),
+.administrator-audit-table th:nth-child(5) { width: 20%; }
+.administrator-audit-table th:nth-child(3) { width: 14%; }
+.administrator-audit-table th:nth-child(4) { width: 14%; }
+.administrator-audit-table th:nth-child(6) { width: 20%; }
 .administrator-decision-form textarea { resize: vertical; }
 
 @media (max-width: 1180px) {
