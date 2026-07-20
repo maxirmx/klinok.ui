@@ -400,6 +400,26 @@ function formatDate(value?: string) {
 
     <section v-else-if="isForm && (isCreate || selectedPet)" class="owner-form-layout">
       <form class="panel form-stack owner-pet-form" @submit.prevent="savePet">
+        <div class="row-actions owner-pet-form-actions">
+          <button
+            class="primary-action inline owner-profile-action"
+            type="submit"
+            :disabled="photoBusy"
+            :title="isEdit ? 'Сохранить изменения' : 'Сохранить питомца'"
+            :aria-label="isEdit ? 'Сохранить изменения' : 'Сохранить питомца'"
+          >
+            <AppIcon name="check" />
+          </button>
+          <RouterLink
+            class="outline-action inline owner-profile-action"
+            :to="selectedPet ? `/owner/pets/${selectedPet.petId}` : '/owner/home'"
+            title="Отмена"
+            aria-label="Отмена"
+          >
+            <AppIcon name="close" />
+          </RouterLink>
+        </div>
+
         <div class="owner-photo-editor">
           <img v-if="draft.photoDataUrl" :src="draft.photoDataUrl" alt="Предпросмотр фотографии питомца" />
           <span v-else class="owner-pet-placeholder" aria-hidden="true">{{ draft.species.slice(0, 1).toLocaleUpperCase('ru') }}</span>
@@ -430,8 +450,22 @@ function formatDate(value?: string) {
                 <button type="button" :class="{ active: birthMode === 'date' }" @click="birthMode = 'date'">Точная дата</button>
                 <button type="button" :class="{ active: birthMode === 'year' }" @click="birthMode = 'year'">Только год</button>
               </div>
-              <label v-if="birthMode === 'date'"><span>Дата</span><input v-model="draft.birthDate" type="date" required /></label>
-              <label v-else><span>Год</span><input v-model="draft.birthYear" type="number" min="1900" :max="new Date().getFullYear()" required /></label>
+              <input
+                v-if="birthMode === 'date'"
+                v-model="draft.birthDate"
+                type="date"
+                required
+                aria-label="Точная дата рождения"
+              />
+              <input
+                v-else
+                v-model="draft.birthYear"
+                type="number"
+                min="1900"
+                :max="new Date().getFullYear()"
+                required
+                aria-label="Год рождения"
+              />
             </div>
           </fieldset>
           <label><span>Окрас</span><input v-model="draft.color" required /></label>
@@ -441,10 +475,6 @@ function formatDate(value?: string) {
           <label><span>Дата последней вакцинации</span><input v-model="draft.vaccinationDate" type="date" /></label>
           <label><span>Название вакцины</span><input v-model="draft.vaccinationName" /></label>
           <label class="owner-notes-field"><span>Заметки</span><textarea v-model="draft.notes" rows="5" /></label>
-        </div>
-        <div class="row-actions">
-          <button class="primary-action" :disabled="photoBusy">{{ isEdit ? 'Сохранить изменения' : 'Сохранить питомца' }}</button>
-          <RouterLink class="outline-action inline" :to="selectedPet ? `/owner/pets/${selectedPet.petId}` : '/owner/home'">Отмена</RouterLink>
         </div>
       </form>
     </section>

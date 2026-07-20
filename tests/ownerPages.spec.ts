@@ -161,7 +161,7 @@ describe("Owner pages", () => {
     await labelled(wrapper, "Вид").get("input").setValue("Кошка");
     await labelled(wrapper, "Порода").get("input").setValue("Сибирская");
     await labelled(wrapper, "Пол").get("select").setValue("Кастрированная самка");
-    await labelled(wrapper, "Дата").get("input").setValue("2021-05-10");
+    await wrapper.get('input[aria-label="Точная дата рождения"]').setValue("2021-05-10");
     await labelled(wrapper, "Окрас").get("input").setValue("серый");
     await labelled(wrapper, "Вес, кг").get("input").setValue("4.8");
     await labelled(wrapper, "Заметки").get("textarea").setValue("Не любит переноску");
@@ -209,6 +209,12 @@ describe("Owner pages", () => {
     expect(wrapper.get<HTMLSelectElement>("select").element.value).toBe("");
     expect(wrapper.get(".owner-birth-row").find(".segmented").exists()).toBe(true);
     expect(wrapper.get(".owner-birth-row").find('input[type="date"]').exists()).toBe(true);
+    expect(wrapper.find(".owner-birth-row label").exists()).toBe(false);
+    expect(wrapper.find(".owner-birth-row span").exists()).toBe(false);
+    const formActions = wrapper.get(".owner-pet-form-actions");
+    expect(formActions.get('button[title="Сохранить изменения"]').getComponent(AppIcon).props("name")).toBe("check");
+    expect(formActions.get('a[title="Отмена"]').getComponent(AppIcon).props("name")).toBe("close");
+    expect(formActions.get('a[title="Отмена"]').attributes("href")).toBe("/owner/pets/pet-1");
     await labelled(wrapper, "Пол").get("select").setValue("Интактный самец");
     await labelled(wrapper, "Окрас").get("input").setValue("трёхцветный");
     await labelled(wrapper, "Вес, кг").get("input").setValue("12.4");
