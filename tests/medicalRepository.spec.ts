@@ -191,7 +191,9 @@ describe("medical authorization repository", () => {
     await owner.medical.revokeGrant(grantId);
     await tick();
     const rejectedRequest = await doctor.medical.requestAccess(petId);
-    await tick();
+    await waitFor(() =>
+      owner.control.signed.state.grantRequests.get(rejectedRequest)?.request.status === "pending",
+    );
     await owner.medical.rejectAccessRequest(rejectedRequest);
     await tick();
     expect((await doctor.medical.snapshot()).accessRequests.find((request) => request.requestId === rejectedRequest)?.status).toBe("rejected");
