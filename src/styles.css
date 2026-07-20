@@ -2952,7 +2952,10 @@ dd {
 }
 .owner-pet-profile-header h2 { margin: 0 0 7px; font-size: 26px; }
 .owner-pet-profile-header p { margin: 4px 0; color: var(--text-muted); }
-.owner-profile-actions { justify-content: flex-end; }
+.owner-profile-actions {
+  grid-column: 3;
+  justify-content: flex-end;
+}
 .workspace-content .owner-profile-action {
   display: inline-grid;
   width: 34px;
@@ -3085,11 +3088,11 @@ dd {
     width: 112px;
     height: 112px;
   }
-  .owner-pet-profile-header > :nth-child(2) {
+  .owner-pet-profile-details {
     grid-column: 2;
     min-width: 0;
   }
-  .owner-pet-profile-header > :nth-child(2) :is(h2, p) {
+  .owner-pet-profile-details :is(h2, p) {
     overflow-wrap: anywhere;
   }
   .owner-profile-actions {

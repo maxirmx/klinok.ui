@@ -287,10 +287,11 @@ describe("Owner pages", () => {
     expect(detail.text()).toContain("Состояние стабильное");
     expect(detail.text()).not.toContain("Анна Врач");
     expect(detail.find(".owner-access-panel").exists()).toBe(false);
+    expect(detail.find(".owner-pet-profile-details").exists()).toBe(false);
 
     const wrapper = await mountAt("/owner/pets/pet-1/access", "owner-pet-access");
     expect(wrapper.get(".workspace-topbar h1").text()).toBe("Доступ врачей");
-    expect(wrapper.get(".owner-pet-profile-header").text()).toContain("Шарик");
+    expect(wrapper.get(".owner-pet-profile-details").text()).toContain("Шарик");
     expect(wrapper.get('.owner-profile-actions a[title="Назад к информации о питомце"]').attributes("href"))
       .toBe("/owner/pets/pet-1");
     expect(wrapper.findAll(".owner-access-table th").map((header) => header.text())).toEqual([

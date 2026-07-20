@@ -601,7 +601,7 @@ function formatDate(value?: string) {
 
     <section v-else-if="selectedPet" class="owner-pet-detail">
       <article class="panel owner-pet-profile">
-        <PetProfileHeader :pet="selectedPet">
+        <PetProfileHeader :pet="selectedPet" :show-details="false">
           <template #actions>
             <RouterLink
               class="primary-action inline owner-profile-action"
