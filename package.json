@@ -9,6 +9,7 @@
     "packages/*"
   ],
   "scripts": {
+    "predev": "npm run build:protocol",
     "dev": "vite --host 127.0.0.1",
     "build:protocol": "npm run build --workspace @klinok/protocol",
     "build:auth": "npm run build --workspace @klinok/auth-node",

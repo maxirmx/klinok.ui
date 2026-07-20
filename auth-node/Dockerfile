@@ -2,7 +2,7 @@
 # All rights reserved.
 # This file is a part of Klinok application
 
-FROM node:26.3.0-bookworm-slim AS build
+FROM node:24.18.0-bookworm-slim AS build
 WORKDIR /app
 COPY package*.json ./
 COPY packages/protocol/package.json packages/protocol/package.json
@@ -13,7 +13,7 @@ COPY packages/protocol packages/protocol
 COPY auth-node auth-node
 RUN npm run build --workspace @klinok/protocol && npm run build --workspace @klinok/auth-node
 
-FROM node:26.3.0-bookworm-slim AS final
+FROM node:24.18.0-bookworm-slim AS final
 WORKDIR /app
 ENV NODE_ENV=production KLINOK_AUTH_DATA_DIR=/data
 COPY --from=build --chown=node:node /app/node_modules node_modules
