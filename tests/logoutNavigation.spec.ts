@@ -86,9 +86,11 @@ async function mountAt(component: object, path: string, props: Record<string, un
 
 beforeEach(async () => {
   const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+    setMockActiveRole: (role: "owner" | "doctor" | "administrator" | null) => void;
     setMockDevices: (devices: Array<{ deviceId: string; deviceName: string; status: string }>) => void;
     setMockSync: (sync: { pendingCount: number; failedCount: number; syncing: boolean; lastError: string }) => void;
   };
+  mockedStore.setMockActiveRole("owner");
   mockedStore.setMockDevices([
     { deviceId: "current-device", deviceName: "Домашний ноутбук", status: "active" },
     { deviceId: "revoked-device", deviceName: "Старый телефон", status: "revoked" },
@@ -224,7 +226,7 @@ describe("logout navigation", () => {
     mockedStore.setMockActiveRole("administrator");
     await flushPromises();
     expect(wrapper.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text())).toEqual([
-      "Главная страница", "Заявки", "Аккаунты", "Конфликты", "Журнал",
+      "Главная страница", "Журнал ролей",
     ]);
     mockedStore.setMockActiveRole("owner");
   });

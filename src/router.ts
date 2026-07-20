@@ -5,11 +5,18 @@ import AuthScreen from "./screens/AuthScreen.vue";
 import RoleStatusScreen from "./screens/RoleStatusScreen.vue";
 import WorkspaceScreen from "./screens/WorkspaceScreen.vue";
 import OwnerScreen from "./screens/OwnerScreen.vue";
+import AdministratorScreen from "./screens/AdministratorScreen.vue";
 import { appState, bootstrapApp } from "./appStore";
 import { roleHomePath } from "./roleNavigation";
 import { scenarioRegistry, type ScenarioComponentName } from "./scenarios";
 
-const components: Record<ScenarioComponentName, Component> = { AuthScreen, RoleStatusScreen, WorkspaceScreen, OwnerScreen };
+const components: Record<ScenarioComponentName, Component> = {
+  AuthScreen,
+  RoleStatusScreen,
+  WorkspaceScreen,
+  OwnerScreen,
+  AdministratorScreen,
+};
 const roleByScenario: Partial<Record<string, Role>> = {
   "owner-home": "owner",
   "owner-pet-create": "owner",
@@ -18,6 +25,7 @@ const roleByScenario: Partial<Record<string, Role>> = {
   "owner-pet-access": "owner",
   "doctor-home": "doctor",
   "administrator-home": "administrator",
+  "administrator-audit": "administrator",
 };
 
 export const routes: RouteRecordRaw[] = [

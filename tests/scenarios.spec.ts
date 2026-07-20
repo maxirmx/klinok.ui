@@ -9,7 +9,7 @@ describe("operational routes", () => {
       "/auth/login", "/auth/register", "/auth/register/consent", "/auth/verify-email",
       "/profile", "/owner/home", "/owner/pets/new", "/owner/pets/:petId", "/owner/pets/:petId/edit",
       "/owner/pets/:petId/access",
-      "/doctor/home", "/admin/home",
+      "/doctor/home", "/admin/home", "/admin/audit",
     ]));
   });
 

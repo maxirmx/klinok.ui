@@ -1,5 +1,5 @@
 export type ScenarioRole = "auth" | "owner" | "doctor" | "administrator" | "shared";
-export type ScenarioComponentName = "AuthScreen" | "RoleStatusScreen" | "WorkspaceScreen" | "OwnerScreen";
+export type ScenarioComponentName = "AuthScreen" | "RoleStatusScreen" | "WorkspaceScreen" | "OwnerScreen" | "AdministratorScreen";
 
 export interface ScenarioRegistryEntry {
   id: string;
@@ -34,7 +34,8 @@ export const scenarioRegistry: ScenarioRegistryEntry[] = [
   { id: "owner-pet-edit", title: "Редактировать питомца", role: "owner", path: "/owner/pets/:petId/edit", figmaNodeId: "owner-pages", component: "OwnerScreen", implemented: true },
   { id: "owner-pet-access", title: "Доступ врачей", role: "owner", path: "/owner/pets/:petId/access", figmaNodeId: "owner-pages", component: "OwnerScreen", implemented: true },
   { id: "doctor-home", title: "Кабинет врача", role: "doctor", path: "/doctor/home", figmaNodeId: "issue:25", component: "WorkspaceScreen", implemented: true },
-  { id: "administrator-home", title: "Кабинет администратора", role: "administrator", path: "/admin/home", figmaNodeId: "issue:25", component: "WorkspaceScreen", implemented: true },
+  { id: "administrator-home", title: "Кабинет администратора", role: "administrator", path: "/admin/home", figmaNodeId: "issue:25", component: "AdministratorScreen", implemented: true },
+  { id: "administrator-audit", title: "Журнал ролей", role: "administrator", path: "/admin/audit", figmaNodeId: "issue:25", component: "AdministratorScreen", implemented: true },
 ];
 
 export const figmaCoverage: FigmaCoverageEntry[] = scenarioRegistry.map((scenario) => ({
