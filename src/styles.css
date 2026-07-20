@@ -2996,6 +2996,13 @@ dd {
   border-top: 0;
   border-bottom: 1px solid var(--line);
 }
+.owner-profile-fields dt {
+  color: #344054;
+  font-family: var(--font);
+  font-size: .9rem;
+  font-weight: 400;
+  line-height: 1.35;
+}
 .owner-pet-notes { margin-top: 18px; }
 .owner-pet-notes h3 { margin: 0 0 7px; }
 .owner-pet-notes p { margin: 0; white-space: pre-wrap; color: #344054; }
@@ -3075,26 +3082,8 @@ dd {
   font: inherit;
 }
 .grant-access-form .form-alert { margin: 0; }
-@media (max-width: 760px) {
-  .owner-section-heading {
-    grid-template-columns: 1fr;
-    flex-direction: column;
-  }
-  .owner-pet-ribbon {
-    flex-direction: column;
-    overflow-x: visible;
-    padding-bottom: 0;
-    scroll-snap-type: none;
-  }
-  .owner-pet-card {
-    width: 100%;
-    min-width: 0;
-    min-height: 112px;
-    grid-template-columns: 112px minmax(0, 1fr);
-    grid-template-rows: 112px;
-    scroll-snap-align: none;
-  }
-  .owner-pet-card-copy { align-content: center; }
+
+@media (max-width: 1180px) {
   .owner-pet-profile-header {
     grid-template-columns: 112px minmax(0, 1fr);
     grid-template-rows: auto auto;
@@ -3122,7 +3111,29 @@ dd {
   .owner-profile-fields { grid-template-columns: 1fr; }
   .owner-photo-editor { grid-template-columns: 104px minmax(0, 1fr); }
   .owner-photo-editor > :first-child { width: 104px; height: 104px; }
-  .owner-birth-row { grid-template-columns: minmax(210px, 1fr) minmax(140px, .75fr); }
+  .owner-birth-row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  .owner-section-heading {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+  .owner-pet-ribbon {
+    flex-direction: column;
+    overflow-x: visible;
+    padding-bottom: 0;
+    scroll-snap-type: none;
+  }
+  .owner-pet-card {
+    width: 100%;
+    min-width: 0;
+    min-height: 112px;
+    grid-template-columns: 112px minmax(0, 1fr);
+    grid-template-rows: 112px;
+    scroll-snap-align: none;
+  }
+  .owner-pet-card-copy { align-content: center; }
   .owner-access-table-wrap {
     overflow: visible;
     border: 0;
@@ -3162,8 +3173,4 @@ dd {
   .owner-access-action-list { justify-content: flex-start; }
   .owner-access-table td.is-empty { display: none; }
   .owner-access-heading { align-items: flex-start; }
-}
-
-@media (max-width: 520px) {
-  .owner-birth-row { grid-template-columns: 1fr; }
 }
