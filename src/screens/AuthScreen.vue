@@ -22,6 +22,8 @@ const registrationConfirmPassword = ref("");
 const initialRole = ref<Role>("owner");
 const acceptedConsent = ref(false);
 const acceptedAgreement = ref(false);
+const acceptedDisclaimer1 = ref(false);
+const acceptedDisclaimer2 = ref(false);
 const ageConfirmed = ref(false);
 const localMessage = ref("");
 const registration = reactive({
@@ -53,7 +55,7 @@ function continueRegistration() {
 
 async function submitRegistration() {
   const saved = sessionStorage.getItem("klinok:registration");
-  if (!saved || !acceptedConsent.value || !acceptedAgreement.value || !ageConfirmed.value) return;
+  if (!saved || !acceptedConsent.value || !acceptedAgreement.value || !ageConfirmed.value || !acceptedDisclaimer1.value || !acceptedDisclaimer2.value) return;
   const input = JSON.parse(saved) as typeof registration & { requestedRoles: Role[] };
   try {
     await register({ ...input, patronymic: input.patronymic || undefined, ageConfirmed: true });
@@ -139,8 +141,15 @@ onMounted(async () => {
         </form>
 
         <form v-else-if="mode === 'consent'" class="form-stack consent-stack" @submit.prevent="submitRegistration">
+          <label><input v-model="acceptedDisclaimer1" type="checkbox" required />
+          <span>Я понимаю, что регистрируюсь в тестовой системе, которая используется исключительно для целей разработки.</span>
+          </label>
+          <label><input v-model="acceptedDisclaimer2" type="checkbox" required />
+          <span>Я обязуюсь не использовать при регистрации своих персональных данных равно как и персональных данных третьих лиц.</span>
+          </label>
+
           <label><input v-model="acceptedConsent" type="checkbox" required />
-            <span>Я отдельно принимаю <a :href="getConfig()?.legal.personalDataConsent.href" target="_blank">согласие на обработку персональных данных</a>.</span>
+            <span>Я принимаю <a :href="getConfig()?.legal.personalDataConsent.href" target="_blank">согласие на обработку персональных данных</a>.</span>
           </label>
           <label><input v-model="acceptedAgreement" type="checkbox" required />
             <span>Я принимаю <a :href="getConfig()?.legal.userAgreement.href" target="_blank">пользовательское соглашение</a>.</span>
