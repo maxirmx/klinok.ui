@@ -23,6 +23,7 @@ import {
   loadUserKeys,
   setDeviceName,
   setLastActiveRole,
+  signBootstrapDeviceReplacement,
   storeExportedUserKeys,
 } from "./repositories/deviceVault";
 import { KlinokRepository } from "./repositories";
@@ -400,6 +401,53 @@ export async function importBootstrapRecovery(bundleText: string, passphrase: st
       ? new Error("Не удалось расшифровать пакет. Проверьте, что выбран bootstrap-recovery.bundle.json от этого развёртывания и введена отдельная фраза KLINOK_RECOVERY_PASSPHRASE, а не пароль учётной записи.")
       : reason;
     setAuthFeedback({ kind: "error", reason: error });
+  } finally {
+    state.busy = false;
+  }
+}
+
+export async function replaceLostBootstrapDevice(bundleText: string, passphrase: string) {
+  state.busy = true;
+  try {
+    const accountId = state.session.accountId;
+    if (!accountId || accountId !== config.p2p.bootstrapAccountId) {
+      throw new Error("Замена утраченного устройства доступна только начальному администратору.");
+    }
+    const deviceId = getDeviceId();
+    const enrollment = state.session.enrollments?.find((candidate) =>
+      candidate.deviceId === deviceId && candidate.status === "pending");
+    if (!deviceId || !enrollment) throw new Error("Запрос текущего устройства не найден. Обновите страницу и повторите попытку.");
+
+    const recoveredKeys = await importBootstrapRecoveryBundle(accountId, bundleText, passphrase);
+    const exported = await exportUserKeySet(recoveredKeys);
+    const { challenge } = await auth.bootstrapDeviceReplacementChallenge();
+    const payload = {
+      action: "bootstrap-device-replacement" as const,
+      challenge,
+      accountId,
+      deviceId,
+      deviceName: enrollment.deviceName ?? getOrCreateDeviceName(),
+      orbitIdentityId: enrollment.orbitIdentityId,
+      userKeyVersion: exported.version,
+      signingPublicKey: exported.signingPublicKey,
+      encryptionPublicKey: exported.encryptionPublicKey,
+    };
+    const replacement = await auth.replaceBootstrapDevice(
+      payload,
+      await signBootstrapDeviceReplacement(payload, recoveredKeys.signingPrivateKey),
+    );
+    keys = recoveredKeys;
+    state.initialized = false;
+    await bootstrapApp(true);
+    const activeRepository = requireRepository();
+    for (const revokedDeviceId of replacement.revokedDeviceIds) {
+      await activeRepository.control.revokeDevice(revokedDeviceId);
+    }
+  } catch (reason) {
+    if (reason instanceof DOMException && reason.name === "OperationError") {
+      throw new Error("Не удалось расшифровать пакет. Проверьте пакет восстановления и отдельную фразу KLINOK_RECOVERY_PASSPHRASE.");
+    }
+    throw reason;
   } finally {
     state.busy = false;
   }

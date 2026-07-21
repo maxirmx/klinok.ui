@@ -169,6 +169,21 @@ export class AuthStore {
     return updated;
   }
 
+  async replaceAllSessionsForAccount(session: AuthSessionRecord, account: AuthAccount): Promise<AuthAccount> {
+    const updated = {
+      ...account,
+      sessionDigests: [session.digest],
+      updatedAt: session.lastSeenAt,
+    };
+    const batch = this.db.batch();
+    for (const digest of account.sessionDigests) batch.del(`session:${digest}`);
+    await batch
+      .put(`session:${session.digest}`, session)
+      .put(`account:${account.accountId}`, updated)
+      .write();
+    return updated;
+  }
+
   async deleteCredentialAccount(account: AuthAccount): Promise<AuthAccount> {
     const updated: AuthAccount = {
       ...account,

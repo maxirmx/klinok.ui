@@ -11,6 +11,8 @@ export interface AuthConfig {
   cookieSecure: boolean;
   enforceOrigin: boolean;
   trustProxy: boolean | number | string;
+  bootstrapAccountId: string;
+  bootstrapSigningPublicKey?: JsonWebKey;
   rateLimit: AuthRateLimitConfig;
   smtp: {
     host: string;
@@ -84,6 +86,17 @@ function trustProxy(value: string | undefined): boolean | number | string {
   return value;
 }
 
+function jsonWebKey(value: string | undefined): JsonWebKey | undefined {
+  if (!value?.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(value) as JsonWebKey;
+    if (!parsed || typeof parsed !== "object" || typeof parsed.kty !== "string") throw new Error();
+    return parsed;
+  } catch {
+    throw new Error("KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY must be a JSON Web Key.");
+  }
+}
+
 export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig {
   return {
     host: env.KLINOK_AUTH_HOST ?? "0.0.0.0",
@@ -94,6 +107,8 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
     cookieSecure: bool(env.KLINOK_AUTH_COOKIE_SECURE, env.NODE_ENV === "production"),
     enforceOrigin: bool(env.KLINOK_AUTH_ENFORCE_ORIGIN, true),
     trustProxy: trustProxy(env.KLINOK_AUTH_TRUST_PROXY),
+    bootstrapAccountId: env.KLINOK_BOOTSTRAP_ACCOUNT_ID ?? "bootstrap-administrator",
+    bootstrapSigningPublicKey: jsonWebKey(env.KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY),
     rateLimit: {
       registrationIpPerHour: positiveInteger(env.KLINOK_RATE_LIMIT_REGISTRATION_IP_PER_HOUR, DEFAULT_AUTH_RATE_LIMITS.registrationIpPerHour),
       registrationEmailPerDay: positiveInteger(env.KLINOK_RATE_LIMIT_REGISTRATION_EMAIL_PER_DAY, DEFAULT_AUTH_RATE_LIMITS.registrationEmailPerDay),

@@ -282,3 +282,15 @@ export interface DeviceEnrollmentDto {
   userKeyVersion?: number;
   createdAt: string;
 }
+
+export interface BootstrapDeviceReplacementPayload {
+  action: "bootstrap-device-replacement";
+  challenge: string;
+  accountId: string;
+  deviceId: string;
+  deviceName: string;
+  orbitIdentityId: string;
+  userKeyVersion: number;
+  signingPublicKey: JsonWebKey;
+  encryptionPublicKey: JsonWebKey;
+}

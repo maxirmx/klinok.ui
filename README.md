@@ -131,7 +131,13 @@ export KLINOK_RECOVERY_PASSPHRASE="${KLINOK_RECOVERY_PASSPHRASE:-Bene facta me c
 npm run build:auth && npm run auth:provision
 ```
 
-Store `bootstrap-recovery.bundle.json` and `KLINOK_RECOVERY_PASSPHRASE` separately offline. If the bootstrap administrator loses the browser storage for every device, sign in and use the Profile page’s **replace lost bootstrap device** option. The bundle is decrypted locally; its signing key authorizes one replacement device and revokes the old bootstrap devices and sessions. Losing every bootstrap device and the offline recovery bundle requires resetting the operational deployment.
+Store `bootstrap-recovery.bundle.json` and `KLINOK_RECOVERY_PASSPHRASE` separately offline. If the bootstrap administrator loses the browser storage for every device:
+
+1. Sign in from the replacement browser. Its device request remains pending.
+2. Open **Profile**, select `bootstrap-recovery.bundle.json`, and enter `KLINOK_RECOVERY_PASSPHRASE`.
+3. Select **replace lost bootstrap device**. The bundle is decrypted locally, and its signing key authorizes the pending browser device.
+
+The replacement revokes every previous bootstrap device and session. `KLINOK_BOOTSTRAP_ACCOUNT_ID` and `KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY` must be configured identically for the UI, authentication service, and P2P node; the supplied Docker Compose files wire these values automatically. Losing every bootstrap device and the offline recovery bundle requires resetting the operational deployment.
 
 ## Ограничение частоты запросов к сервису аутентификации
 

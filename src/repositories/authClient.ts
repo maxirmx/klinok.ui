@@ -1,4 +1,11 @@
-import type { AuthErrorBody, AuthSessionDto, DeviceCertificate, DeviceEnrollmentDto, Role } from "@klinok/protocol";
+import type {
+  AuthErrorBody,
+  AuthSessionDto,
+  BootstrapDeviceReplacementPayload,
+  DeviceCertificate,
+  DeviceEnrollmentDto,
+  Role,
+} from "@klinok/protocol";
 
 export interface RegisterInput {
   firstName: string;
@@ -67,6 +74,21 @@ export class AuthClient {
     return this.request<{ updated: true; email: string }>("/api/auth/credentials", { method: "PATCH", body: JSON.stringify(input) });
   }
   deleteAccount() { return this.request<{ operationId: string }>("/api/auth/account", { method: "DELETE" }); }
+
+  bootstrapDeviceReplacementChallenge() {
+    return this.request<{ challenge: string; expiresAt: string }>("/api/auth/bootstrap-device-replacement/challenge", { method: "POST" });
+  }
+
+  replaceBootstrapDevice(payload: BootstrapDeviceReplacementPayload, signature: string) {
+    return this.request<{
+      certificate: DeviceCertificate;
+      enrollment: DeviceEnrollmentDto;
+      revokedDeviceIds: string[];
+    }>("/api/auth/bootstrap-device-replacement", {
+      method: "POST",
+      body: JSON.stringify({ payload, signature }),
+    });
+  }
 
   enrollDevice(input: Omit<DeviceEnrollmentDto, "enrollmentId" | "operationId" | "accountId" | "status" | "createdAt">) {
     return this.request<{ enrollment: DeviceEnrollmentDto; certificate?: DeviceCertificate }>("/api/auth/device-enrollments", { method: "POST", body: JSON.stringify(input) });

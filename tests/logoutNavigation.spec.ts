@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppIcon from "../src/components/AppIcon.vue";
 import RoleStatusScreen from "../src/screens/RoleStatusScreen.vue";
 import WorkspaceScreen from "../src/screens/WorkspaceScreen.vue";
-import { deleteAccount, logout, revokeDevice, switchRole, updateCredentials, updateProfile } from "../src/appStore";
+import { deleteAccount, logout, replaceLostBootstrapDevice, revokeDevice, switchRole, updateCredentials, updateProfile } from "../src/appStore";
 
 vi.mock("../src/appStore", async () => {
   const { reactive, readonly } = await import("vue");
@@ -52,6 +52,7 @@ vi.mock("../src/appStore", async () => {
     setMockAccountId: (accountId: string) => { state.session.accountId = accountId; },
     setMockActiveRole: (role: "owner" | "doctor" | "administrator" | null) => { state.activeRole = role; },
     setMockDevices: (devices: typeof state.session.devices) => { state.session.devices = devices; },
+    setMockDevicePending: (pending: boolean) => { state.devicePending = pending; },
     setMockProfile: (profile: typeof state.control.profile) => { state.control.profile = profile; },
     setMockSync: (sync: typeof state.sync) => { state.sync = sync; },
     approveDeviceEnrollment: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock("../src/appStore", async () => {
     importBootstrapRecovery: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
     rejectDeviceEnrollment: vi.fn(),
+    replaceLostBootstrapDevice: vi.fn(),
     requestRole: vi.fn(),
     revokeDevice: vi.fn(),
     switchRole: vi.fn(),
@@ -91,6 +93,7 @@ beforeEach(async () => {
     setMockAccountId: (accountId: string) => void;
     setMockActiveRole: (role: "owner" | "doctor" | "administrator" | null) => void;
     setMockDevices: (devices: Array<{ deviceId: string; deviceName: string; status: string }>) => void;
+    setMockDevicePending: (pending: boolean) => void;
     setMockProfile: (profile: {
       accountId: string;
       revision: number;
@@ -107,6 +110,7 @@ beforeEach(async () => {
     { deviceId: "current-device", deviceName: "Домашний ноутбук", status: "active" },
     { deviceId: "revoked-device", deviceName: "Старый телефон", status: "revoked" },
   ]);
+  mockedStore.setMockDevicePending(false);
   mockedStore.setMockProfile({
     accountId: "account-1",
     revision: 1,
@@ -119,6 +123,7 @@ beforeEach(async () => {
   vi.mocked(deleteAccount).mockClear();
   vi.mocked(logout).mockClear();
   vi.mocked(revokeDevice).mockClear();
+  vi.mocked(replaceLostBootstrapDevice).mockClear();
   vi.mocked(updateCredentials).mockClear();
   vi.mocked(updateProfile).mockClear();
   vi.mocked(switchRole).mockClear();
@@ -226,6 +231,34 @@ describe("logout navigation", () => {
     await deleteButton.trigger("click");
     expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
     expect(deleteAccount).not.toHaveBeenCalled();
+  });
+
+  it("offers offline replacement when a bootstrap device is pending", async () => {
+    const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+      setMockAccountId: (accountId: string) => void;
+      setMockDevicePending: (pending: boolean) => void;
+    };
+    mockedStore.setMockAccountId("bootstrap-administrator");
+    mockedStore.setMockDevicePending(true);
+    const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+
+    expect(wrapper.text()).toContain("Все действующие устройства утрачены?");
+    expect(wrapper.text()).toContain("Все прежние устройства и сеансы будут отозваны.");
+    const fileInput = wrapper.get<HTMLInputElement>('input[type="file"]');
+    Object.defineProperty(fileInput.element, "files", {
+      configurable: true,
+      value: [new File(["recovery"], "bootstrap-recovery.bundle.json", { type: "application/json" })],
+    });
+    await fileInput.trigger("change");
+    await flushPromises();
+    await wrapper.get<HTMLInputElement>('input[aria-label="Пароль пакета"], input[type="password"]').setValue("offline recovery passphrase");
+    const replaceButton = wrapper.get<HTMLButtonElement>("button.primary-action");
+    expect(replaceButton.element.disabled).toBe(false);
+    await wrapper.get(".profile-gate form").trigger("submit");
+    await flushPromises();
+
+    expect(replaceLostBootstrapDevice).toHaveBeenCalledWith("recovery", "offline recovery passphrase");
+    expect(wrapper.text()).toContain("Утраченное устройство заменено.");
   });
 
   it("confirms device revocation before executing it", async () => {

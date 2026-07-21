@@ -7,9 +7,11 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import {
+  importSigningPublicKey,
   stableSerialize,
   type AuthErrorBody,
   type AuthSessionDto,
+  type BootstrapDeviceReplacementPayload,
   type DeviceCertificate,
   type DeviceEnrollmentDto,
   type RegistrationSetupDto,
@@ -59,6 +61,11 @@ interface DeviceBody {
 interface CredentialsBody {
   email?: string;
   password?: string;
+}
+
+interface BootstrapDeviceReplacementBody {
+  payload: BootstrapDeviceReplacementPayload;
+  signature: string;
 }
 
 class RateLimitError extends Error {
@@ -175,6 +182,7 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
   const tokenAttempts = keyedLimiter(options.config.rateLimit.tokenPer15Minutes, 15 * 60_000);
   const mutationsByAccount = keyedLimiter(options.config.rateLimit.mutationAccountPerMinute, 60_000);
   const sensitiveMutationsByAccount = keyedLimiter(options.config.rateLimit.sensitiveMutationAccountPerMinute, 60_000);
+  const bootstrapReplacementChallenges = new Map<string, { challenge: string; expiresAt: number }>();
 
   function rejectRateLimit(reply: FastifyReply, result: RateLimitResult): FastifyReply {
     metrics.rateLimitRejected += 1;
@@ -546,6 +554,131 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
       updatedAt: now().toISOString(),
     });
     return { operationId };
+  });
+
+  app.post("/api/auth/bootstrap-device-replacement/challenge", {
+    config: { rateLimit: { max: options.config.rateLimit.sensitiveMutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply);
+    if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId, true)) return;
+    if (!current.account.immutableBootstrap || current.account.accountId !== options.config.bootstrapAccountId) {
+      return error(reply, 403, "BOOTSTRAP_REPLACEMENT_FORBIDDEN", "Заменить устройство можно только для начального администратора.");
+    }
+    if (!options.config.bootstrapSigningPublicKey) {
+      return error(reply, 503, "BOOTSTRAP_ANCHOR_MISSING", "Публичный ключ восстановления начального администратора не настроен.");
+    }
+    const currentDevice = current.account.devices.find((device) =>
+      device.deviceId === current.session.deviceId && device.status === "active");
+    if (currentDevice) {
+      return error(reply, 409, "BOOTSTRAP_REPLACEMENT_NOT_REQUIRED", "Текущее устройство уже подтверждено.");
+    }
+    const pending = current.account.enrollments.find((enrollment) =>
+      enrollment.deviceId === current.session.deviceId && enrollment.status === "pending");
+    if (!pending) {
+      return error(reply, 409, "BOOTSTRAP_REPLACEMENT_NOT_READY", "Сначала создайте запрос для этого устройства.");
+    }
+    for (const [sessionDigest, existing] of bootstrapReplacementChallenges) {
+      if (existing.expiresAt <= now().getTime()) bootstrapReplacementChallenges.delete(sessionDigest);
+    }
+    const challenge = createOpaqueToken();
+    const expiresAt = now().getTime() + 5 * 60_000;
+    bootstrapReplacementChallenges.set(current.session.digest, { challenge, expiresAt });
+    return { challenge, expiresAt: new Date(expiresAt).toISOString() };
+  });
+
+  app.post<{ Body: BootstrapDeviceReplacementBody }>("/api/auth/bootstrap-device-replacement", {
+    config: { rateLimit: { max: options.config.rateLimit.sensitiveMutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply);
+    if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId, true)) return;
+    if (!current.account.immutableBootstrap || current.account.accountId !== options.config.bootstrapAccountId) {
+      return error(reply, 403, "BOOTSTRAP_REPLACEMENT_FORBIDDEN", "Заменить устройство можно только для начального администратора.");
+    }
+    const anchor = options.config.bootstrapSigningPublicKey;
+    if (!anchor) {
+      return error(reply, 503, "BOOTSTRAP_ANCHOR_MISSING", "Публичный ключ восстановления начального администратора не настроен.");
+    }
+    const challenge = bootstrapReplacementChallenges.get(current.session.digest);
+    bootstrapReplacementChallenges.delete(current.session.digest);
+    if (!challenge || challenge.expiresAt <= now().getTime() || request.body?.payload?.challenge !== challenge.challenge) {
+      return error(reply, 400, "BOOTSTRAP_CHALLENGE_INVALID", "Запрос замены устройства недействителен или устарел.");
+    }
+    const payload = request.body.payload;
+    const pending = current.account.enrollments.find((enrollment) =>
+      enrollment.deviceId === current.session.deviceId && enrollment.status === "pending");
+    const validPayload = payload?.action === "bootstrap-device-replacement"
+      && payload.accountId === current.account.accountId
+      && payload.deviceId === pending?.deviceId
+      && payload.deviceName === pending?.deviceName
+      && payload.orbitIdentityId === pending?.orbitIdentityId
+      && Number.isSafeInteger(payload.userKeyVersion)
+      && payload.userKeyVersion > 0
+      && stableSerialize(payload.signingPublicKey) === stableSerialize(anchor)
+      && payload.encryptionPublicKey && typeof payload.encryptionPublicKey === "object";
+    if (!validPayload || !pending || !request.body.signature) {
+      return error(reply, 400, "BOOTSTRAP_REPLACEMENT_INVALID", "Данные замены устройства неполны.");
+    }
+    let proofValid = false;
+    try {
+      proofValid = await crypto.subtle.verify(
+        { name: "ECDSA", hash: "SHA-256" },
+        await importSigningPublicKey(anchor),
+        Buffer.from(request.body.signature, "base64url"),
+        new TextEncoder().encode(stableSerialize(payload)),
+      );
+    } catch {
+      proofValid = false;
+    }
+    if (!proofValid) {
+      return error(reply, 403, "BOOTSTRAP_RECOVERY_PROOF_INVALID", "Пакет восстановления не соответствует этому развёртыванию.");
+    }
+
+    const replacementEnrollment: DeviceEnrollmentDto = {
+      ...pending,
+      status: "active",
+      signingPublicKey: payload.signingPublicKey,
+      encryptionPublicKey: payload.encryptionPublicKey,
+      userKeyVersion: payload.userKeyVersion,
+    };
+    const certificate = await attestation.certificate(replacementEnrollment, now().toISOString());
+    const revokedDeviceIds = current.account.devices
+      .filter((device) => device.status === "active")
+      .map((device) => device.deviceId);
+    const devices = [
+      ...current.account.devices.map((device) => device.status === "active"
+        ? { ...device, status: "revoked" as const }
+        : device),
+      certificate,
+    ];
+    const enrollments = current.account.enrollments.map((enrollment) => {
+      if (enrollment.enrollmentId === pending.enrollmentId) return replacementEnrollment;
+      return enrollment.status === "active" || enrollment.status === "pending"
+        ? { ...enrollment, status: "revoked" as const }
+        : enrollment;
+    });
+    const replacedAt = now().toISOString();
+    const updatedAccount: AuthAccount = {
+      ...current.account,
+      devices,
+      enrollments,
+      pendingOperations: [
+        ...current.account.pendingOperations.filter((operation) => operation.kind !== "device"),
+        {
+          operationId: replacementEnrollment.operationId,
+          kind: "device",
+          createdAt: replacedAt,
+          payload: { deviceId: replacementEnrollment.deviceId, deviceName: replacementEnrollment.deviceName },
+        },
+      ],
+      updatedAt: replacedAt,
+    };
+    current.session.deviceId = replacementEnrollment.deviceId;
+    current.session.lastSeenAt = replacedAt;
+    await store.replaceAllSessionsForAccount(current.session, updatedAccount);
+    metrics.sessionsRevoked += new Set(current.account.sessionDigests.filter((digest) => digest !== current.session.digest)).size;
+    return { certificate, enrollment: replacementEnrollment, revokedDeviceIds };
   });
 
   app.post<{ Body: DeviceBody }>("/api/auth/device-enrollments", {

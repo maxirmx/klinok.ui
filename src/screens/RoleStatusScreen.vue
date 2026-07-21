@@ -19,6 +19,7 @@ import {
   logout,
   importBootstrapRecovery,
   rejectDeviceEnrollment,
+  replaceLostBootstrapDevice,
   requestRole,
   revokeDevice,
   switchRole,
@@ -258,6 +259,16 @@ async function confirmDeviceRevocation() {
     <section v-else-if="appState.devicePending" class="panel profile-gate" role="status">
       <h2>Устройство ожидает подтверждения</h2>
       <p>Откройте Клинок на действующем устройстве и подтвердите перенос ключей.</p>
+      <template v-if="isBootstrapAccount">
+        <h3>Все действующие устройства утрачены?</h3>
+        <p>Замените их только с помощью офлайн-пакета начального администратора. Все прежние устройства и сеансы будут отозваны.</p>
+        <form class="form-stack" @submit.prevent="action('devices', 'Утраченное устройство заменено.', () => replaceLostBootstrapDevice(recoveryText, recoveryPassphrase))">
+          <label><span>Пакет восстановления</span><input type="file" accept="application/json,.json" required @change="readRecoveryFile" /></label>
+          <PasswordInput v-model="recoveryPassphrase" label="Пароль пакета" required />
+          <button class="primary-action" :disabled="appState.busy || !recoveryText || recoveryPassphrase.length < 16">Заменить утраченное устройство</button>
+        </form>
+        <p v-if="feedback.devices" class="form-alert" :class="feedback.devices.kind" :role="feedback.devices.kind === 'error' ? 'alert' : 'status'">{{ feedback.devices.text }}</p>
+      </template>
       <button class="outline-action inline" @click="bootstrapApp(true)">Проверить статус</button>
     </section>
 
