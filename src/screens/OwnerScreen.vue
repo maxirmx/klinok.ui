@@ -711,7 +711,7 @@ function formatDate(value?: string) {
       </article>
 
       <article class="panel owner-medical-placeholder">
-        <h2>История болезни</h2>
+        <h2>Медицинская карта</h2>
         <p v-if="!petRecords.length">Записи появятся здесь после приёма у врача.</p>
         <div v-for="record in petRecords" :key="record.recordId" class="record-card">
           <div><strong>{{ record.title }}</strong><p>{{ record.text }}</p><small>Редакция {{ record.revision }}</small></div>
