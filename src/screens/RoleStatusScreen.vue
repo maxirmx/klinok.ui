@@ -99,18 +99,25 @@ const deviceName = (device: { deviceId: string; deviceName?: string }) => device
   || (device.deviceId === appState.session.device?.deviceId ? getDeviceName() : null)
   || "Устройство без названия";
 
-function resetProfileDraft() {
+function sameProfile(left: ProfileValues, right: ProfileValues): boolean {
+  return left.firstName === right.firstName
+    && left.lastName === right.lastName
+    && left.patronymic === right.patronymic;
+}
+
+function synchronizeProfileDraft() {
   const profile = appState.control.profile;
-  const values = {
+  const values: ProfileValues = {
     firstName: profile?.firstName ?? "",
     lastName: profile?.lastName ?? "",
     patronymic: profile?.patronymic ?? "",
   };
+  const draftIsPristine = sameProfile(profileDraft, savedProfile);
   Object.assign(savedProfile, values);
-  Object.assign(profileDraft, values);
+  if (draftIsPristine) Object.assign(profileDraft, values);
 }
 
-watch(() => appState.control.profile, resetProfileDraft, { immediate: true });
+watch(() => appState.control.profile, synchronizeProfileDraft, { immediate: true });
 watch(() => appState.session.email, (email) => {
   credentialsDraft.email = email ?? "";
   savedEmailDisplay.value = email ?? "";

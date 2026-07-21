@@ -51,6 +51,7 @@ vi.mock("../src/appStore", async () => {
     appState: readonly(state),
     setMockActiveRole: (role: "owner" | "doctor" | "administrator" | null) => { state.activeRole = role; },
     setMockDevices: (devices: typeof state.session.devices) => { state.session.devices = devices; },
+    setMockProfile: (profile: typeof state.control.profile) => { state.control.profile = profile; },
     setMockSync: (sync: typeof state.sync) => { state.sync = sync; },
     approveDeviceEnrollment: vi.fn(),
     bootstrapApp: vi.fn(),
@@ -88,6 +89,14 @@ beforeEach(async () => {
   const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
     setMockActiveRole: (role: "owner" | "doctor" | "administrator" | null) => void;
     setMockDevices: (devices: Array<{ deviceId: string; deviceName: string; status: string }>) => void;
+    setMockProfile: (profile: {
+      accountId: string;
+      revision: number;
+      firstName: string;
+      patronymic: string;
+      lastName: string;
+      updatedAt: string;
+    }) => void;
     setMockSync: (sync: { pendingCount: number; failedCount: number; syncing: boolean; lastError: string }) => void;
   };
   mockedStore.setMockActiveRole("owner");
@@ -95,6 +104,14 @@ beforeEach(async () => {
     { deviceId: "current-device", deviceName: "Домашний ноутбук", status: "active" },
     { deviceId: "revoked-device", deviceName: "Старый телефон", status: "revoked" },
   ]);
+  mockedStore.setMockProfile({
+    accountId: "account-1",
+    revision: 1,
+    firstName: "Максим",
+    patronymic: "Сергеевич",
+    lastName: "Иванов",
+    updatedAt: "2026-07-15T00:00:00.000Z",
+  });
   mockedStore.setMockSync({ pendingCount: 0, failedCount: 0, syncing: false, lastError: "" });
   vi.mocked(deleteAccount).mockClear();
   vi.mocked(logout).mockClear();
@@ -283,6 +300,45 @@ describe("logout navigation", () => {
 
     await wrapper.get('button[aria-label="Закрыть сообщение"]').trigger("click");
     expect(wrapper.find(".profile-form-feedback").exists()).toBe(false);
+  });
+
+  it("allows repeated profile edits while background snapshots are received", async () => {
+    const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+      setMockProfile: (profile: {
+        accountId: string;
+        revision: number;
+        firstName: string;
+        patronymic: string;
+        lastName: string;
+        updatedAt: string;
+      }) => void;
+    };
+    const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+    const firstName = wrapper.get<HTMLInputElement>('input[autocomplete="given-name"]');
+    const profileSave = wrapper.get<HTMLButtonElement>('button[form="profile-form"]');
+
+    await firstName.setValue("Мария");
+    await wrapper.get(".profile-form").trigger("submit");
+    await flushPromises();
+    expect(updateProfile).toHaveBeenLastCalledWith({ firstName: "Мария", patronymic: "Сергеевич", lastName: "Иванов" });
+
+    await firstName.setValue("Анна");
+    mockedStore.setMockProfile({
+      accountId: "account-1",
+      revision: 2,
+      firstName: "Мария",
+      patronymic: "Сергеевич",
+      lastName: "Иванов",
+      updatedAt: "2026-07-21T00:00:00.000Z",
+    });
+    await flushPromises();
+
+    expect(firstName.element.value).toBe("Анна");
+    expect(profileSave.element.disabled).toBe(false);
+    await wrapper.get(".profile-form").trigger("submit");
+    await flushPromises();
+    expect(updateProfile).toHaveBeenCalledTimes(2);
+    expect(updateProfile).toHaveBeenLastCalledWith({ firstName: "Анна", patronymic: "Сергеевич", lastName: "Иванов" });
   });
 
   it("changes approved active roles through real radio controls", async () => {
