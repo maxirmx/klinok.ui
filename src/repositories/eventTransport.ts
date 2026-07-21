@@ -22,6 +22,7 @@ export interface EventTransport {
   subscribe(database: DatabaseKind, listener: () => void): () => void;
   listConflicts(): Promise<AuthorizationConflict[]>;
   recordConflict(conflict: AuthorizationConflict): Promise<void>;
+  removeConflict(eventId: string): Promise<void>;
   pendingOutbox(): Promise<SignedEvent[]>;
   queueOutbox(event: SignedEvent): Promise<void>;
   removeOutbox(eventId: string): Promise<void>;
@@ -49,6 +50,10 @@ export class MemoryEventTransport implements EventTransport {
   }
   async listConflicts() { return [...this.conflicts]; }
   async recordConflict(conflict: AuthorizationConflict) { this.conflicts.push(conflict); }
+  async removeConflict(eventId: string) {
+    const index = this.conflicts.findIndex((conflict) => conflict.eventId === eventId);
+    if (index >= 0) this.conflicts.splice(index, 1);
+  }
   async pendingOutbox() { return []; }
   async queueOutbox(event: SignedEvent) { void event; }
   async removeOutbox(eventId: string) { void eventId; }
@@ -134,6 +139,17 @@ export class IndexedDbEventTransport implements EventTransport {
       tx.onerror = () => reject(tx.error);
     });
     this.sessionConflictIds.add(conflict.eventId);
+    await this.emitSyncStatus();
+  }
+
+  async removeConflict(eventId: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const tx = this.requireDb().transaction("conflicts", "readwrite");
+      tx.objectStore("conflicts").delete(eventId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    this.sessionConflictIds.delete(eventId);
     await this.emitSyncStatus();
   }
 

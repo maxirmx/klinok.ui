@@ -2238,10 +2238,46 @@ dd {
     padding: 24px 16px;
   }
 }
-.consent-stack > label { display: flex; align-items: flex-start; gap: 10px; }
+.consent-stack > label { display: flex; align-items: flex-start; gap: 32px; }
+.consent-stack > label > input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin: .25rem .5rem 0;
+}
+.consent-stack > label > span {
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: #171616b4;
+}
+.consent-stack > .primary-action { margin-top: 16px; }
 .form-alert { padding: 12px 14px; border-radius: 12px; margin: 0 0 16px; }
 .form-alert.error, .field-error { color: #b42318; background: #fef3f2; }
 .form-alert.success { color: #067647; background: #ecfdf3; }
+.auth-feedback {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.auth-feedback > span { min-width: 0; }
+.auth-feedback > button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+}
+.auth-feedback > button:hover { background: rgb(255 255 255 / 55%); }
+.auth-feedback > button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.auth-feedback > button svg { width: 18px; height: 18px; }
 .field-error { padding: 8px; border-radius: 8px; }
 .confirmation-dialog-backdrop {
   position: fixed;

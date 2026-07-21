@@ -33,12 +33,17 @@ const registration = {
   ageConfirmed: true, personalDataConsentVersion: "consent-v1", userAgreementVersion: "terms-v1", requestedRoles: ["owner"],
 };
 
-async function verifiedLogin(app: Awaited<ReturnType<typeof buildAuthApp>>, mailer: MemoryMailer) {
-  await app.inject({ method: "POST", url: "/api/auth/register", headers: { origin: "https://klinok.test" }, payload: registration });
-  const token = mailer.messages[0]!.text.match(/token=([^\s]+)/)![1]!;
+async function verifiedLogin(
+  app: Awaited<ReturnType<typeof buildAuthApp>>,
+  mailer: MemoryMailer,
+  input = registration,
+) {
+  const messageIndex = mailer.messages.length;
+  await app.inject({ method: "POST", url: "/api/auth/register", headers: { origin: "https://klinok.test" }, payload: input });
+  const token = mailer.messages[messageIndex]!.text.match(/token=([^\s]+)/)![1]!;
   const verification = await app.inject({ method: "POST", url: "/api/auth/verify-email", headers: { origin: "https://klinok.test" }, payload: { token: decodeURIComponent(token) } });
   expect(verification.statusCode).toBe(200);
-  const login = await app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" }, payload: { email: registration.email, password: registration.password } });
+  const login = await app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" }, payload: { email: input.email, password: input.password } });
   expect(login.statusCode).toBe(200);
   return { cookie: login.headers["set-cookie"]!, csrf: login.json().csrfToken as string, accountId: login.json().accountId as string };
 }
@@ -46,6 +51,49 @@ async function verifiedLogin(app: Awaited<ReturnType<typeof buildAuthApp>>, mail
 afterEach(async () => Promise.all(apps.splice(0).map((app) => app.close())));
 
 describe("auth-node", () => {
+  it("binds one installation ID to separate certificates for different accounts", async () => {
+    const { app, mailer } = await fixture();
+    const first = await verifiedLogin(app, mailer);
+    const secondRegistration = { ...registration, firstName: "Пётр", email: "second@example.com" };
+    const second = await verifiedLogin(app, mailer, secondRegistration);
+    const sharedDeviceId = "shared-browser-device";
+
+    async function enroll(login: typeof first) {
+      const signingKeys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+      const encryptionKeys = await crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["wrapKey", "unwrapKey"]);
+      return app.inject({
+        method: "POST", url: "/api/auth/device-enrollments",
+        headers: { origin: "https://klinok.test", cookie: login.cookie, "x-csrf-token": login.csrf },
+        payload: {
+          deviceId: sharedDeviceId,
+          orbitIdentityId: `klinok-device-${sharedDeviceId}`,
+          signingPublicKey: await crypto.subtle.exportKey("jwk", signingKeys.publicKey),
+          encryptionPublicKey: await crypto.subtle.exportKey("jwk", encryptionKeys.publicKey),
+        },
+      });
+    }
+
+    const firstEnrollment = await enroll(first);
+    const secondEnrollment = await enroll(second);
+    expect(firstEnrollment.statusCode).toBe(200);
+    expect(secondEnrollment.statusCode).toBe(200);
+    expect(firstEnrollment.json().certificate).toMatchObject({ accountId: first.accountId, deviceId: sharedDeviceId });
+    expect(secondEnrollment.json().certificate).toMatchObject({ accountId: second.accountId, deviceId: sharedDeviceId });
+
+    const firstRelogin = await app.inject({
+      method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" },
+      payload: { email: registration.email, password: registration.password, deviceId: sharedDeviceId },
+    });
+    const secondRelogin = await app.inject({
+      method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" },
+      payload: { email: secondRegistration.email, password: secondRegistration.password, deviceId: sharedDeviceId },
+    });
+    expect((await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: firstRelogin.headers["set-cookie"]! } })).json().device)
+      .toMatchObject({ accountId: first.accountId, deviceId: sharedDeviceId });
+    expect((await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: secondRelogin.headers["set-cookie"]! } })).json().device)
+      .toMatchObject({ accountId: second.accountId, deviceId: sharedDeviceId });
+  });
+
   it("accepts six-character passwords and rejects shorter passwords", async () => {
     const { app } = await fixture();
     const short = await app.inject({

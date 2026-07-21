@@ -4,6 +4,7 @@ import {
   ROLE_STATUSES,
   ROLES,
   type DatabaseKind,
+  type DeviceCertificate,
   type PetAccessRequest,
   type PetAccessGrant,
   type PetGrantAction,
@@ -43,6 +44,14 @@ export function createProtocolState(bootstrapAccountId = "bootstrap-administrato
 
 export function roleProjectionKey(accountId: string, role: Role): string {
   return `${accountId}:${role}`;
+}
+
+/**
+ * Device identifiers describe an installation and may therefore be shared by
+ * several accounts. Protocol projections must always scope them to an account.
+ */
+export function deviceProjectionKey(accountId: string, deviceId: string): string {
+  return JSON.stringify([accountId, deviceId]);
 }
 
 export function chooseConcurrentRoleStatus(left: RoleStatus, right: RoleStatus): RoleStatus {
@@ -119,6 +128,80 @@ function expectedDatabase(eventType: string): DatabaseKind | null {
     return "control";
   }
   if (["pet.", "grant.", "medical."].some((prefix) => eventType.startsWith(prefix))) return "medical";
+  return null;
+}
+
+function invalidDeviceBinding(message: string): VerificationResult {
+  return { accepted: false, code: "DEVICE_BINDING_INVALID", message };
+}
+
+function deviceCertificate(event: SignedEvent): DeviceCertificate | undefined {
+  const certificate = event.metadata.certificate;
+  return certificate && typeof certificate === "object" && !Array.isArray(certificate)
+    ? certificate as unknown as DeviceCertificate
+    : undefined;
+}
+
+async function trustedCertificateResult(
+  certificate: DeviceCertificate,
+  options: VerificationOptions,
+): Promise<VerificationResult> {
+  if (options.authAttestationPublicKey) {
+    try {
+      const { attestation, ...unsigned } = certificate;
+      const authKey = await importSigningPublicKey(options.authAttestationPublicKey);
+      const binary = atob(attestation.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(attestation.length / 4) * 4, "="));
+      const signature = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const valid = await crypto.subtle.verify(
+        { name: "ECDSA", hash: "SHA-256" }, authKey, signature,
+        new TextEncoder().encode(stableSerialize(unsigned)),
+      );
+      if (!valid) return { accepted: false, code: "DEVICE_ATTESTATION_INVALID", message: "Auth-service device attestation is invalid." };
+    } catch {
+      return { accepted: false, code: "DEVICE_ATTESTATION_INVALID", message: "Auth-service device attestation is invalid." };
+    }
+  } else if (options.requireTrustedAttestation) {
+    return { accepted: false, code: "AUTH_ANCHOR_MISSING", message: "The auth-service trust anchor is not configured." };
+  }
+  return { accepted: true };
+}
+
+async function deviceEventResult(
+  event: SignedEvent,
+  currentDevice: DeviceCertificate | undefined,
+  options: VerificationOptions,
+): Promise<VerificationResult | null> {
+  if (event.eventType === "device.attested") {
+    const certificate = deviceCertificate(event);
+    if (!certificate || event.aggregateId !== event.actorAccountId || event.resourceId !== event.actorDeviceId ||
+      certificate.accountId !== event.actorAccountId || certificate.deviceId !== event.actorDeviceId ||
+      certificate.orbitIdentityId !== event.orbitIdentityId || certificate.userKeyVersion !== event.keyVersion ||
+      certificate.status !== "active" || typeof certificate.attestation !== "string" || !certificate.attestation) {
+      return invalidDeviceBinding("Device attestation does not match the event actor and target.");
+    }
+    return trustedCertificateResult(certificate, options);
+  }
+  if (event.eventType === "device.rotated") {
+    const certificate = deviceCertificate(event);
+    if (!currentDevice || !certificate || event.aggregateId !== event.actorAccountId || event.resourceId !== event.actorDeviceId ||
+      certificate.accountId !== event.actorAccountId || certificate.deviceId !== event.actorDeviceId ||
+      certificate.orbitIdentityId !== event.orbitIdentityId || certificate.status !== "active" ||
+      certificate.userKeyVersion !== currentDevice.userKeyVersion + 1 ||
+      typeof certificate.attestation !== "string" || !certificate.attestation) {
+      return invalidDeviceBinding("Device rotation does not match the current actor, target, and next key version.");
+    }
+    return trustedCertificateResult(certificate, options);
+  }
+  if (event.eventType === "device.revoked") {
+    const accountId = event.metadata.accountId;
+    const deviceId = event.metadata.deviceId;
+    if (event.aggregateId !== event.actorAccountId ||
+      (accountId !== undefined && (typeof accountId !== "string" || accountId !== event.actorAccountId)) ||
+      (deviceId !== undefined && (typeof deviceId !== "string" || deviceId !== event.resourceId))) {
+      return invalidDeviceBinding("Device revocation target does not match the actor account and event resource.");
+    }
+    return { accepted: true };
+  }
   return null;
 }
 
@@ -343,7 +426,7 @@ export async function verifySignedEvent(
   if (event.parents.some((parent) => !state.knownEvents.has(parent))) {
     return { accepted: false, code: "EVENT_PARENT_MISSING", message: "A logical parent is missing." };
   }
-  const device = state.devices.get(event.actorDeviceId);
+  const device = state.devices.get(deviceProjectionKey(event.actorAccountId, event.actorDeviceId));
   if (!device) {
     if (!options.allowUnknownDevice && event.eventType !== "device.attested") {
       return { accepted: false, code: "DEVICE_UNKNOWN", message: "Device certificate is not known." };
@@ -362,7 +445,7 @@ export async function verifySignedEvent(
     }
   }
   if (!device && event.eventType === "device.attested") {
-    const certificate = event.metadata.certificate as unknown as import("./types.js").DeviceCertificate | undefined;
+    const certificate = deviceCertificate(event);
     if (!certificate || certificate.deviceId !== event.actorDeviceId || certificate.accountId !== event.actorAccountId ||
       certificate.orbitIdentityId !== event.orbitIdentityId || certificate.userKeyVersion !== event.keyVersion || !certificate.attestation) {
       return { accepted: false, code: "DEVICE_ATTESTATION_INVALID", message: "Device attestation does not match the event actor." };
@@ -375,26 +458,11 @@ export async function verifySignedEvent(
       stableSerialize(certificate.signingPublicKey) !== stableSerialize(options.bootstrapSigningPublicKey)) {
       return { accepted: false, code: "BOOTSTRAP_ANCHOR_MISMATCH", message: "Bootstrap device does not match the pinned trust anchor." };
     }
-    if (options.authAttestationPublicKey) {
-      try {
-        const { attestation, ...unsigned } = certificate;
-        const authKey = await importSigningPublicKey(options.authAttestationPublicKey);
-        const binary = atob(attestation.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(attestation.length / 4) * 4, "="));
-        const signature = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-        const valid = await crypto.subtle.verify(
-          { name: "ECDSA", hash: "SHA-256" }, authKey, signature,
-          new TextEncoder().encode(stableSerialize(unsigned)),
-        );
-        if (!valid) return { accepted: false, code: "DEVICE_ATTESTATION_INVALID", message: "Auth-service device attestation is invalid." };
-      } catch {
-        return { accepted: false, code: "DEVICE_ATTESTATION_INVALID", message: "Auth-service device attestation is invalid." };
-      }
-    } else if (options.requireTrustedAttestation) {
-      return { accepted: false, code: "AUTH_ANCHOR_MISSING", message: "The auth-service trust anchor is not configured." };
-    }
   }
   if (!device && event.eventType !== "device.attested") {
     return { accepted: false, code: "SIGNATURE_UNVERIFIABLE", message: "No signing certificate is available." };
   }
+  const deviceResult = await deviceEventResult(event, device, options);
+  if (deviceResult && !deviceResult.accepted) return deviceResult;
   return capabilityResult(event, state);
 }

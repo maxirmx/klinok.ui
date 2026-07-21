@@ -1,5 +1,6 @@
 import {
   decryptPayload,
+  deviceProjectionKey,
   InMemorySignedEventRepository,
   unwrapDataKey,
   type AccountProfile,
@@ -51,7 +52,7 @@ export class ControlRepository {
     this.disposed = false;
     await this.reloadNow();
     this.unsubscribe = this.transport.subscribe("control", () => { void this.queueReload(); });
-    if (!this.signed.state.devices.has(this.context.deviceId)) {
+    if (!this.signed.state.devices.has(deviceProjectionKey(this.context.accountId, this.context.deviceId))) {
       await this.append(await this.factory.create({
         database: "control",
         eventType: "device.attested",
@@ -110,7 +111,8 @@ export class ControlRepository {
   }
 
   private latestDeviceEventId(): string {
-    return this.events.findLast((event) => event.eventType === "device.attested" && event.resourceId === this.context.deviceId)?.eventId ?? "";
+    return this.events.findLast((event) => event.eventType === "device.attested" &&
+      event.aggregateId === this.context.accountId && event.resourceId === this.context.deviceId)?.eventId ?? "";
   }
 
   private queueReload(): Promise<void> {
@@ -307,7 +309,8 @@ export class ControlRepository {
   }
 
   async revokeDevice(deviceId: string): Promise<void> {
-    const parent = this.events.findLast((event) => event.eventType.startsWith("device.") && event.resourceId === deviceId)?.eventId;
+    const parent = this.events.findLast((event) => event.eventType.startsWith("device.") &&
+      event.aggregateId === this.context.accountId && event.resourceId === deviceId)?.eventId;
     await this.append(await this.factory.create({
       database: "control", eventType: "device.revoked", aggregateId: this.context.accountId, resourceId: deviceId,
       metadata: { accountId: this.context.accountId, deviceId }, cleartext: { revokedAt: new Date().toISOString() },
@@ -316,7 +319,8 @@ export class ControlRepository {
   }
 
   async rotateCurrentDevice(certificate: DeviceCertificate): Promise<void> {
-    const parent = this.events.findLast((event) => event.eventType.startsWith("device.") && event.resourceId === certificate.deviceId)?.eventId;
+    const parent = this.events.findLast((event) => event.eventType.startsWith("device.") &&
+      event.aggregateId === this.context.accountId && event.resourceId === certificate.deviceId)?.eventId;
     await this.append(await this.factory.create({
       database: "control", eventType: "device.rotated", aggregateId: this.context.accountId, resourceId: certificate.deviceId,
       metadata: { accountId: this.context.accountId, certificate: certificate as unknown as Record<string, unknown> },

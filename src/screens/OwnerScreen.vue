@@ -364,7 +364,7 @@ function formatDate(value?: string) {
 
 <template>
   <WorkspaceShell role="owner" title="Кабинет владельца" :profile-name="profileName" @sign-out="signOut">
-    <p v-if="actionError || appState.error" class="form-alert error" role="alert">{{ actionError || appState.error }}</p>
+    <p v-if="actionError || appState.feedback?.kind === 'error'" class="form-alert error" role="alert">{{ actionError || appState.feedback?.text }}</p>
     <p v-if="actionMessage" class="form-alert success" role="status">{{ actionMessage }}</p>
 
     <div class="owner-section-heading owner-page-heading">

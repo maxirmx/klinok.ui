@@ -9,7 +9,7 @@ import { deleteAccount, logout, revokeDevice, switchRole, updateCredentials, upd
 vi.mock("../src/appStore", async () => {
   const { reactive, readonly } = await import("vue");
   const state = reactive({
-    error: "",
+    feedback: null as { kind: "success" | "error"; text: string } | null,
     busy: false,
     activeRole: "owner" as "owner" | "doctor" | "administrator" | null,
     session: {

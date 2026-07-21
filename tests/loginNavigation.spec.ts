@@ -1,28 +1,42 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { createMemoryHistory, createRouter } from "vue-router";
-import { describe, expect, it, vi } from "vitest";
+import { createMemoryHistory, createRouter, RouterView } from "vue-router";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import AuthScreen from "../src/screens/AuthScreen.vue";
-import { login } from "../src/appStore";
+import * as appStoreModule from "../src/appStore";
 import { routes } from "../src/router";
 
 vi.mock("../src/appStore", async () => {
   const { reactive, readonly } = await import("vue");
+  const state = reactive({
+    activeRole: "doctor",
+    busy: false,
+    devicePending: false,
+    feedback: null as { kind: "success" | "error"; text: string } | null,
+    keyRecoveryRequired: false,
+  });
   return {
-    appState: readonly(reactive({
-      activeRole: "doctor",
-      busy: false,
-      devicePending: false,
-      error: "",
-      keyRecoveryRequired: false,
-      message: "",
-    })),
+    AUTH_SUCCESS_MESSAGES: { registration: "Централизованное сообщение о регистрации" },
+    appState: readonly(state),
+    dismissAuthFeedback: vi.fn(() => { state.feedback = null; }),
     forgotPassword: vi.fn(),
     getConfig: vi.fn(() => ({ legal: { personalDataConsent: {}, userAgreement: {} } })),
     login: vi.fn().mockResolvedValue(undefined),
     register: vi.fn(),
     resetPassword: vi.fn(),
+    setMockFeedback: (feedback: typeof state.feedback) => { state.feedback = feedback; },
     verifyEmail: vi.fn(),
   };
+});
+
+const { AUTH_SUCCESS_MESSAGES, dismissAuthFeedback, login, register } = appStoreModule;
+const { setMockFeedback } = appStoreModule as unknown as {
+  setMockFeedback: (feedback: { kind: "success" | "error"; text: string } | null) => void;
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  sessionStorage.clear();
+  setMockFeedback(null);
 });
 
 describe("login navigation", () => {
@@ -45,5 +59,66 @@ describe("login navigation", () => {
 
     expect(login).toHaveBeenCalledWith("doctor@example.ru", "correct-password", expect.any(String));
     expect(router.currentRoute.value.path).toBe("/doctor/home");
+  });
+
+  it("renders and dismisses accessible authentication feedback", async () => {
+    setMockFeedback({ kind: "error", text: "Ошибка входа" });
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    await router.push("/auth/login");
+    await router.isReady();
+    const wrapper = mount(AuthScreen, {
+      props: { scenarioId: "auth-login" },
+      global: { plugins: [router] },
+    });
+
+    expect(dismissAuthFeedback).not.toHaveBeenCalled();
+    expect(wrapper.get('[role="alert"]').text()).toContain("Ошибка входа");
+    const close = wrapper.get('button[aria-label="Закрыть сообщение"]');
+    await close.trigger("click");
+    expect(dismissAuthFeedback).toHaveBeenCalledOnce();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+  });
+
+  it("clears authentication feedback when the auth route changes", async () => {
+    setMockFeedback({ kind: "success", text: "Готово" });
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    await router.push("/auth/login");
+    await router.isReady();
+    const wrapper = mount(AuthScreen, {
+      props: { scenarioId: "auth-login" },
+      global: { plugins: [router] },
+    });
+
+    expect(wrapper.get('[role="status"]').text()).toContain("Готово");
+    await router.push("/auth/forgot-password");
+    await flushPromises();
+    expect(dismissAuthFeedback).toHaveBeenCalledOnce();
+    expect(wrapper.find('[role="status"]').exists()).toBe(false);
+  });
+
+  it("replaces the completed consent form with the neutral email-verification screen", async () => {
+    sessionStorage.setItem("klinok:registration", JSON.stringify({
+      firstName: "Иван",
+      lastName: "Иванов",
+      patronymic: "",
+      email: "user@example.com",
+      password: "correct horse battery",
+      requestedRoles: ["owner"],
+    }));
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    await router.push("/auth/register/consent");
+    await router.isReady();
+    const wrapper = mount(RouterView, { global: { plugins: [router] } });
+    await flushPromises();
+
+    for (const checkbox of wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')) await checkbox.setValue(true);
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(register).toHaveBeenCalledOnce();
+    expect(router.currentRoute.value.path).toBe("/auth/verify-email");
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain(AUTH_SUCCESS_MESSAGES.registration);
+    expect(wrapper.get('a[href="/auth/login"]').text()).toBe("Перейти ко входу");
   });
 });

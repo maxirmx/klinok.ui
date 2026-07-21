@@ -6,10 +6,12 @@ import {
   generateUserKeySet,
   exportUserKeySet,
   createProtocolState,
+  deviceProjectionKey,
   roleProjectionKey,
   shouldDeferEventVerification,
   applyAcceptedEvent,
   reconcileEffectiveEvents,
+  reduceSignedEvents,
   signEvent,
   stableSerialize,
   verifyEventSignature,
@@ -26,6 +28,11 @@ import {
 } from "./index.js";
 
 describe("klinok protocol", () => {
+  it("builds collision-safe account-scoped device projection keys", () => {
+    expect(deviceProjectionKey("account:a", "device")).not.toBe(deviceProjectionKey("account", "a:device"));
+    expect(deviceProjectionKey("account", "device")).toBe(deviceProjectionKey("account", "device"));
+  });
+
   it("uses stable canonical serialization", () => {
     expect(stableSerialize({ z: 1, a: { c: 3, b: 2 } })).toBe('{"a":{"b":2,"c":3},"z":1}');
   });
@@ -83,7 +90,7 @@ describe("klinok protocol", () => {
       issuedAt: "2026-07-10T10:00:00.000Z", attestation: "trusted-attestation",
     };
     const state = createProtocolState();
-    state.devices.set(certificate.deviceId, certificate);
+    state.devices.set(deviceProjectionKey(certificate.accountId, certificate.deviceId), certificate);
     state.roles.set(roleProjectionKey(certificate.accountId, role), {
       request: { requestId: `${role}-proof`, accountId: certificate.accountId, role, status: "approved", profileRevision: 1, requestedAt: certificate.issuedAt },
       eventId: `${role}-proof`, parents: [],
@@ -98,7 +105,7 @@ describe("klinok protocol", () => {
     input: Partial<Omit<SignedEvent, "signature">> = {},
   ) {
     const dataKey = await generateDataKey();
-    const certificate = state.devices.get("device-1")!;
+    const certificate = state.devices.get(deviceProjectionKey("account-1", "device-1"))!;
     const activeRole = input.activeRole ?? "owner";
     const proof = state.roles.get(roleProjectionKey(certificate.accountId, activeRole))?.request.requestId ?? `${activeRole}-proof`;
     return signEvent({
@@ -112,6 +119,145 @@ describe("klinok protocol", () => {
       ...input,
     }, keys.signingPrivateKey);
   }
+
+  function base64Url(bytes: Uint8Array): string {
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  async function attestCertificate(
+    certificate: Omit<DeviceCertificate, "attestation">,
+    privateKey: CryptoKey,
+  ): Promise<DeviceCertificate> {
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      privateKey,
+      new TextEncoder().encode(stableSerialize(certificate)),
+    );
+    return { ...certificate, attestation: base64Url(new Uint8Array(signature)) };
+  }
+
+  it("rejects cross-account device attestation, rotation, and revocation without changing the victim projection", async () => {
+    const { keys, state } = await actorFixture();
+    const victimKeys = await generateUserKeySet();
+    const victimExported = await exportUserKeySet(victimKeys);
+    const victim: DeviceCertificate = {
+      deviceId: "device-1", accountId: "account-2", orbitIdentityId: "victim-orbit", status: "active", userKeyVersion: 1,
+      signingPublicKey: victimExported.signingPublicKey, encryptionPublicKey: victimExported.encryptionPublicKey,
+      issuedAt: "2026-07-10T10:00:00.000Z", attestation: "victim-attestation",
+    };
+    state.devices.set(deviceProjectionKey(victim.accountId, victim.deviceId), victim);
+
+    const poisonedAttestation = await signedFor(state, keys, {
+      eventType: "device.attested", aggregateId: "account-1", resourceId: "device-1",
+      metadata: { certificate: victim },
+    });
+    const poisonedRotation = await signedFor(state, keys, {
+      eventType: "device.rotated", aggregateId: "account-1", resourceId: "device-1",
+      metadata: { accountId: "account-1", certificate: { ...victim, userKeyVersion: 2 } },
+    });
+    const maliciousRevocation = await signedFor(state, keys, {
+      eventType: "device.revoked", aggregateId: "account-1", resourceId: "device-1",
+      metadata: { accountId: "account-2", deviceId: "device-1" },
+    });
+    const projection = await reduceSignedEvents([poisonedAttestation, poisonedRotation, maliciousRevocation], state);
+
+    expect(projection.accepted).toEqual([]);
+    expect(projection.conflicts.map((conflict) => conflict.result.code)).toEqual([
+      "DEVICE_BINDING_INVALID",
+      "DEVICE_BINDING_INVALID",
+      "DEVICE_BINDING_INVALID",
+    ]);
+    expect(state.devices.get(deviceProjectionKey(victim.accountId, victim.deviceId))).toEqual(victim);
+  });
+
+  it("rejects mismatched and non-sequential device rotations", async () => {
+    const { keys, certificate, state } = await actorFixture();
+    const nextKeys = await generateUserKeySet(2);
+    const nextExported = await exportUserKeySet(nextKeys);
+    const nextCertificate = {
+      ...certificate,
+      signingPublicKey: nextExported.signingPublicKey,
+      encryptionPublicKey: nextExported.encryptionPublicKey,
+      userKeyVersion: 2,
+      issuedAt: "2026-07-10T10:02:00.000Z",
+    };
+    const invalidInputs: Array<Partial<Omit<SignedEvent, "signature">>> = [
+      { aggregateId: "account-2", resourceId: certificate.deviceId, metadata: { certificate: nextCertificate } },
+      { resourceId: "device-2", metadata: { certificate: nextCertificate } },
+      { metadata: { certificate: { ...nextCertificate, orbitIdentityId: "other-orbit" } } },
+      { metadata: { certificate: { ...nextCertificate, userKeyVersion: 3 } } },
+    ];
+
+    for (const input of invalidInputs) {
+      const event = await signedFor(state, keys, {
+        eventType: "device.rotated", aggregateId: certificate.accountId, resourceId: certificate.deviceId,
+        ...input,
+      });
+      await expect(verifySignedEvent(event, state)).resolves.toMatchObject({ accepted: false, code: "DEVICE_BINDING_INVALID" });
+    }
+  });
+
+  it("requires a valid attestation for rotation and accepts the old-key-to-new-key transition", async () => {
+    const { keys, certificate, state } = await actorFixture();
+    const authKeys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const authAttestationPublicKey = await crypto.subtle.exportKey("jwk", authKeys.publicKey);
+    const nextKeys = await generateUserKeySet(2);
+    const nextExported = await exportUserKeySet(nextKeys);
+    const { attestation: _attestation, ...currentCertificate } = certificate;
+    void _attestation;
+    const unsignedCertificate: Omit<DeviceCertificate, "attestation"> = {
+      ...currentCertificate,
+      signingPublicKey: nextExported.signingPublicKey,
+      encryptionPublicKey: nextExported.encryptionPublicKey,
+      userKeyVersion: 2,
+      issuedAt: "2026-07-10T10:02:00.000Z",
+    };
+    const invalidRotation = await signedFor(state, keys, {
+      eventType: "device.rotated", aggregateId: certificate.accountId, resourceId: certificate.deviceId,
+      metadata: { certificate: { ...unsignedCertificate, attestation: "invalid" } },
+    });
+    await expect(verifySignedEvent(invalidRotation, state, { authAttestationPublicKey })).resolves.toMatchObject({
+      accepted: false,
+      code: "DEVICE_ATTESTATION_INVALID",
+    });
+
+    const nextCertificate = await attestCertificate(unsignedCertificate, authKeys.privateKey);
+    const validRotation = await signedFor(state, keys, {
+      eventType: "device.rotated", aggregateId: certificate.accountId, resourceId: certificate.deviceId,
+      metadata: { accountId: certificate.accountId, certificate: nextCertificate },
+    });
+    await expect(verifySignedEvent(validRotation, state, { authAttestationPublicKey })).resolves.toMatchObject({ accepted: true });
+    applyAcceptedEvent(validRotation, state);
+    expect(state.devices.get(deviceProjectionKey(certificate.accountId, certificate.deviceId))).toEqual(nextCertificate);
+
+    const nextEvent = await signedFor(state, nextKeys, { keyVersion: 2 });
+    await expect(verifySignedEvent(nextEvent, state)).resolves.toMatchObject({ accepted: true });
+  });
+
+  it("rejects attestations whose envelope does not match their certificate", async () => {
+    const keys = await generateUserKeySet();
+    const exported = await exportUserKeySet(keys);
+    const certificate: DeviceCertificate = {
+      deviceId: "device-1", accountId: "account-1", orbitIdentityId: "orbit-1", status: "active", userKeyVersion: 1,
+      signingPublicKey: exported.signingPublicKey, encryptionPublicKey: exported.encryptionPublicKey,
+      issuedAt: "2026-07-10T10:00:00.000Z", attestation: "test-attestation",
+    };
+    const event = await signEvent({
+      schemaVersion: 1, database: "control", eventId: crypto.randomUUID(), operationId: crypto.randomUUID(),
+      eventType: "device.attested", aggregateId: "account-2", resourceId: certificate.deviceId,
+      createdAt: certificate.issuedAt, actorAccountId: certificate.accountId, actorDeviceId: certificate.deviceId,
+      orbitIdentityId: certificate.orbitIdentityId, activeRole: "owner", parents: [], keyVersion: 1,
+      proofIds: [], metadata: { certificate }, keyring: [],
+      payload: { algorithm: "AES-GCM-256", iv: "iv", ciphertext: "ciphertext" },
+    }, keys.signingPrivateKey);
+
+    await expect(verifySignedEvent(event, createProtocolState(), { requireTrustedAttestation: false })).resolves.toMatchObject({
+      accepted: false,
+      code: "DEVICE_BINDING_INVALID",
+    });
+  });
 
   it("rejects stale keys and transport identity substitution", async () => {
     const { keys, state } = await actorFixture();

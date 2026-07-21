@@ -33,11 +33,21 @@ const emptyControl: ControlSnapshot = { profile: null, profiles: [], roles: [], 
 const emptyMedical: MedicalSnapshot = { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], events: [] };
 const emptySync: EventSyncStatus = { pendingCount: 0, failedCount: 0, syncing: false, lastError: "" };
 
+type AuthFeedback = { kind: "success" | "error"; text: string };
+type AuthSuccessCode = "registration" | "verification" | "recovery" | "password-reset" | "device-approved";
+
+export const AUTH_SUCCESS_MESSAGES = {
+  registration: "Перейдите в Вашу программу электронной почты и откройте ссылку из письма для завершения регистрации.",
+  verification: "Почта подтверждена, Вы можете войти в систему.",
+  recovery: "Перейдите в Вашу программу электронной почты и откройте ссылку из письма для восстановления доступа.",
+  "password-reset": "Пароль изменён. Вы можете войти в систему.",
+  "device-approved": "Устройство подтверждено. Ключи переданы по защищённому каналу.",
+} as const satisfies Record<AuthSuccessCode, string>;
+
 const state = reactive({
   initialized: false,
   busy: false,
-  error: "",
-  message: "",
+  feedback: null as AuthFeedback | null,
   session: { authenticated: false } as AuthSessionDto,
   activeRole: null as Role | null,
   control: emptyControl,
@@ -57,8 +67,24 @@ let controlUnsubscribe: (() => void) | null = null;
 let medicalUnsubscribe: (() => void) | null = null;
 let syncUnsubscribe: (() => void) | null = null;
 
-function setError(reason: unknown) {
-  state.error = reason instanceof AuthClientError || reason instanceof Error ? reason.message : "Не удалось выполнить операцию.";
+function setAuthFeedback(input: { kind: "success"; code: AuthSuccessCode } | { kind: "error"; reason: unknown } | null) {
+  if (!input) {
+    state.feedback = null;
+    return;
+  }
+  state.feedback = input.kind === "success"
+    ? { kind: "success", text: AUTH_SUCCESS_MESSAGES[input.code] }
+    : {
+        kind: "error",
+        text: input.reason instanceof AuthClientError || input.reason instanceof Error
+          ? input.reason.message
+          : "Не удалось выполнить операцию.",
+      };
+}
+
+function beginAuthAction() {
+  state.busy = true;
+  setAuthFeedback(null);
 }
 
 async function ensureDevice(session: AuthSessionDto): Promise<AuthSessionDto> {
@@ -187,7 +213,7 @@ async function connectRepository(session: AuthSessionDto) {
 export async function bootstrapApp(force = false) {
   if (state.initialized && !force) return;
   state.busy = true;
-  state.error = "";
+  if (state.feedback?.kind === "error") setAuthFeedback(null);
   try {
     config = await loadRuntimeConfig();
     auth = new AuthClient(config.authBaseUrl);
@@ -201,7 +227,7 @@ export async function bootstrapApp(force = false) {
       state.medical = emptyMedical;
     }
   } catch (reason) {
-    setError(reason);
+    setAuthFeedback({ kind: "error", reason });
   } finally {
     state.initialized = true;
     state.busy = false;
@@ -209,36 +235,37 @@ export async function bootstrapApp(force = false) {
 }
 
 export async function register(input: Omit<RegisterInput, "personalDataConsentVersion" | "userAgreementVersion">) {
-  state.busy = true; state.error = "";
+  beginAuthAction();
   try {
     await auth.register({
       ...input,
       personalDataConsentVersion: config.legal.personalDataConsent.version,
       userAgreementVersion: config.legal.userAgreement.version,
     });
-    state.message = "Письмо для подтверждения отправлено. Проверьте почту.";
-  } catch (reason) { setError(reason); throw reason; } finally { state.busy = false; }
+    setAuthFeedback({ kind: "success", code: "registration" });
+  } catch (reason) { setAuthFeedback({ kind: "error", reason }); throw reason; } finally { state.busy = false; }
 }
 
 export async function verifyEmail(token: string) {
-  state.busy = true; state.error = "";
-  try { await auth.verifyEmail(token); state.message = "Адрес подтверждён. Теперь войдите в аккаунт."; }
-  catch (reason) { setError(reason); throw reason; } finally { state.busy = false; }
+  beginAuthAction();
+  try { await auth.verifyEmail(token); setAuthFeedback({ kind: "success", code: "verification" }); }
+  catch (reason) { setAuthFeedback({ kind: "error", reason }); throw reason; } finally { state.busy = false; }
 }
 
 export async function login(email: string, password: string, deviceName?: string) {
-  state.busy = true; state.error = "";
+  beginAuthAction();
   try {
     await auth.login(email, password, getDeviceId() ?? undefined);
     if (deviceName?.trim()) setDeviceName(deviceName);
     state.initialized = false;
     await bootstrapApp(true);
   }
-  catch (reason) { setError(reason); throw reason; } finally { state.busy = false; }
+  catch (reason) { setAuthFeedback({ kind: "error", reason }); throw reason; } finally { state.busy = false; }
 }
 
 export async function logout(all = false) {
   state.busy = true;
+  setAuthFeedback(null);
   try { if (all) await auth.logoutAll(); else await auth.logout(); } finally {
     controlUnsubscribe?.(); controlUnsubscribe = null;
     medicalUnsubscribe?.(); medicalUnsubscribe = null;
@@ -294,8 +321,31 @@ export async function deleteAccount() {
   state.sync = emptySync;
 }
 
-export async function forgotPassword(email: string) { await auth.forgotPassword(email); state.message = "Если аккаунт существует, письмо отправлено."; }
-export async function resetPassword(token: string, password: string) { await auth.resetPassword(token, password); state.message = "Пароль изменён. Войдите снова."; }
+export async function forgotPassword(email: string) {
+  beginAuthAction();
+  try {
+    await auth.forgotPassword(email);
+    setAuthFeedback({ kind: "success", code: "recovery" });
+  } catch (reason) {
+    setAuthFeedback({ kind: "error", reason });
+    throw reason;
+  } finally {
+    state.busy = false;
+  }
+}
+
+export async function resetPassword(token: string, password: string) {
+  beginAuthAction();
+  try {
+    await auth.resetPassword(token, password);
+    setAuthFeedback({ kind: "success", code: "password-reset" });
+  } catch (reason) {
+    setAuthFeedback({ kind: "error", reason });
+    throw reason;
+  } finally {
+    state.busy = false;
+  }
+}
 
 export async function updateProfile(input: { firstName: string; lastName: string; patronymic?: string }) {
   if (!state.session.accountId) throw new Error("Необходимо войти в аккаунт.");
@@ -336,7 +386,7 @@ export function getConfig() { return config; }
 
 export async function importBootstrapRecovery(bundleText: string, passphrase: string) {
   state.busy = true;
-  state.error = "";
+  setAuthFeedback(null);
   try {
     if (!state.session.accountId || state.session.accountId !== config.p2p.bootstrapAccountId) {
       throw new Error("Пакет восстановления предназначен только для начального администратора.");
@@ -349,7 +399,7 @@ export async function importBootstrapRecovery(bundleText: string, passphrase: st
     const error = reason instanceof DOMException && reason.name === "OperationError"
       ? new Error("Не удалось расшифровать пакет. Проверьте, что выбран bootstrap-recovery.bundle.json от этого развёртывания и введена отдельная фраза KLINOK_RECOVERY_PASSPHRASE, а не пароль учётной записи.")
       : reason;
-    setError(error);
+    setAuthFeedback({ kind: "error", reason: error });
   } finally {
     state.busy = false;
   }
@@ -366,7 +416,7 @@ export async function approveDeviceEnrollment(enrollmentId: string) {
     exported.signingPublicKey,
     exported.encryptionPublicKey,
   );
-  state.message = "Устройство подтверждено. Ключи переданы по защищённому каналу.";
+  setAuthFeedback({ kind: "success", code: "device-approved" });
   state.initialized = false;
   await bootstrapApp(true);
 }
@@ -377,6 +427,10 @@ export async function rejectDeviceEnrollment(enrollmentId: string) {
     ...state.session,
     enrollments: state.session.enrollments?.filter((item) => item.enrollmentId !== enrollmentId),
   };
+}
+
+export function dismissAuthFeedback() {
+  setAuthFeedback(null);
 }
 
 export const appState = readonly(state);

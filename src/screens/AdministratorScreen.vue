@@ -320,7 +320,7 @@ watch(auditPageCount, (count) => { if (auditPage.value > count) auditPage.value 
     :profile-name="formatProfileName(appState.control.profile)"
     @sign-out="signOut"
   >
-    <p v-if="actionError || appState.error" class="form-alert error" role="alert">{{ actionError || appState.error }}</p>
+    <p v-if="actionError || appState.feedback?.kind === 'error'" class="form-alert error" role="alert">{{ actionError || appState.feedback?.text }}</p>
     <p v-if="actionMessage" class="form-alert success" role="status">{{ actionMessage }}</p>
 
     <section v-if="!isAudit" class="administrator-page">

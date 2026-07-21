@@ -210,6 +210,7 @@ export interface ProtocolState {
   bootstrapAccountId: string;
   knownEvents: Set<string>;
   events: Map<string, SignedEvent>;
+  /** Device certificates keyed by deviceProjectionKey(accountId, deviceId). */
   devices: Map<string, DeviceCertificate>;
   accounts: Map<string, AccountStatus>;
   roles: Map<string, RoleProjection>;

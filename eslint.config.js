@@ -132,7 +132,7 @@ export default [
     }
   },
   {
-    files: ['*.config.{js,mjs,cjs,ts}', 'eslint.config.js', 'vite.config.ts', 'vitest.config.ts', 'p2p-node/**/*.{js,ts}', 'auth-node/**/*.{js,ts}', 'scripts/**/*.js'],
+    files: ['*.config.{js,mjs,cjs,ts}', 'eslint.config.js', 'vite.config.ts', 'vitest.config.ts', 'p2p-node/**/*.{js,ts}', 'auth-node/**/*.{js,ts}', 'scripts/**/*.{js,mjs,cjs}'],
     languageOptions: {
       globals: nodeGlobals
     },

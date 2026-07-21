@@ -64,7 +64,7 @@ async function requestPetAccess() {
 
 <template>
   <WorkspaceShell :role="role" :title="roleLabels[role]" :profile-name="formatProfileName(appState.control.profile)" @sign-out="signOut">
-    <p v-if="actionError || appState.error" class="form-alert error" role="alert">{{ actionError || appState.error }}</p>
+    <p v-if="actionError || appState.feedback?.kind === 'error'" class="form-alert error" role="alert">{{ actionError || appState.feedback?.text }}</p>
 
     <template v-if="role === 'owner'">
       <section class="owner-empty-state">

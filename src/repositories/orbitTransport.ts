@@ -97,6 +97,29 @@ export function sizeBoundEventBatch(
   return selected;
 }
 
+export async function recoverableDeviceAttestations(
+  events: SignedEvent[],
+  conflicts: AuthorizationConflict[],
+  state: ProtocolState,
+  trust: Pick<P2PClientConfig, "authAttestationPublicKey" | "bootstrapSigningPublicKey">,
+): Promise<SignedEvent[]> {
+  const candidates = new Set(conflicts
+    .filter((conflict) => conflict.code === "DEVICE_BINDING_INVALID")
+    .map((conflict) => conflict.eventId));
+  const recovered: SignedEvent[] = [];
+  for (const event of events) {
+    if (!candidates.has(event.eventId) || event.eventType !== "device.attested") continue;
+    const result = await verifySignedEvent(event, state, {
+      allowUnknownDevice: true,
+      authAttestationPublicKey: trust.authAttestationPublicKey,
+      bootstrapSigningPublicKey: trust.bootstrapSigningPublicKey,
+      requireTrustedAttestation: true,
+    });
+    if (result.accepted) recovered.push(event);
+  }
+  return recovered;
+}
+
 function controller(
   state: ProtocolState,
   database: DatabaseKind,
@@ -259,6 +282,16 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
       bootstrapSigningPublicKey: this.config.bootstrapSigningPublicKey,
       requireTrustedAttestation: true,
     });
+    const recoveryEvents = await recoverableDeviceAttestations(
+      await super.list("control"),
+      await this.listConflicts(),
+      this.accessState,
+      this.config,
+    );
+    for (const event of recoveryEvents) {
+      await this.queueOutbox(event);
+      logP2p("info", "p2p.attestation-recovery.queued", { eventId: event.eventId, accountId: event.actorAccountId, deviceId: event.actorDeviceId });
+    }
     const medical = await orbitdb.open(this.config.medicalDatabaseAddress ?? this.config.medicalDatabaseName, { type: "events", AccessController: medicalAccess }) as OrbitDb;
     logP2p("info", "p2p.database.opened", { database: "medical", address: medical.address?.toString() });
     const medicalReplicated = await waitForInitialReplication(medical);
@@ -356,6 +389,7 @@ export class OrbitEventTransport extends IndexedDbEventTransport {
         if (!event) continue;
         if (result.status === "persisted" || result.status === "duplicate") {
           await this.removeOutbox(result.eventId);
+          await this.removeConflict(result.eventId);
           acknowledged += 1;
           logP2p("info", "p2p.outbox.flush.succeeded", { eventId: event.eventId, eventType: event.eventType, database: event.database, status: result.status });
         } else if (result.status === "rejected") {

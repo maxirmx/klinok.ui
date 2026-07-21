@@ -31,11 +31,12 @@ async function repositoryFor(
   accountId: string,
   role: ActiveRoleContext["role"],
   bootstrapAccountId = "bootstrap-administrator",
+  deviceId = `${accountId}-device`,
 ) {
   const keys = await generateUserKeySet();
   const exported = await exportUserKeySet(keys);
   const context: ActiveRoleContext = {
-    accountId, deviceId: `${accountId}-device`, orbitIdentityId: `${accountId}-orbit`, role,
+    accountId, deviceId, orbitIdentityId: `klinok-device-${deviceId}`, role,
     roleProofId: `setup-${role}`, userKeyVersion: 1,
   };
   const certificate: DeviceCertificate = {
@@ -47,6 +48,53 @@ async function repositoryFor(
 }
 
 describe("control repository", () => {
+  it("isolates certificates for two accounts that share one installation ID", async () => {
+    const transport = new MemoryEventTransport();
+    await transport.initialize();
+    const sharedDeviceId = "shared-browser-device";
+    const first = await repositoryFor(transport, "first-account", "owner", "bootstrap-administrator", sharedDeviceId);
+    const second = await repositoryFor(transport, "second-account", "owner", "bootstrap-administrator", sharedDeviceId);
+
+    await first.initialize({ profile: { firstName: "Первый", lastName: "Владелец" }, requestedRoles: ["owner"] });
+    await second.initialize({ profile: { firstName: "Второй", lastName: "Владелец" }, requestedRoles: ["owner"] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const attestations = (await transport.list("control")).filter((event) => event.eventType === "device.attested");
+    expect(attestations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ aggregateId: "first-account", resourceId: sharedDeviceId }),
+      expect.objectContaining({ aggregateId: "second-account", resourceId: sharedDeviceId }),
+    ]));
+    expect((await first.snapshot()).devices).toEqual([
+      expect.objectContaining({ accountId: "first-account", deviceId: sharedDeviceId, status: "active" }),
+    ]);
+    expect((await second.snapshot()).devices).toEqual([
+      expect.objectContaining({ accountId: "second-account", deviceId: sharedDeviceId, status: "active" }),
+    ]);
+
+    await first.revokeDevice(sharedDeviceId);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await first.snapshot()).devices[0]?.status).toBe("revoked");
+    expect((await second.snapshot()).devices[0]?.status).toBe("active");
+  });
+
+  it("rotates only the matching account certificate when installation IDs are shared", async () => {
+    const transport = new MemoryEventTransport();
+    await transport.initialize();
+    const sharedDeviceId = "shared-browser-device";
+    const first = await repositoryFor(transport, "first-account", "owner", "bootstrap-administrator", sharedDeviceId);
+    const second = await repositoryFor(transport, "second-account", "owner", "bootstrap-administrator", sharedDeviceId);
+    await first.initialize({ profile: { firstName: "Первый", lastName: "Владелец" }, requestedRoles: ["owner"] });
+    await second.initialize({ profile: { firstName: "Второй", lastName: "Владелец" }, requestedRoles: ["owner"] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const firstCertificate = (await first.snapshot()).devices[0]!;
+    await first.rotateCurrentDevice({ ...firstCertificate, userKeyVersion: 2, issuedAt: "2026-07-20T10:00:00.000Z" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((await first.snapshot()).devices[0]?.userKeyVersion).toBe(2);
+    expect((await second.snapshot()).devices[0]?.userKeyVersion).toBe(1);
+  });
+
   it("attests the device, encrypts the profile, and immediately approves Owner", async () => {
     const { repository, transport } = await fixture();
     await repository.initialize({

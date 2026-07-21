@@ -42,11 +42,12 @@ async function register(page: Page, request: APIRequestContext, input: {
     await page.getByLabel("Ветеринар").check();
   }
   await page.getByRole("button", { name: "Продолжить" }).click();
-  await page.getByLabel(/отдельно принимаю/).check();
-  await page.getByLabel(/пользовательское соглашение/).check();
+  await page.getByLabel(/регистрируюсь в тестовой системе/).check();
+  await page.getByLabel(/не использовать при регистрации/).check();
   await page.getByLabel(/исполнилось 18/).check();
   await page.getByRole("button", { name: "Зарегистрироваться" }).click();
-  await expect(page.getByText(/Письмо отправлено/)).toBeVisible();
+  await expect(page).toHaveURL(/\/auth\/verify-email$/);
+  await expect(page.getByText(/Перейдите в Вашу программу электронной почты/)).toBeVisible();
   await page.goto(await verificationLink(request, input.email));
   await expect(page.getByText(/Почта подтверждена/)).toBeVisible();
 }

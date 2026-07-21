@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { Role } from "@klinok/protocol";
+import AppIcon from "../components/AppIcon.vue";
 import BrandLogo from "../components/BrandLogo.vue";
 import PasswordInput from "../components/PasswordInput.vue";
 import RoleSelectionCards from "../components/RoleSelectionCards.vue";
-import { appState, forgotPassword, getConfig, login, register, resetPassword, verifyEmail } from "../appStore";
+import { AUTH_SUCCESS_MESSAGES, appState, dismissAuthFeedback, forgotPassword, login, register, resetPassword, verifyEmail } from "../appStore";
 import { getDeviceId, getOrCreateDeviceName, suggestedDeviceName } from "../repositories/deviceVault";
 import { roleHomePath } from "../roleNavigation";
 import { APP_VERSION } from "../version";
@@ -20,10 +21,11 @@ const deviceName = ref(isNewDevice ? suggestedDeviceName() : getOrCreateDeviceNa
 const confirmPassword = ref("");
 const registrationConfirmPassword = ref("");
 const initialRole = ref<Role>("owner");
-const acceptedConsent = ref(false);
-const acceptedAgreement = ref(false);
+const acceptedConsent = ref(true);
+const acceptedAgreement = ref(true);
+const acceptedDisclaimer1 = ref(false);
+const acceptedDisclaimer2 = ref(false);
 const ageConfirmed = ref(false);
-const localMessage = ref("");
 const registration = reactive({
   firstName: "", lastName: "", patronymic: "", email: "", password: "",
 });
@@ -53,25 +55,24 @@ function continueRegistration() {
 
 async function submitRegistration() {
   const saved = sessionStorage.getItem("klinok:registration");
-  if (!saved || !acceptedConsent.value || !acceptedAgreement.value || !ageConfirmed.value) return;
+  if (!saved || !acceptedConsent.value || !acceptedAgreement.value || !ageConfirmed.value || !acceptedDisclaimer1.value || !acceptedDisclaimer2.value) return;
   const input = JSON.parse(saved) as typeof registration & { requestedRoles: Role[] };
   try {
     await register({ ...input, patronymic: input.patronymic || undefined, ageConfirmed: true });
     sessionStorage.removeItem("klinok:registration");
-    localMessage.value = "Письмо отправлено. Перейдите по ссылке из письма, затем войдите.";
+    await router.replace("/auth/verify-email");
   } catch { /* app store exposes a localized error */ }
 }
 
 async function submitForgot() {
-  await forgotPassword(email.value);
-  localMessage.value = "Если аккаунт существует, письмо для восстановления отправлено.";
+  try { await forgotPassword(email.value); }
+  catch { /* app store exposes a localized error */ }
 }
 
 async function submitReset() {
   if (password.value.length < 6 || password.value.length > 128 || password.value !== confirmPassword.value) return;
   try {
     await resetPassword(String(route.query.token ?? ""), password.value);
-    localMessage.value = "Пароль изменён. Теперь войдите в аккаунт.";
   } catch { /* app store exposes a localized error */ }
 }
 
@@ -81,10 +82,24 @@ onMounted(async () => {
     if (!saved) await router.replace("/auth/register");
   }
   if (mode.value === "verify" && route.query.token) {
-    try { await verifyEmail(String(route.query.token)); localMessage.value = "Почта подтверждена. Теперь войдите в аккаунт."; }
+    try { await verifyEmail(String(route.query.token)); }
     catch { /* app store exposes a localized error */ }
   }
 });
+
+watch(() => route.fullPath, (currentPath, previousPath) => {
+  if (currentPath !== previousPath) dismissAuthFeedback();
+});
+onBeforeUnmount(dismissAuthFeedback);
+
+// ...... real registration form is commented out for now
+//          <label><input v-model="acceptedConsent" type="checkbox" required />
+//            <span>Я принимаю <a :href="getConfig()?.legal.personalDataConsent.href" target="_blank">согласие на обработку персональных данных</a>.</span>
+//          </label>
+//          <label><input v-model="acceptedAgreement" type="checkbox" required />
+//            <span>Я принимаю <a :href="getConfig()?.legal.userAgreement.href" target="_blank">пользовательское соглашение</a>.</span>
+//          </label>
+
 </script>
 
 <template>
@@ -102,11 +117,19 @@ onMounted(async () => {
       <div class="auth-center operational-form">
         <header class="auth-heading">
           <h1>{{ title }}</h1>
-          <p v-if="mode === 'consent'">Каждое согласие подтверждается отдельно</p>
         </header>
 
-        <p v-if="appState.error" class="form-alert error" role="alert">{{ appState.error }}</p>
-        <p v-if="localMessage || appState.message" class="form-alert success" role="status">{{ localMessage || appState.message }}</p>
+        <div
+          v-if="appState.feedback"
+          class="form-alert auth-feedback"
+          :class="appState.feedback.kind"
+          :role="appState.feedback.kind === 'error' ? 'alert' : 'status'"
+        >
+          <span>{{ appState.feedback.text }}</span>
+          <button type="button" aria-label="Закрыть сообщение" @click="dismissAuthFeedback">
+            <AppIcon name="close" />
+          </button>
+        </div>
 
         <form v-if="mode === 'login'" class="form-stack" @submit.prevent="submitLogin">
           <label class="auth-field-label"><span>Электронная почта</span><input v-model="email" type="email" autocomplete="email" required /></label>
@@ -139,25 +162,28 @@ onMounted(async () => {
         </form>
 
         <form v-else-if="mode === 'consent'" class="form-stack consent-stack" @submit.prevent="submitRegistration">
-          <label><input v-model="acceptedConsent" type="checkbox" required />
-            <span>Я отдельно принимаю <a :href="getConfig()?.legal.personalDataConsent.href" target="_blank">согласие на обработку персональных данных</a>.</span>
+          <label><input v-model="acceptedDisclaimer1" type="checkbox" required />
+          <span>Я понимаю, что регистрируюсь в тестовой системе, которая используется исключительно для целей разработки.</span>
           </label>
-          <label><input v-model="acceptedAgreement" type="checkbox" required />
-            <span>Я принимаю <a :href="getConfig()?.legal.userAgreement.href" target="_blank">пользовательское соглашение</a>.</span>
+          <label><input v-model="acceptedDisclaimer2" type="checkbox" required />
+          <span>Я обязуюсь не использовать при регистрации свои персональные данные, равно как и персональные данные третьих лиц.</span>
           </label>
-          <label><input v-model="ageConfirmed" type="checkbox" required /> <span>Мне исполнилось 18 лет.</span></label>
+          <label><input v-model="ageConfirmed" type="checkbox" required />
+          <span>Мне исполнилось 18 лет.</span>
+          </label>
+
           <button class="primary-action" :disabled="appState.busy">Зарегистрироваться</button>
           <RouterLink class="auth-text-link" to="/auth/register">Вернуться к данным</RouterLink>
         </form>
 
         <div v-else-if="mode === 'verify'" class="form-stack">
-          <p v-if="!route.query.token">Откройте ссылку из письма для подтверждения электронной почты.</p>
+          <p v-if="!route.query.token">{{ AUTH_SUCCESS_MESSAGES.registration }}</p>
           <RouterLink class="primary-action" to="/auth/login">Перейти ко входу</RouterLink>
         </div>
 
         <form v-else-if="mode === 'forgot'" class="form-stack" @submit.prevent="submitForgot">
           <label class="auth-field-label"><span>Электронная почта</span><input v-model="email" type="email" autocomplete="email" required /></label>
-          <button class="primary-action">Отправить письмо</button>
+          <button class="primary-action" :disabled="appState.busy">Отправить письмо</button>
           <RouterLink class="auth-text-link" to="/auth/login">Вернуться ко входу</RouterLink>
         </form>
 
@@ -165,7 +191,7 @@ onMounted(async () => {
           <PasswordInput v-model="password" label="Новый пароль" minlength="6" maxlength="128" autocomplete="new-password" required />
           <PasswordInput v-model="confirmPassword" label="Повторите пароль" minlength="6" maxlength="128" autocomplete="new-password" required />
           <p v-if="confirmPassword && password !== confirmPassword" class="field-error" role="alert">Пароли не совпадают.</p>
-          <button class="primary-action" :disabled="password.length < 6 || password.length > 128 || password !== confirmPassword">Изменить пароль</button>
+          <button class="primary-action" :disabled="appState.busy || password.length < 6 || password.length > 128 || password !== confirmPassword">Изменить пароль</button>
           <RouterLink class="auth-text-link" to="/auth/login">Вернуться ко входу</RouterLink>
         </form>
       </div>

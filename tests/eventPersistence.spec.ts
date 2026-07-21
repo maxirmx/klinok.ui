@@ -1,11 +1,19 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it } from "vitest";
-import type { SignedEvent } from "@klinok/protocol";
+import {
+  createProtocolState,
+  deviceProjectionKey,
+  exportUserKeySet,
+  generateUserKeySet,
+  signEvent,
+  type SignedEvent,
+} from "@klinok/protocol";
+import { AttestationService } from "../auth-node/src/attestation";
 import { closeBrowserHeliaStorage, createBrowserHeliaInit } from "../src/repositories/browserStorage";
 import { createAndStoreUserKeys, loadUserKeys } from "../src/repositories/deviceVault";
 import { IndexedDbEventTransport } from "../src/repositories/eventTransport";
 import { getPetKey, putPetKey } from "../src/repositories/petKeyVault";
-import { parentOrdered, waitForInitialReplication } from "../src/repositories/orbitTransport";
+import { parentOrdered, recoverableDeviceAttestations, waitForInitialReplication } from "../src/repositories/orbitTransport";
 
 const databaseNames = [
   "klinok-events-v1",
@@ -53,6 +61,45 @@ afterEach(async () => {
 });
 
 describe("durable browser event storage", () => {
+  it("revalidates a legacy cross-account attestation conflict for requeue", async () => {
+    const attestation = await AttestationService.create();
+    const authAttestationPublicKey = await attestation.publicJwk();
+    const sharedDeviceId = "shared-browser-device";
+    const firstKeys = await generateUserKeySet();
+    const firstExported = await exportUserKeySet(firstKeys);
+    const firstCertificate = await attestation.certificate({
+      enrollmentId: "first-enrollment", operationId: "first-operation", accountId: "first-account",
+      deviceId: sharedDeviceId, orbitIdentityId: `klinok-device-${sharedDeviceId}`, status: "active",
+      signingPublicKey: firstExported.signingPublicKey, encryptionPublicKey: firstExported.encryptionPublicKey,
+      createdAt: "2026-07-15T10:00:00.000Z",
+    });
+    const secondKeys = await generateUserKeySet();
+    const secondExported = await exportUserKeySet(secondKeys);
+    const secondCertificate = await attestation.certificate({
+      enrollmentId: "second-enrollment", operationId: "second-operation", accountId: "second-account",
+      deviceId: sharedDeviceId, orbitIdentityId: `klinok-device-${sharedDeviceId}`, status: "active",
+      signingPublicKey: secondExported.signingPublicKey, encryptionPublicKey: secondExported.encryptionPublicKey,
+      createdAt: "2026-07-15T10:01:00.000Z",
+    });
+    const secondEvent = await signEvent({
+      schemaVersion: 1, database: "control", eventId: "second-attestation", operationId: "second-operation",
+      eventType: "device.attested", aggregateId: "second-account", resourceId: sharedDeviceId,
+      createdAt: "2026-07-15T10:01:00.000Z", actorAccountId: "second-account", actorDeviceId: sharedDeviceId,
+      orbitIdentityId: `klinok-device-${sharedDeviceId}`, activeRole: "owner", parents: [], keyVersion: 1,
+      proofIds: [], metadata: { certificate: secondCertificate as unknown as Record<string, unknown> }, keyring: [],
+      payload: { algorithm: "AES-GCM-256", iv: "iv", ciphertext: "ciphertext" },
+    }, secondKeys.signingPrivateKey);
+    const state = createProtocolState("bootstrap-administrator");
+    state.devices.set(deviceProjectionKey(firstCertificate.accountId, firstCertificate.deviceId), firstCertificate);
+
+    await expect(recoverableDeviceAttestations(
+      [secondEvent],
+      [{ eventId: secondEvent.eventId, database: "control", code: "DEVICE_BINDING_INVALID", message: "legacy collision", createdAt: secondEvent.createdAt }],
+      state,
+      { authAttestationPublicKey },
+    )).resolves.toEqual([secondEvent]);
+  });
+
   it("retains events, pending work, and conflict history without carrying failure status into a new session", async () => {
     const first = new IndexedDbEventTransport();
     await first.initialize();
@@ -83,6 +130,9 @@ describe("durable browser event storage", () => {
       createdAt: saved.createdAt,
     });
     expect(await reopened.syncStatus()).toMatchObject({ pendingCount: 1, failedCount: 1 });
+    await reopened.removeConflict("current-session-rejection");
+    expect(await reopened.listConflicts()).toEqual([expect.objectContaining({ eventId: "rejected-event" })]);
+    expect(await reopened.syncStatus()).toMatchObject({ pendingCount: 1, failedCount: 0 });
     await reopened.dispose();
   });
 
