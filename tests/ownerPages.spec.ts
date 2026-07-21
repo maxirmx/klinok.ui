@@ -29,7 +29,7 @@ vi.mock("../src/appStore", async () => {
     events: [],
   };
   const state = reactive({
-    error: "",
+    feedback: null as { kind: "success" | "error"; text: string } | null,
     control: {
       profile: { firstName: "Ольга", patronymic: "", lastName: "Владелец" },
       profiles: [],

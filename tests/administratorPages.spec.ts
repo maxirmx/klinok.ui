@@ -13,7 +13,7 @@ const appMocks = vi.hoisted(() => ({
 vi.mock("../src/appStore", async () => {
   const { reactive, readonly } = await import("vue");
   const state = reactive({
-    error: "",
+    feedback: null as { kind: "success" | "error"; text: string } | null,
     session: { authenticated: true, accountId: "bootstrap-administrator" },
     activeRole: "administrator",
     control: {

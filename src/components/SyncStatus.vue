@@ -3,7 +3,11 @@ import { computed } from "vue";
 import { appState } from "../appStore";
 
 const status = computed(() => {
-  if (!appState.repositoryConnected) return { kind: "error", label: "Хранилище недоступно", title: appState.error };
+  if (!appState.repositoryConnected) return {
+    kind: "error",
+    label: "Хранилище недоступно",
+    title: appState.feedback?.kind === "error" ? appState.feedback.text : "",
+  };
   if (appState.sync.lastError) return { kind: "error", label: "Ошибка синхронизации", title: appState.sync.lastError };
   if (appState.sync.failedCount) return { kind: "error", label: `Конфликты: ${appState.sync.failedCount}`, title: "Часть изменений отклонена проверкой доверенного узла." };
   if (appState.sync.pendingCount || appState.sync.syncing) {
