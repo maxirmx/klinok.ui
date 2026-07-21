@@ -73,6 +73,42 @@ run, use `KLINOK_SKIP_BUILD=true ./scripts/run-local.sh`. Stop the stack with:
 COMPOSE_PROJECT_NAME=klinok_local docker compose down
 ```
 
+### Clean local reset
+
+An ordinary `docker compose down` preserves the authentication LevelDB and P2P
+OrbitDB data in Docker volumes. To remove all local containers and database data and
+start from scratch, run:
+
+```sh
+COMPOSE_PROJECT_NAME=klinok_local docker compose down -v --remove-orphans
+rm -rf .klinok-local
+./scripts/run-local.sh
+```
+
+The `-v` option permanently removes the local authentication accounts, roles, pets,
+medical records, and P2P history. Removing `.klinok-local` also removes the generated
+mixed-development configuration and the local copy of the bootstrap recovery bundle.
+Save that recovery bundle elsewhere first if it is needed for an existing deployment.
+
+The browser stores its device identity, private keys, cache, and durable outbox in
+IndexedDB and other site storage for `http://localhost:8080`. Clear this storage as
+well after deleting the Docker volumes so that an old browser identity is not reused
+with the new deployment:
+
+1. Close every open Klinok tab except one.
+2. Open `http://localhost:8080` and the browser Developer Tools.
+3. In Chrome or Edge, select **Application → Storage → Clear site data**. In Firefox,
+   select **Storage → Indexed DB**, delete the Klinok databases, and clear the site
+   cookies and local storage for `localhost`.
+4. Reload the application and sign in with the credentials printed by
+   `./scripts/run-local.sh`.
+
+A new browser profile can be used instead. A private/incognito window is appropriate
+for short tests only because its device identity is deleted when the window closes.
+Browser storage does not need to be cleared for ordinary restarts or UI rebuilds.
+Do not clear the last browser device for a deployment whose Docker volumes are being
+kept unless the bootstrap recovery bundle and its passphrase are available.
+
 If Compose crashes with `SIGBUS` or reports an input/output error under WSL, quit
 Docker Desktop, run `wsl --shutdown` in Windows PowerShell, and restart Docker Desktop.
 
