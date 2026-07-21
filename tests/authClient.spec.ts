@@ -28,6 +28,13 @@ describe("auth client", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/directory/pets?owner=%D0%98%D0%B2%D0%B0%D0%BD%D0%BE%D0%B2+%D0%98%D0%B2%D0%B0%D0%BD&pet=%D0%91%D0%B0%D1%80%D1%81&page=1&pageSize=50&sort=owner");
   });
 
+  it("sends the doctor pet sort field and direction", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], page: 1, pageSize: 10, total: 0, pageCount: 1 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await new AuthClient().getMyDirectoryPets("Буся", 2, 10, "pet", "desc");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/directory/my-pets?query=%D0%91%D1%83%D1%81%D1%8F&page=2&pageSize=10&sort=pet&direction=desc");
+  });
+
   it("sends credential changes through an authenticated CSRF request", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ authenticated: true, csrfToken: "csrf" }), { status: 200 }))

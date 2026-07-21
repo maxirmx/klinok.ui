@@ -3265,6 +3265,18 @@ dd {
 .workspace-content .grant-access-form .list-row {
   grid-template-columns: minmax(0, 1fr) auto;
 }
+.doctor-access-table th:first-child { width: 124px; }
+.doctor-access-table th:nth-child(3) { width: auto; }
+.doctor-access-table th:nth-child(4) { width: 190px; }
+.doctor-access-empty { color: var(--text-muted); text-align: center; }
+.workspace-content .doctor-request-search-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: end;
+}
+.doctor-request-result > div { min-width: 0; }
+.doctor-request-result small { margin-top: 2px; }
+.doctor-request-result span { margin-top: 6px; }
+.doctor-request-access-form .confirmation-dialog-actions { margin-top: 0; }
 .grant-access-form .form-alert { margin: 0; }
 
 .administrator-page {
@@ -3380,7 +3392,8 @@ dd {
 .administrator-table th:nth-child(3),
 .administrator-table th:nth-child(4) { width: 142px; }
 .administrator-table tbody tr:last-child td { border-bottom: 0; }
-.administrator-table th button {
+.administrator-table th button,
+.doctor-access-table th .doctor-sort-button {
   display: inline-flex;
   min-height: 28px;
   align-items: center;
@@ -3392,13 +3405,15 @@ dd {
   font: inherit;
   cursor: pointer;
 }
-.administrator-table th button .app-icon {
+.administrator-table th button .app-icon,
+.doctor-access-table th .doctor-sort-button .app-icon {
   width: 14px;
   height: 14px;
   transform: rotate(180deg);
   transition: transform .15s ease;
 }
-.administrator-table th button .app-icon.descending { transform: none; }
+.administrator-table th button .app-icon.descending,
+.doctor-access-table th .doctor-sort-button .app-icon.descending { transform: none; }
 .administrator-actions {
   display: flex;
   align-items: center;
@@ -3657,4 +3672,7 @@ dd {
   .owner-access-table .owner-access-doctor small { grid-column: 2; grid-row: 2; margin-top: 0; }
   .owner-access-action-list { justify-content: flex-start; }
   .owner-access-table td.is-empty { display: none; }
+  .owner-access-table td.doctor-access-empty { display: block; text-align: center; }
+  .workspace-content .doctor-request-search-form { grid-template-columns: minmax(0, 1fr) auto; }
+  .workspace-content .doctor-request-search-form > label:first-child { grid-column: 1 / -1; }
 }

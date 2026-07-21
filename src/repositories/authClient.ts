@@ -144,8 +144,8 @@ export class AuthClient {
     return this.request<DirectoryPageDto<DirectoryPetDto>>(`/api/auth/directory/pets?${params}`);
   }
 
-  getMyDirectoryPets(query = "", page = 1, pageSize = 20, sort = "owner") {
-    const params = new URLSearchParams({ query, page: String(page), pageSize: String(pageSize), sort });
+  getMyDirectoryPets(query = "", page = 1, pageSize = 20, sort = "owner", direction = "asc") {
+    const params = new URLSearchParams({ query, page: String(page), pageSize: String(pageSize), sort, direction });
     return this.request<DirectoryPageDto<DirectoryPetDto>>(`/api/auth/directory/my-pets?${params}`);
   }
 

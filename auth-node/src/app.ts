@@ -673,7 +673,7 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return reply.header("Cache-Control", "no-store").send(pet);
   });
 
-  app.get<{ Querystring: { query?: string; sort?: string; page?: string; pageSize?: string } }>("/api/auth/directory/my-pets", {
+  app.get<{ Querystring: { query?: string; sort?: string; direction?: string; page?: string; pageSize?: string } }>("/api/auth/directory/my-pets", {
     config: { rateLimit: { max: options.config.rateLimit.sessionIpPerMinute, timeWindow: 60_000 } },
   }, async (request, reply) => {
     const current = await authenticated(request, reply, false);
@@ -698,9 +698,10 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
         || pet.petId.toLocaleLowerCase("ru") === query
         || pet.species.toLocaleLowerCase("ru").includes(query)))
       .map((pet): DirectoryPetDto => ({ ...pet, permissions: access.get(pet.petId)!.actions, grantId: access.get(pet.petId)!.grantId }));
-    pets.sort((left, right) => request.query.sort === "pet"
-      ? left.name.localeCompare(right.name, "ru")
-      : left.ownerDisplayName.localeCompare(right.ownerDisplayName, "ru") || left.name.localeCompare(right.name, "ru"));
+    const direction = request.query.direction === "desc" ? -1 : 1;
+    pets.sort((left, right) => direction * (request.query.sort === "pet"
+      ? left.name.localeCompare(right.name, "ru") || left.ownerDisplayName.localeCompare(right.ownerDisplayName, "ru")
+      : left.ownerDisplayName.localeCompare(right.ownerDisplayName, "ru") || left.name.localeCompare(right.name, "ru")));
     return reply.header("Cache-Control", "no-store").send(directoryPage(pets, request.query.page, request.query.pageSize));
   });
 

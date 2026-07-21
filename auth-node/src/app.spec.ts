@@ -654,6 +654,32 @@ describe("auth-node", () => {
       items: [{ petId, grantId: "grant-directory-1", permissions: ["read", "write_unconfirmed"] }],
     });
 
+    const secondPetId = "pet-directory-2";
+    await store.putObservedPetOwner(secondPetId, owner.accountId);
+    expect((await app.inject({
+      method: "PUT",
+      url: `/api/auth/directory/pets/${secondPetId}`,
+      headers: { origin: "https://klinok.test", cookie: owner.cookie, "x-csrf-token": owner.csrf },
+      payload: { name: "Альфа", species: "Кошка" },
+    })).statusCode).toBe(200);
+    await store.putObservedGrant({
+      grantId: "grant-directory-2",
+      petId: secondPetId,
+      grantorAccountId: owner.accountId,
+      granteeAccountId: doctor.accountId,
+      actions: ["read"],
+      petKeyVersion: 1,
+      status: "active",
+      createdAt: "2026-07-21T10:01:00.000Z",
+    });
+    const descendingPets = await app.inject({
+      method: "GET",
+      url: "/api/auth/directory/my-pets?sort=pet&direction=desc",
+      headers: { cookie: doctor.cookie },
+    });
+    expect(descendingPets.statusCode).toBe(200);
+    expect(descendingPets.json().items.map((item: { name: string }) => item.name)).toEqual(["Буся", "Альфа"]);
+
     const myPetById = await app.inject({ method: "GET", url: `/api/auth/directory/my-pets?query=${encodeURIComponent(petId)}`, headers: { cookie: doctor.cookie } });
     expect(myPetById.statusCode).toBe(200);
     expect(myPetById.json()).toMatchObject({ total: 1, items: [{ petId }] });

@@ -415,8 +415,8 @@ export function searchPetDirectory(owner = "", pet = "", page = 1, pageSize = 20
   return auth.searchDirectoryPets(owner, pet, page, pageSize, sort);
 }
 
-export function loadDoctorPets(query = "", page = 1, pageSize = 20, sort = "owner"): Promise<DirectoryPageDto<DirectoryPetDto>> {
-  return auth.getMyDirectoryPets(query, page, pageSize, sort);
+export function loadDoctorPets(query = "", page = 1, pageSize = 20, sort = "owner", direction = "asc"): Promise<DirectoryPageDto<DirectoryPetDto>> {
+  return auth.getMyDirectoryPets(query, page, pageSize, sort, direction);
 }
 
 export async function syncDirectoryPet(pet: Pick<DirectoryPetDto, "petId" | "species" | "name">): Promise<void> {

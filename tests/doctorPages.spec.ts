@@ -1,6 +1,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import AppIcon from "../src/components/AppIcon.vue";
 import DoctorScreen from "../src/screens/DoctorScreen.vue";
 import type { MedicalSnapshot, PetProfile } from "../src/repositories/types";
 
@@ -127,9 +128,41 @@ describe("Doctor pages", () => {
     await flushPromises();
     expect(wrapper.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text()))
       .toEqual(["Питомцы", "Запросить доступ"]);
-    expect(wrapper.get(".doctor-table").text()).toContain("Ольга Владелец · Собака Буся");
-    expect(wrapper.get(".doctor-table").text()).toContain("Чтение, Запись, Делегирование");
-    expect(directoryMocks.loadDoctorPets).toHaveBeenCalledWith("", 1, 20, "owner");
+    const table = wrapper.get(".doctor-access-table");
+    expect(table.findAll("th").map((header) => header.text())).toEqual([
+      "Действия", "Питомец", "Владелец", "Делегирование",
+    ]);
+    const cells = table.get("tbody tr").findAll("td");
+    expect(cells[0]!.attributes("data-label")).toBe("Действия");
+    expect(cells[1]!.get("strong").text()).toBe("Собака Буся");
+    expect(cells[1]!.get("small").text()).toBe("pet-1");
+    expect(cells[2]!.get("strong").text()).toBe("Ольга Владелец");
+    expect(cells[2]!.get("small").text()).toBe("owner-1");
+    expect(cells[3]!.attributes("data-label")).toBe("Делегирование");
+    expect(cells[3]!.text()).toBe("Да");
+    expect(cells[0]!.findAll("a").map((button) => button.attributes("title"))).toEqual([
+      "Открыть медицинскую карту", "Делегировать доступ", "Отказаться от доступа",
+    ]);
+    expect(cells[0]!.findAll("a").map((button) => button.getComponent(AppIcon).props("name")))
+      .toEqual(["eye", "share", "close"]);
+    expect(wrapper.get(".doctor-access-pagination").text()).toContain("Показаны 1–1 из 1");
+    expect(directoryMocks.loadDoctorPets).toHaveBeenCalledWith("", 1, 10, "owner", "asc");
+    const petSortHeader = table.findAll("th")[1]!;
+    const ownerSortHeader = table.findAll("th")[2]!;
+    expect(petSortHeader.attributes("aria-sort")).toBe("none");
+    expect(ownerSortHeader.attributes("aria-sort")).toBe("ascending");
+    await ownerSortHeader.get("button").trigger("click");
+    await flushPromises();
+    expect(ownerSortHeader.attributes("aria-sort")).toBe("descending");
+    expect(ownerSortHeader.getComponent(AppIcon).classes()).toContain("descending");
+    expect(directoryMocks.loadDoctorPets).toHaveBeenLastCalledWith("", 1, 10, "owner", "desc");
+    await petSortHeader.get("button").trigger("click");
+    await flushPromises();
+    expect(petSortHeader.attributes("aria-sort")).toBe("ascending");
+    expect(directoryMocks.loadDoctorPets).toHaveBeenLastCalledWith("", 1, 10, "pet", "asc");
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    await table.get('button[title="Запросить доступ"]').trigger("click");
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Запросить доступ");
   });
 
   it("finds a pet by partial owner name and pet name before requesting access", async () => {
@@ -145,21 +178,84 @@ describe("Doctor pages", () => {
       page: 1, pageSize: 50, total: 1, pageCount: 1,
     });
     const wrapper = await mountAt("/doctor/pets/request-access", "doctor-pet-request-access");
-    expect(wrapper.findAll("label span").map((label) => label.text())).toEqual(expect.arrayContaining([
+    const dialog = wrapper.get('[role="dialog"]');
+    expect(dialog.findAll("label span").map((label) => label.text())).toEqual(expect.arrayContaining([
       "ФИО владельца, его часть или полный ID",
       "Кличка, её часть или полный ID питомца",
     ]));
-    await wrapper.get('input[type="search"]').setValue("Петровна");
-    await wrapper.findAll('input[type="search"]')[1]!.setValue("Буся");
-    await wrapper.get("form").trigger("submit");
+    expect(wrapper.text()).not.toContain("Предыдущие запросы");
+    const requestInputs = dialog.findAll<HTMLInputElement>('input[type="search"]');
+    await requestInputs[0]!.setValue("Петровна");
+    await requestInputs[1]!.setValue("Буся");
+    await dialog.get(".doctor-request-search-form").trigger("submit");
     await flushPromises();
 
     expect(directoryMocks.searchPetDirectory).toHaveBeenCalledWith("Петровна", "Буся", 1, 50);
-    expect(wrapper.get(".directory-result").text()).toContain("Ольга Петровна Владелец · Кошка Буся");
-    expect(wrapper.get(".directory-result").text()).toContain("owner-2 · pet-2");
-    await wrapper.get(".directory-result button").trigger("click");
+    const result = dialog.get(".doctor-request-result");
+    expect(result.text()).toContain("Кошка Буся");
+    expect(result.text()).toContain("pet-2");
+    expect(result.text()).toContain("Ольга Петровна Владелец");
+    expect(result.text()).toContain("owner-2");
+    expect(result.get('button[title="Отправить запрос"]').getComponent(AppIcon).props("name")).toBe("check");
+    await result.get('button[title="Отправить запрос"]').trigger("click");
     await flushPromises();
     expect(repositoryMocks.requestAccess).toHaveBeenCalledWith("pet-2");
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+  });
+
+  it("shows delegation as no and hides the delegate action when it is unavailable", async () => {
+    directoryMocks.loadDoctorPets.mockResolvedValue({
+      items: [{
+        petId: pet.petId,
+        ownerAccountId: pet.ownerAccountId,
+        ownerDisplayName: "Ольга Владелец",
+        species: pet.species,
+        name: pet.name,
+        permissions: ["read", "write_unconfirmed"],
+        grantId: "grant-1",
+        updatedAt: pet.updatedAt,
+      }],
+      page: 1, pageSize: 10, total: 1, pageCount: 1,
+    });
+    const wrapper = await mountAt("/doctor/home", "doctor-home");
+    await flushPromises();
+
+    const row = wrapper.get(".doctor-access-table tbody tr");
+    expect(row.get('td[data-label="Делегирование"]').text()).toBe("Нет");
+    expect(row.find('a[title="Делегировать доступ"]').exists()).toBe(false);
+  });
+
+  it("inherits read and write access while only asking about further delegation", async () => {
+    directoryMocks.searchDoctorDirectory.mockResolvedValue({
+      items: [{
+        accountId: "doctor-2",
+        firstName: "Пётр",
+        lastName: "Врач",
+        displayName: "Пётр Врач",
+        updatedAt: "2026-07-21T10:00:00.000Z",
+      }],
+      page: 1, pageSize: 50, total: 1, pageCount: 1,
+    });
+    const wrapper = await mountAt("/doctor/pets/pet-1/delegate", "doctor-pet-delegate");
+    await wrapper.get('input[required]').setValue("Пётр");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    await wrapper.get(".list-row button").trigger("click");
+
+    expect(wrapper.text()).not.toContain("Создание неподтверждённых приёмов");
+    expect(wrapper.findAll('.check-row input[type="checkbox"]')).toHaveLength(1);
+    const delegationCheckbox = wrapper.get<HTMLInputElement>('.check-row input[type="checkbox"]');
+    expect(delegationCheckbox.element.closest("label")?.textContent).toContain("Разрешить дальнейшее делегирование");
+    await delegationCheckbox.setValue(true);
+    await wrapper.findAll("form")[1]!.trigger("submit");
+    await wrapper.get('[role="alertdialog"] .primary-action').trigger("click");
+    await flushPromises();
+
+    expect(repositoryMocks.delegateGrant).toHaveBeenCalledWith(
+      "grant-1",
+      "doctor-2",
+      ["read", "write_unconfirmed", "delegate"],
+    );
   });
 
   it("saves a structured encounter with the mandatory taxonomy section", async () => {
