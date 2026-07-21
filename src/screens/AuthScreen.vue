@@ -6,7 +6,7 @@ import AppIcon from "../components/AppIcon.vue";
 import BrandLogo from "../components/BrandLogo.vue";
 import PasswordInput from "../components/PasswordInput.vue";
 import RoleSelectionCards from "../components/RoleSelectionCards.vue";
-import { appState, dismissAuthFeedback, forgotPassword, login, register, resetPassword, verifyEmail } from "../appStore";
+import { AUTH_SUCCESS_MESSAGES, appState, dismissAuthFeedback, forgotPassword, login, register, resetPassword, verifyEmail } from "../appStore";
 import { getDeviceId, getOrCreateDeviceName, suggestedDeviceName } from "../repositories/deviceVault";
 import { roleHomePath } from "../roleNavigation";
 import { APP_VERSION } from "../version";
@@ -177,7 +177,7 @@ onBeforeUnmount(dismissAuthFeedback);
         </form>
 
         <div v-else-if="mode === 'verify'" class="form-stack">
-          <p v-if="!route.query.token">Перейдите в Вашу программу электронной почты и откройте ссылку из письма для завершения регистрации.</p>
+          <p v-if="!route.query.token">{{ AUTH_SUCCESS_MESSAGES.registration }}</p>
           <RouterLink class="primary-action" to="/auth/login">Перейти ко входу</RouterLink>
         </div>
 

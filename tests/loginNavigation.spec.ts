@@ -15,6 +15,7 @@ vi.mock("../src/appStore", async () => {
     keyRecoveryRequired: false,
   });
   return {
+    AUTH_SUCCESS_MESSAGES: { registration: "Централизованное сообщение о регистрации" },
     appState: readonly(state),
     dismissAuthFeedback: vi.fn(() => { state.feedback = null; }),
     forgotPassword: vi.fn(),
@@ -27,7 +28,7 @@ vi.mock("../src/appStore", async () => {
   };
 });
 
-const { dismissAuthFeedback, login, register } = appStoreModule;
+const { AUTH_SUCCESS_MESSAGES, dismissAuthFeedback, login, register } = appStoreModule;
 const { setMockFeedback } = appStoreModule as unknown as {
   setMockFeedback: (feedback: { kind: "success" | "error"; text: string } | null) => void;
 };
@@ -117,7 +118,7 @@ describe("login navigation", () => {
     expect(register).toHaveBeenCalledOnce();
     expect(router.currentRoute.value.path).toBe("/auth/verify-email");
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
-    expect(wrapper.text()).toContain("Перейдите в Вашу программу электронной почты и откройте ссылку из письма для завершения регистрации.");
+    expect(wrapper.text()).toContain(AUTH_SUCCESS_MESSAGES.registration);
     expect(wrapper.get('a[href="/auth/login"]').text()).toBe("Перейти ко входу");
   });
 });

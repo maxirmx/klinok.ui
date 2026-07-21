@@ -38,6 +38,7 @@ vi.mock("../src/repositories/authClient", () => {
 });
 
 import {
+  AUTH_SUCCESS_MESSAGES,
   appState,
   bootstrapApp,
   dismissAuthFeedback,
@@ -75,20 +76,20 @@ describe("authentication feedback", () => {
     await register(registration);
     expect(appState.feedback).toEqual({
       kind: "success",
-      text: "Перейдите в Вашу программу электронной почты и откройте ссылку из письма для завершения регистрации.",
+      text: AUTH_SUCCESS_MESSAGES.registration,
     });
 
     await verifyEmail("verification-token");
-    expect(appState.feedback).toEqual({ kind: "success", text: "Почта подтверждена, Вы можете войти в систему." });
+    expect(appState.feedback).toEqual({ kind: "success", text: AUTH_SUCCESS_MESSAGES.verification });
 
     await forgotPassword("user@example.com");
     expect(appState.feedback).toEqual({
       kind: "success",
-      text: "Перейдите в Вашу программу электронной почты и откройте ссылку из письма для восстановления доступа.",
+      text: AUTH_SUCCESS_MESSAGES.recovery,
     });
 
     await resetPassword("reset-token", "new password");
-    expect(appState.feedback).toEqual({ kind: "success", text: "Пароль изменён. Вы можете войти в систему." });
+    expect(appState.feedback).toEqual({ kind: "success", text: AUTH_SUCCESS_MESSAGES["password-reset"] });
   });
 
   it("replaces stale success feedback with a caught error", async () => {

@@ -36,13 +36,13 @@ const emptySync: EventSyncStatus = { pendingCount: 0, failedCount: 0, syncing: f
 type AuthFeedback = { kind: "success" | "error"; text: string };
 type AuthSuccessCode = "registration" | "verification" | "recovery" | "password-reset" | "device-approved";
 
-const AUTH_SUCCESS_MESSAGES: Record<AuthSuccessCode, string> = {
+export const AUTH_SUCCESS_MESSAGES = {
   registration: "Перейдите в Вашу программу электронной почты и откройте ссылку из письма для завершения регистрации.",
   verification: "Почта подтверждена, Вы можете войти в систему.",
   recovery: "Перейдите в Вашу программу электронной почты и откройте ссылку из письма для восстановления доступа.",
   "password-reset": "Пароль изменён. Вы можете войти в систему.",
   "device-approved": "Устройство подтверждено. Ключи переданы по защищённому каналу.",
-};
+} as const satisfies Record<AuthSuccessCode, string>;
 
 const state = reactive({
   initialized: false,
