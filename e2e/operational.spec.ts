@@ -90,12 +90,13 @@ async function openProfileAndWaitForSync(page: Page) {
     .toContainText("Сохранено", { timeout: replicationTimeout });
 }
 
-async function clearBrowserEventCaches(page: Page) {
+async function clearBrowserStorage(page: Page) {
   await page.evaluate(async () => {
-    const retained = new Set(["klinok-identity-v1", "klinok-pet-keys-v1"]);
+    localStorage.clear();
+    sessionStorage.clear();
     const databases = typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
     for (const database of databases) {
-      if (!database.name || retained.has(database.name)) continue;
+      if (!database.name) continue;
       await new Promise<void>((resolve, reject) => {
         const request = indexedDB.deleteDatabase(database.name!);
         request.onsuccess = () => resolve();
@@ -135,18 +136,6 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
 
   const administratorPage = await newPage(await browser.newContext(), "administrator");
   await login(administratorPage, process.env.KLINOK_E2E_BOOTSTRAP_EMAIL ?? "administrator@example.ru", process.env.KLINOK_E2E_BOOTSTRAP_PASSWORD ?? "bootstrap-password-2026");
-  await expect(administratorPage).toHaveURL(/\/profile/);
-  await expect(administratorPage.getByText(/Ключи этого аккаунта отсутствуют/)).toBeVisible();
-  const recoveryBundle = process.env.KLINOK_E2E_RECOVERY_BUNDLE;
-  if (!recoveryBundle) throw new Error("KLINOK_E2E_RECOVERY_BUNDLE is required for the composed E2E test.");
-  await administratorPage.getByLabel("Пакет восстановления").setInputFiles({
-    name: "bootstrap-recovery.bundle.json",
-    mimeType: "application/json",
-    buffer: Buffer.from(recoveryBundle),
-  });
-  await administratorPage.getByLabel("Пароль пакета").fill(process.env.KLINOK_E2E_RECOVERY_PASSPHRASE ?? "offline-recovery-passphrase-2026");
-  await administratorPage.getByRole("button", { name: "Импортировать ключи" }).click();
-  await administratorPage.locator(".workspace-sidebar").getByRole("link", { name: "Пользователи" }).click();
   await expect(administratorPage).toHaveURL(/\/admin\/home/);
   const requestRow = administratorPage.locator(".administrator-table tbody tr").filter({ hasText: doctorAccountId });
   await expect(requestRow).toBeVisible({ timeout: replicationTimeout });
@@ -226,7 +215,7 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   if (process.env.KLINOK_E2E_RESTART_P2P === "true") await restartTrustedNode();
   await ownerPage.getByRole("button", { name: "Выйти", exact: true }).click();
   await expect(ownerPage).toHaveURL(/\/auth\/login/);
-  await clearBrowserEventCaches(ownerPage);
+  await clearBrowserStorage(ownerPage);
   await login(ownerPage, ownerEmail);
   await expect(ownerPage).toHaveURL(/\/(?:profile|owner\/home)/, { timeout: replicationTimeout });
   if (new URL(ownerPage.url()).pathname === "/profile") {

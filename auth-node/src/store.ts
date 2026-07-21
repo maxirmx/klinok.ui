@@ -13,6 +13,14 @@ import type {
   RegistrationSetupDto,
 } from "@klinok/protocol";
 
+export interface EncryptedUserKeySet {
+  formatVersion: 1;
+  algorithm: "AES-256-GCM";
+  keyVersion: number;
+  iv: string;
+  ciphertext: string;
+}
+
 export interface AuthAccount {
   accountId: string;
   email: string;
@@ -29,6 +37,7 @@ export interface AuthAccount {
   pendingOperations: PendingOperationDto[];
   sessionDigests: string[];
   immutableBootstrap?: boolean;
+  encryptedUserKeySet?: EncryptedUserKeySet;
 }
 
 export interface AuthSessionRecord {
@@ -169,11 +178,27 @@ export class AuthStore {
     return updated;
   }
 
+  async replaceAllSessionsForAccount(session: AuthSessionRecord, account: AuthAccount): Promise<AuthAccount> {
+    const updated = {
+      ...account,
+      sessionDigests: [session.digest],
+      updatedAt: session.lastSeenAt,
+    };
+    const batch = this.db.batch();
+    for (const digest of account.sessionDigests) batch.del(`session:${digest}`);
+    await batch
+      .put(`session:${session.digest}`, session)
+      .put(`account:${account.accountId}`, updated)
+      .write();
+    return updated;
+  }
+
   async deleteCredentialAccount(account: AuthAccount): Promise<AuthAccount> {
     const updated: AuthAccount = {
       ...account,
       credentialStatus: "deleted",
       setup: undefined,
+      encryptedUserKeySet: undefined,
       pendingOperations: [],
       sessionDigests: [],
       updatedAt: new Date().toISOString(),

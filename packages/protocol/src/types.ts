@@ -250,6 +250,7 @@ export interface AuthSessionDto {
   enrollments?: DeviceEnrollmentDto[];
   pendingOperations?: PendingOperationDto[];
   setup?: RegistrationSetupDto;
+  serverKeySetAvailable?: boolean;
 }
 
 export interface RegistrationSetupDto {
@@ -281,4 +282,16 @@ export interface DeviceEnrollmentDto {
   encryptedKeyBundle?: string;
   userKeyVersion?: number;
   createdAt: string;
+}
+
+export interface BootstrapDeviceReplacementPayload {
+  action: "bootstrap-device-replacement";
+  challenge: string;
+  accountId: string;
+  deviceId: string;
+  deviceName: string;
+  orbitIdentityId: string;
+  userKeyVersion: number;
+  signingPublicKey: JsonWebKey;
+  encryptionPublicKey: JsonWebKey;
 }

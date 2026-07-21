@@ -19,6 +19,7 @@ import {
   logout,
   importBootstrapRecovery,
   rejectDeviceEnrollment,
+  replaceLostBootstrapDevice,
   requestRole,
   revokeDevice,
   switchRole,
@@ -94,23 +95,34 @@ const credentialsCanRestore = computed(() => (
 const visibleDevices = computed(() => (appState.session.devices ?? [])
   .filter((device) => device.status === "active"));
 const canRevokeDevice = computed(() => visibleDevices.value.length > 1);
+const isBootstrapAccount = computed(() => Boolean(
+  appState.session.accountId
+  && appState.session.accountId === getConfig()?.p2p.bootstrapAccountId,
+));
 
 const deviceName = (device: { deviceId: string; deviceName?: string }) => device.deviceName?.trim()
   || (device.deviceId === appState.session.device?.deviceId ? getDeviceName() : null)
   || "Устройство без названия";
 
-function resetProfileDraft() {
+function sameProfile(left: ProfileValues, right: ProfileValues): boolean {
+  return left.firstName === right.firstName
+    && left.lastName === right.lastName
+    && left.patronymic === right.patronymic;
+}
+
+function synchronizeProfileDraft() {
   const profile = appState.control.profile;
-  const values = {
+  const values: ProfileValues = {
     firstName: profile?.firstName ?? "",
     lastName: profile?.lastName ?? "",
     patronymic: profile?.patronymic ?? "",
   };
+  const draftIsPristine = sameProfile(profileDraft, savedProfile);
   Object.assign(savedProfile, values);
-  Object.assign(profileDraft, values);
+  if (draftIsPristine) Object.assign(profileDraft, values);
 }
 
-watch(() => appState.control.profile, resetProfileDraft, { immediate: true });
+watch(() => appState.control.profile, synchronizeProfileDraft, { immediate: true });
 watch(() => appState.session.email, (email) => {
   credentialsDraft.email = email ?? "";
   savedEmailDisplay.value = email ?? "";
@@ -206,7 +218,7 @@ async function saveCredentials() {
 
 async function activate(role: Role) {
   const changed = await action("roles", "Активная роль изменена.", async () => {
-    switchRole(role);
+    await switchRole(role);
     if (typeof route.query.continue === "string" && route.query.switch === role) await router.push(route.query.continue);
   });
   if (!changed) return;
@@ -214,6 +226,7 @@ async function activate(role: Role) {
 
 async function confirmAccountDeletion() {
   accountDeletionConfirmation.value = false;
+  if (isBootstrapAccount.value) return;
   await action("devices", "Аккаунт удалён.", deleteAccount);
 }
 
@@ -246,6 +259,16 @@ async function confirmDeviceRevocation() {
     <section v-else-if="appState.devicePending" class="panel profile-gate" role="status">
       <h2>Устройство ожидает подтверждения</h2>
       <p>Откройте Клинок на действующем устройстве и подтвердите перенос ключей.</p>
+      <template v-if="isBootstrapAccount && !appState.session.serverKeySetAvailable">
+        <h3>Все действующие устройства утрачены?</h3>
+        <p>Замените их только с помощью офлайн-пакета начального администратора. Все прежние устройства и сеансы будут отозваны.</p>
+        <form class="form-stack" @submit.prevent="action('devices', 'Утраченное устройство заменено.', () => replaceLostBootstrapDevice(recoveryText, recoveryPassphrase))">
+          <label><span>Пакет восстановления</span><input type="file" accept="application/json,.json" required @change="readRecoveryFile" /></label>
+          <PasswordInput v-model="recoveryPassphrase" label="Пароль пакета" required />
+          <button class="primary-action" :disabled="appState.busy || !recoveryText || recoveryPassphrase.length < 16">Заменить утраченное устройство</button>
+        </form>
+        <p v-if="feedback.devices" class="form-alert" :class="feedback.devices.kind" :role="feedback.devices.kind === 'error' ? 'alert' : 'status'">{{ feedback.devices.text }}</p>
+      </template>
       <button class="outline-action inline" @click="bootstrapApp(true)">Проверить статус</button>
     </section>
 
@@ -369,7 +392,7 @@ async function confirmDeviceRevocation() {
         <div class="profile-section-heading"><div><h2>Аккаунт и устройства</h2><p>Управляйте подтверждёнными устройствами и сеансами.</p></div></div>
         <p v-if="feedback.devices" class="form-alert" :class="feedback.devices.kind" :role="feedback.devices.kind === 'error' ? 'alert' : 'status'">{{ feedback.devices.text }}</p>
 
-        <template v-if="appState.session.enrollments?.some(item => item.status === 'pending' && item.ephemeralPublicKey) && appState.session.device">
+        <template v-if="!appState.session.serverKeySetAvailable && appState.session.enrollments?.some(item => item.status === 'pending' && item.ephemeralPublicKey) && appState.session.device">
           <h3>Новые устройства</h3>
           <p>Подтверждайте только свои устройства. Передача ключей зашифрована для конкретного запроса.</p>
           <div v-for="enrollment in appState.session.enrollments.filter(item => item.status === 'pending' && item.ephemeralPublicKey)" :key="enrollment.enrollmentId" class="list-row">
@@ -380,6 +403,8 @@ async function confirmDeviceRevocation() {
             </div>
           </div>
         </template>
+
+        <p v-if="appState.session.serverKeySetAvailable">Отозванное устройство отключается, но может быть зарегистрировано снова после успешного входа в аккаунт.</p>
 
         <div v-for="device in visibleDevices" :key="device.deviceId" class="list-row">
           <div><strong>{{ deviceName(device) }}</strong><span>{{ device.deviceId === appState.session.device?.deviceId ? 'Это устройство' : 'Действующее устройство' }}</span><small>ID: {{ device.deviceId }}</small></div>
@@ -394,7 +419,14 @@ async function confirmDeviceRevocation() {
         </div>
         <div class="row-actions account-actions">
           <button class="outline-action inline" @click="signOut(true)">Выйти на всех устройствах</button>
-          <button class="outline-action inline danger-link" @click="accountDeletionConfirmation = true">Удалить аккаунт</button>
+          <button
+            class="outline-action inline danger-link"
+            :disabled="appState.busy || isBootstrapAccount"
+            :title="isBootstrapAccount ? 'Начальный аккаунт администратора нельзя удалить.' : undefined"
+            @click="accountDeletionConfirmation = true"
+          >
+            Удалить аккаунт
+          </button>
         </div>
       </section>
       </div>
@@ -402,7 +434,7 @@ async function confirmDeviceRevocation() {
     <ConfirmationDialog
       v-model="accountDeletionConfirmation"
       title="Удалить аккаунт?"
-      description="Удаление необратимо. История болезни останется в журнале, но аккаунт потеряет доступ."
+      description="Удаление необратимо. Медицинская карта останется в журнале, но аккаунт потеряет доступ."
       confirm-label="Удалить аккаунт"
       @confirm="confirmAccountDeletion"
     />

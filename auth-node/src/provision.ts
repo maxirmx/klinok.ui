@@ -10,6 +10,7 @@ import { loadAuthConfig } from "./config.js";
 import { hashPassword, normalizeEmail, validatePassword } from "./security.js";
 import { AuthStore, type AuthAccount } from "./store.js";
 import { AttestationService } from "./attestation.js";
+import { UserKeyEscrowService } from "./escrow.js";
 
 const config = loadAuthConfig();
 const accountId = process.env.KLINOK_BOOTSTRAP_ACCOUNT_ID ?? "bootstrap-administrator";
@@ -41,6 +42,7 @@ try {
   }
   if (!existing) {
     const keys = await exportUserKeySet(await generateUserKeySet());
+    const escrow = await UserKeyEscrowService.loadOrCreate(config.escrowKeyPath);
     const importedKeys = await importUserKeySet(keys);
     const attestation = await AttestationService.loadOrCreate(config.attestationKeyPath);
     const attestationPublicKey = await attestation.publicJwk();
@@ -71,6 +73,7 @@ try {
       pendingOperations: [],
       sessionDigests: [],
       immutableBootstrap: true,
+      encryptedUserKeySet: await escrow.encrypt(accountId, keys),
     };
     await store.createAccount(account);
     await writeFile(anchorPath, `${JSON.stringify({ accountId, signingPublicKey: keys.signingPublicKey, encryptionPublicKey: keys.encryptionPublicKey }, null, 2)}\n`, { mode: 0o644 });

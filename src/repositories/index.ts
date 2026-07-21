@@ -58,9 +58,9 @@ export class KlinokRepository {
 
   static memoryTransport() { return new MemoryEventTransport(); }
 
-  setActiveRole(role: Role, roleProofId: string) {
+  async setActiveRole(role: Role, roleProofId: string): Promise<void> {
     this.control.setActiveRole(role, roleProofId);
-    this.medical.setActiveRole(role, roleProofId);
+    await this.medical.setActiveRole(role, roleProofId);
   }
 
   async conflicts() {

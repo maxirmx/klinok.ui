@@ -77,10 +77,7 @@ until curl --fail --silent http://localhost:8080/api/auth/session >/dev/null; do
   sleep 1
 done
 
-KLINOK_E2E_RECOVERY_BUNDLE=$(docker compose exec -T auth node -e "const fs=require('fs');process.stdout.write(fs.readFileSync('/data/provisioned/bootstrap-recovery.bundle.json','utf8'))")
-export KLINOK_E2E_RECOVERY_BUNDLE
 export KLINOK_E2E_BOOTSTRAP_EMAIL=administrator@example.ru
 export KLINOK_E2E_BOOTSTRAP_PASSWORD=bootstrap-password-2026
-export KLINOK_E2E_RECOVERY_PASSPHRASE=offline-recovery-passphrase-2026
 export KLINOK_E2E_RESTART_P2P=true
 npx playwright test

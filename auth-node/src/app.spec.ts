@@ -6,26 +6,62 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { exportUserKeySet, generateUserKeySet, stableSerialize, type UserKeySet } from "@klinok/protocol";
 import { buildAuthApp } from "./app.js";
 import { MemoryMailer } from "./mailer.js";
 import { DEFAULT_AUTH_RATE_LIMITS, type AuthConfig, type AuthRateLimitConfig } from "./config.js";
+import { hashPassword } from "./security.js";
+import { AuthStore } from "./store.js";
 
 const apps: Array<{ close(): Promise<void> }> = [];
 
-async function fixture(options: { now?: () => Date; trustProxy?: AuthConfig["trustProxy"]; rateLimit?: Partial<AuthRateLimitConfig> } = {}) {
+async function fixture(options: {
+  now?: () => Date;
+  trustProxy?: AuthConfig["trustProxy"];
+  rateLimit?: Partial<AuthRateLimitConfig>;
+  bootstrap?: boolean;
+} = {}) {
   const dataDir = await mkdtemp(join(tmpdir(), "klinok-auth-test-"));
+  let bootstrapKeys: UserKeySet | undefined;
+  let bootstrapSigningPublicKey: JsonWebKey | undefined;
+  if (options.bootstrap) {
+    bootstrapKeys = await generateUserKeySet();
+    bootstrapSigningPublicKey = (await exportUserKeySet(bootstrapKeys)).signingPublicKey;
+    const createdAt = "2026-07-10T10:00:00.000Z";
+    const store = new AuthStore(dataDir);
+    await store.open();
+    await store.createAccount({
+      accountId: "bootstrap-administrator",
+      email: "administrator@example.ru",
+      passwordHash: await hashPassword("bootstrap-password-2026"),
+      credentialStatus: "active",
+      verificationState: "verified",
+      createdAt,
+      updatedAt: createdAt,
+      failureTimes: [],
+      devices: [],
+      enrollments: [],
+      pendingOperations: [],
+      sessionDigests: [],
+      immutableBootstrap: true,
+    });
+    await store.close();
+  }
   const config: AuthConfig = {
-    host: "127.0.0.1", port: 0, dataDir, publicOrigin: "https://klinok.test", attestationKeyPath: join(dataDir, "attestation.json"), cookieSecure: true, enforceOrigin: true,
+    host: "127.0.0.1", port: 0, dataDir, publicOrigin: "https://klinok.test", attestationKeyPath: join(dataDir, "attestation.json"), escrowKeyPath: join(dataDir, "escrow.json"), cookieSecure: true, enforceOrigin: true,
     trustProxy: options.trustProxy ?? false,
+    bootstrapAccountId: "bootstrap-administrator",
+    ...(bootstrapSigningPublicKey ? { bootstrapSigningPublicKey } : {}),
     rateLimit: { ...DEFAULT_AUTH_RATE_LIMITS, ...options.rateLimit },
     smtp: { host: "localhost", port: 1025, secure: false, from: "test@klinok.test" },
     legal: { personalDataConsentVersion: "consent-v1", userAgreementVersion: "terms-v1" },
     controlObserver: { enabled: false, databaseName: "klinok-control-v1", trustedNodeMultiaddrs: [] },
   };
   const mailer = new MemoryMailer();
-  const app = await buildAuthApp({ config, mailer, now: options.now });
+  const store = new AuthStore(dataDir);
+  const app = await buildAuthApp({ config, store, mailer, now: options.now });
   apps.push(app);
-  return { app, mailer };
+  return { app, mailer, bootstrapKeys, store, dataDir };
 }
 
 const registration = {
@@ -352,15 +388,11 @@ describe("auth-node", () => {
     });
     expect(rejected.json()).toEqual({ rejected: true });
 
-    const rotatedSigning = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
-    const rotatedEncryption = await crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["wrapKey", "unwrapKey"]);
+    const rotatedKeySet = await exportUserKeySet(await generateUserKeySet(2));
     const removal = await app.inject({
       method: "DELETE", url: "/api/auth/devices/device-2",
       headers: { origin: "https://klinok.test", cookie: first.cookie, "x-csrf-token": first.csrf },
-      payload: {
-        signingPublicKey: await crypto.subtle.exportKey("jwk", rotatedSigning.publicKey),
-        encryptionPublicKey: await crypto.subtle.exportKey("jwk", rotatedEncryption.publicKey),
-      },
+      payload: { userKeySet: rotatedKeySet },
     });
     expect(removal.json()).toMatchObject({ rotateUserKeys: true, certificate: { deviceId: "device-1", userKeyVersion: 2 } });
     const revokedFirstSession = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: first.cookie } });
@@ -368,11 +400,257 @@ describe("auth-node", () => {
     const relogin = await app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" }, payload: { email: registration.email, password: registration.password, deviceId: "device-1" } });
     const rebound = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: relogin.headers["set-cookie"]! } });
     expect(rebound.json().device).toMatchObject({ deviceId: "device-1", userKeyVersion: 2 });
+    const reboundKeys = await app.inject({ method: "GET", url: "/api/auth/user-key-set", headers: { cookie: relogin.headers["set-cookie"]! } });
+    expect(reboundKeys.json().userKeySet).toEqual(rotatedKeySet);
+  });
+
+  it("escrows a complete key set and automatically activates new authenticated devices", async () => {
+    const { app, mailer, store } = await fixture();
+    const first = await verifiedLogin(app, mailer);
+    const userKeySet = await exportUserKeySet(await generateUserKeySet());
+    const firstEnrollment = await app.inject({
+      method: "POST",
+      url: "/api/auth/device-enrollments",
+      headers: { origin: "https://klinok.test", cookie: first.cookie, "x-csrf-token": first.csrf },
+      payload: { deviceId: "escrow-device-1", deviceName: "Первый", orbitIdentityId: "orbit-escrow-1", userKeySet },
+    });
+    expect(firstEnrollment.statusCode).toBe(200);
+    expect(firstEnrollment.headers["cache-control"]).toBe("no-store");
+    expect(firstEnrollment.json()).toMatchObject({
+      certificate: { deviceId: "escrow-device-1", status: "active", userKeyVersion: 1 },
+      userKeySet: { version: 1, signingPublicKey: userKeySet.signingPublicKey },
+    });
+
+    const stored = await store.getAccount(first.accountId);
+    expect(stored?.encryptedUserKeySet).toMatchObject({ algorithm: "AES-256-GCM", keyVersion: 1 });
+    expect(JSON.stringify(stored?.encryptedUserKeySet)).not.toContain(userKeySet.signingPrivateKey.d!);
+    expect(JSON.stringify(stored?.encryptedUserKeySet)).not.toContain(userKeySet.encryptionPrivateKey.d!);
+
+    const firstSession = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: first.cookie } });
+    expect(firstSession.json()).toMatchObject({ serverKeySetAvailable: true, device: { deviceId: "escrow-device-1" } });
+    const retrieved = await app.inject({ method: "GET", url: "/api/auth/user-key-set", headers: { cookie: first.cookie } });
+    expect(retrieved.statusCode).toBe(200);
+    expect(retrieved.headers["cache-control"]).toBe("no-store");
+    expect(retrieved.json().userKeySet).toEqual(userKeySet);
+
+    const secondLogin = await app.inject({
+      method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" },
+      payload: { email: registration.email, password: registration.password },
+    });
+    const secondHeaders = {
+      origin: "https://klinok.test",
+      cookie: secondLogin.headers["set-cookie"]!,
+      "x-csrf-token": secondLogin.json().csrfToken as string,
+    };
+    const replacementAttempt = await app.inject({
+      method: "POST",
+      url: "/api/auth/device-enrollments",
+      headers: secondHeaders,
+      payload: {
+        deviceId: "escrow-device-2",
+        deviceName: "Второй",
+        orbitIdentityId: "orbit-escrow-2",
+        userKeySet: await exportUserKeySet(await generateUserKeySet()),
+      },
+    });
+    expect(replacementAttempt.statusCode).toBe(409);
+    expect(replacementAttempt.json().error.code).toBe("USER_KEY_SET_ALREADY_INITIALIZED");
+    const secondEnrollment = await app.inject({
+      method: "POST",
+      url: "/api/auth/device-enrollments",
+      headers: secondHeaders,
+      payload: { deviceId: "escrow-device-2", deviceName: "Второй", orbitIdentityId: "orbit-escrow-2" },
+    });
+    expect(secondEnrollment.statusCode).toBe(200);
+    expect(secondEnrollment.json()).toMatchObject({
+      enrollment: { status: "active", deviceId: "escrow-device-2" },
+      certificate: { status: "active", deviceId: "escrow-device-2" },
+      userKeySet: { version: 1 },
+    });
+    expect(secondEnrollment.json().userKeySet).toEqual(userKeySet);
+    const beforeDeletion = await store.getAccount(first.accountId);
+    await store.deleteCredentialAccount(beforeDeletion!);
+    expect((await store.getAccount(first.accountId))?.encryptedUserKeySet).toBeUndefined();
+  });
+
+  it("migrates keys only from a matching active legacy device", async () => {
+    const { app, mailer } = await fixture();
+    const login = await verifiedLogin(app, mailer);
+    const userKeySet = await exportUserKeySet(await generateUserKeySet());
+    await app.inject({
+      method: "POST",
+      url: "/api/auth/device-enrollments",
+      headers: { origin: "https://klinok.test", cookie: login.cookie, "x-csrf-token": login.csrf },
+      payload: {
+        deviceId: "legacy-device",
+        orbitIdentityId: "orbit-legacy",
+        signingPublicKey: userKeySet.signingPublicKey,
+        encryptionPublicKey: userKeySet.encryptionPublicKey,
+      },
+    });
+    const invalid = await app.inject({
+      method: "PUT",
+      url: "/api/auth/user-key-set",
+      headers: { origin: "https://klinok.test", cookie: login.cookie, "x-csrf-token": login.csrf },
+      payload: { userKeySet: await exportUserKeySet(await generateUserKeySet()) },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().error.code).toBe("USER_KEY_SET_INVALID");
+
+    const migrated = await app.inject({
+      method: "PUT",
+      url: "/api/auth/user-key-set",
+      headers: { origin: "https://klinok.test", cookie: login.cookie, "x-csrf-token": login.csrf },
+      payload: { userKeySet },
+    });
+    expect(migrated.json()).toEqual({ stored: true, version: 1 });
+    expect((await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: login.cookie } })).json())
+      .toMatchObject({ serverKeySetAvailable: true });
+  });
+
+  it("restricts lost-device replacement to the immutable bootstrap account", async () => {
+    const { app, mailer } = await fixture();
+    const login = await verifiedLogin(app, mailer);
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/auth/bootstrap-device-replacement/challenge",
+      headers: { origin: "https://klinok.test", cookie: login.cookie, "x-csrf-token": login.csrf },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe("BOOTSTRAP_REPLACEMENT_FORBIDDEN");
+  });
+
+  it("replaces lost bootstrap devices only with a fresh recovery-key proof", async () => {
+    const { app, bootstrapKeys } = await fixture({ bootstrap: true });
+    const exported = await exportUserKeySet(bootstrapKeys!);
+    const oldLogin = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      headers: { origin: "https://klinok.test" },
+      payload: { email: "administrator@example.ru", password: "bootstrap-password-2026" },
+    });
+    const oldHeaders = {
+      origin: "https://klinok.test",
+      cookie: oldLogin.headers["set-cookie"]!,
+      "x-csrf-token": oldLogin.json().csrfToken as string,
+    };
+    const oldEnrollment = await app.inject({
+      method: "POST",
+      url: "/api/auth/device-enrollments",
+      headers: oldHeaders,
+      payload: {
+        deviceId: "lost-device",
+        deviceName: "Утраченный ноутбук",
+        orbitIdentityId: "orbit-lost",
+        signingPublicKey: exported.signingPublicKey,
+        encryptionPublicKey: exported.encryptionPublicKey,
+      },
+    });
+    expect(oldEnrollment.json().certificate).toMatchObject({ deviceId: "lost-device", status: "active" });
+
+    const replacementLogin = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      headers: { origin: "https://klinok.test" },
+      payload: { email: "administrator@example.ru", password: "bootstrap-password-2026" },
+    });
+    const replacementHeaders = {
+      origin: "https://klinok.test",
+      cookie: replacementLogin.headers["set-cookie"]!,
+      "x-csrf-token": replacementLogin.json().csrfToken as string,
+    };
+    const pendingResponse = await app.inject({
+      method: "POST",
+      url: "/api/auth/device-enrollments",
+      headers: replacementHeaders,
+      payload: {
+        deviceId: "replacement-device",
+        deviceName: "Новый ноутбук",
+        orbitIdentityId: "orbit-replacement",
+        ephemeralPublicKey: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+      },
+    });
+    const pending = pendingResponse.json().enrollment;
+    expect(pending.status).toBe("pending");
+
+    async function challenge() {
+      return app.inject({
+        method: "POST",
+        url: "/api/auth/bootstrap-device-replacement/challenge",
+        headers: replacementHeaders,
+      });
+    }
+    const invalidChallenge = await challenge();
+    const invalidPayload = {
+      action: "bootstrap-device-replacement",
+      challenge: invalidChallenge.json().challenge,
+      accountId: "bootstrap-administrator",
+      deviceId: pending.deviceId,
+      deviceName: pending.deviceName,
+      orbitIdentityId: pending.orbitIdentityId,
+      userKeyVersion: exported.version,
+      signingPublicKey: exported.signingPublicKey,
+      encryptionPublicKey: exported.encryptionPublicKey,
+    };
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/api/auth/bootstrap-device-replacement",
+      headers: replacementHeaders,
+      payload: { payload: invalidPayload, signature: "invalid" },
+    });
+    expect(invalid.statusCode).toBe(403);
+    expect(invalid.json().error.code).toBe("BOOTSTRAP_RECOVERY_PROOF_INVALID");
+
+    const validChallenge = await challenge();
+    const payload = { ...invalidPayload, challenge: validChallenge.json().challenge };
+    const signature = Buffer.from(await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      bootstrapKeys!.signingPrivateKey,
+      new TextEncoder().encode(stableSerialize(payload)),
+    )).toString("base64url");
+    const replaced = await app.inject({
+      method: "POST",
+      url: "/api/auth/bootstrap-device-replacement",
+      headers: replacementHeaders,
+      payload: { payload, signature },
+    });
+    expect(replaced.statusCode).toBe(200);
+    expect(replaced.json()).toMatchObject({
+      certificate: { deviceId: "replacement-device", status: "active" },
+      revokedDeviceIds: ["lost-device"],
+    });
+
+    expect((await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: oldHeaders.cookie } })).json())
+      .toEqual({ authenticated: false });
+    const currentSession = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: replacementHeaders.cookie } });
+    expect(currentSession.json()).toMatchObject({
+      authenticated: true,
+      device: { deviceId: "replacement-device", status: "active" },
+      devices: [
+        { deviceId: "lost-device", status: "revoked" },
+        { deviceId: "replacement-device", status: "active" },
+      ],
+    });
+    const replayed = await app.inject({
+      method: "POST",
+      url: "/api/auth/bootstrap-device-replacement",
+      headers: replacementHeaders,
+      payload: { payload, signature },
+    });
+    expect(replayed.statusCode).toBe(400);
+    expect(replayed.json().error.code).toBe("BOOTSTRAP_CHALLENGE_INVALID");
   });
 
   it("uses generic password recovery and revokes sessions after reset", async () => {
     const { app, mailer } = await fixture();
     const login = await verifiedLogin(app, mailer);
+    const userKeySet = await exportUserKeySet(await generateUserKeySet());
+    await app.inject({
+      method: "POST",
+      url: "/api/auth/device-enrollments",
+      headers: { origin: "https://klinok.test", cookie: login.cookie, "x-csrf-token": login.csrf },
+      payload: { deviceId: "before-reset", orbitIdentityId: "orbit-before-reset", userKeySet },
+    });
     const missing = await app.inject({ method: "POST", url: "/api/auth/password/forgot", headers: { origin: "https://klinok.test" }, payload: { email: "missing@example.com" } });
     const existing = await app.inject({ method: "POST", url: "/api/auth/password/forgot", headers: { origin: "https://klinok.test" }, payload: { email: registration.email } });
     expect(missing.json()).toEqual(existing.json());
@@ -382,5 +660,24 @@ describe("auth-node", () => {
     expect(reset.statusCode).toBe(200);
     const oldSession = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: login.cookie } });
     expect(oldSession.json()).toEqual({ authenticated: false });
+    const recoveredLogin = await app.inject({
+      method: "POST", url: "/api/auth/login", headers: { origin: "https://klinok.test" },
+      payload: { email: registration.email, password: "a completely new password" },
+    });
+    const recoveredEnrollment = await app.inject({
+      method: "POST",
+      url: "/api/auth/device-enrollments",
+      headers: {
+        origin: "https://klinok.test",
+        cookie: recoveredLogin.headers["set-cookie"]!,
+        "x-csrf-token": recoveredLogin.json().csrfToken as string,
+      },
+      payload: { deviceId: "after-reset", orbitIdentityId: "orbit-after-reset" },
+    });
+    expect(recoveredEnrollment.json()).toMatchObject({
+      certificate: { deviceId: "after-reset", status: "active" },
+      userKeySet: { version: 1 },
+    });
+    expect(recoveredEnrollment.json().userKeySet).toEqual(userKeySet);
   });
 });

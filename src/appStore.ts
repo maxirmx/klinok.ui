@@ -3,6 +3,7 @@ import {
   exportUserKeySet,
   generateUserKeySet,
   type AuthSessionDto,
+  type ExportedUserKeySet,
   type Role,
   type RoleRequest,
   type UserKeySet,
@@ -23,6 +24,7 @@ import {
   loadUserKeys,
   setDeviceName,
   setLastActiveRole,
+  signBootstrapDeviceReplacement,
   storeExportedUserKeys,
 } from "./repositories/deviceVault";
 import { KlinokRepository } from "./repositories";
@@ -92,11 +94,20 @@ async function ensureDevice(session: AuthSessionDto): Promise<AuthSessionDto> {
   keys = await loadUserKeys(session.accountId);
   if (session.device) {
     state.devicePending = false;
+    state.keyRecoveryRequired = false;
     if (session.device.deviceName) setDeviceName(session.device.deviceName);
-    if (!keys) {
-      const enrollment = session.enrollments?.find((item) => item.deviceId === session.device?.deviceId && item.status === "active" && item.encryptedKeyBundle);
-      if (enrollment?.encryptedKeyBundle) keys = await decryptAndStoreUserKeyBundle(session.accountId, enrollment.encryptedKeyBundle);
-      else state.keyRecoveryRequired = true;
+    if (!keys || keys.version !== session.device.userKeyVersion) {
+      if (session.serverKeySetAvailable) {
+        keys = await storeExportedUserKeys(session.accountId, (await auth.getUserKeySet()).userKeySet);
+      } else {
+        const enrollment = session.enrollments?.find((item) => item.deviceId === session.device?.deviceId && item.status === "active" && item.encryptedKeyBundle);
+        if (enrollment?.encryptedKeyBundle) keys = await decryptAndStoreUserKeyBundle(session.accountId, enrollment.encryptedKeyBundle);
+        else state.keyRecoveryRequired = true;
+      }
+    }
+    if (keys && !session.serverKeySetAvailable) {
+      await auth.putUserKeySet(await exportUserKeySet(keys));
+      session = { ...session, serverKeySetAvailable: true };
     }
     return session;
   }
@@ -106,7 +117,7 @@ async function ensureDevice(session: AuthSessionDto): Promise<AuthSessionDto> {
     deviceId = getOrCreateDeviceId();
   }
   const existingPending = session.enrollments?.find((enrollment) => enrollment.deviceId === deviceId && enrollment.status === "pending");
-  if (existingPending) {
+  if (existingPending && !session.serverKeySetAvailable) {
     state.devicePending = true;
     return session;
   }
@@ -114,16 +125,18 @@ async function ensureDevice(session: AuthSessionDto): Promise<AuthSessionDto> {
   let signingPublicKey: JsonWebKey | undefined;
   let encryptionPublicKey: JsonWebKey | undefined;
   let ephemeralPublicKey: JsonWebKey | undefined;
-  if (firstDevice) {
+  let userKeySet: ExportedUserKeySet | undefined;
+  if (!session.serverKeySetAvailable && firstDevice) {
     if (!keys && session.accountId === config.p2p.bootstrapAccountId) {
       state.keyRecoveryRequired = true;
       return session;
     }
     keys ??= await createAndStoreUserKeys(session.accountId);
     const exported = await exportUserKeySet(keys);
+    userKeySet = exported;
     signingPublicKey = exported.signingPublicKey;
     encryptionPublicKey = exported.encryptionPublicKey;
-  } else {
+  } else if (!session.serverKeySetAvailable) {
     ephemeralPublicKey = await createEnrollmentKey(session.accountId);
   }
   const result = await auth.enrollDevice({
@@ -133,12 +146,19 @@ async function ensureDevice(session: AuthSessionDto): Promise<AuthSessionDto> {
     ...(signingPublicKey ? { signingPublicKey } : {}),
     ...(encryptionPublicKey ? { encryptionPublicKey } : {}),
     ...(ephemeralPublicKey ? { ephemeralPublicKey } : {}),
+    ...(userKeySet ? { userKeySet } : {}),
   });
   if (!result.certificate) {
     state.devicePending = true;
     return { ...session, enrollments: [...(session.enrollments ?? []), result.enrollment] };
   }
-  return { ...session, device: result.certificate, enrollments: [...(session.enrollments ?? []), result.enrollment] };
+  if (result.userKeySet) keys = await storeExportedUserKeys(session.accountId, result.userKeySet);
+  state.devicePending = false;
+  state.keyRecoveryRequired = false;
+  const enrollments = existingPending
+    ? (session.enrollments ?? []).map((candidate) => candidate.enrollmentId === result.enrollment.enrollmentId ? result.enrollment : candidate)
+    : [...(session.enrollments ?? []), result.enrollment];
+  return { ...session, device: result.certificate, enrollments, serverKeySetAvailable: Boolean(result.userKeySet || session.serverKeySetAvailable) };
 }
 
 function chooseInitialRole(session: AuthSessionDto): Role {
@@ -167,6 +187,7 @@ async function connectRepository(session: AuthSessionDto) {
     keys,
     initialRole,
   });
+  const connectedRepository = repository;
   state.repositoryConnected = true;
   for (const operation of session.pendingOperations ?? []) {
     if (operation.kind === "profile" && operation.payload) {
@@ -185,22 +206,33 @@ async function connectRepository(session: AuthSessionDto) {
     }
     if (operation.kind === "account_delete") await repository.control.deleteAccount(operation.operationId);
   }
-  const applyControlSnapshot = (snapshot: ControlSnapshot) => {
+  let roleSwitchQueue = Promise.resolve();
+  const applyControlSnapshot = async (snapshot: ControlSnapshot): Promise<void> => {
     state.control = snapshot;
     const approved = snapshot.roles.filter((role) => role.status === "approved");
     if (!state.activeRole || !approved.some((role) => role.role === state.activeRole)) {
       const preferred = approved.find((role) => role.role === initialRole) ?? approved[0];
-      state.activeRole = preferred?.role ?? null;
-      if (preferred) {
-        repository?.setActiveRole(preferred.role, preferred.requestId);
-        setLastActiveRole(accountId, deviceId, preferred.role);
-      }
+      state.activeRole = null;
+      if (!preferred) return;
+      const switchTask = roleSwitchQueue.then(() => connectedRepository.setActiveRole(preferred.role, preferred.requestId));
+      roleSwitchQueue = switchTask.catch(() => undefined);
+      await switchTask;
+      if (repository !== connectedRepository) return;
+      const remainsApproved = state.control.roles.some((role) => role.status === "approved"
+        && role.role === preferred.role
+        && role.requestId === preferred.requestId);
+      if (!remainsApproved) return;
+      state.activeRole = preferred.role;
+      setLastActiveRole(accountId, deviceId, preferred.role);
     }
   };
-  applyControlSnapshot(await repository.control.snapshot());
-  controlUnsubscribe = repository.control.subscribe(applyControlSnapshot);
-  medicalUnsubscribe = repository.medical.subscribe((snapshot) => { state.medical = snapshot; });
-  const connectedRepository = repository;
+  await applyControlSnapshot(await connectedRepository.control.snapshot());
+  controlUnsubscribe = connectedRepository.control.subscribe((snapshot) => {
+    void applyControlSnapshot(snapshot).catch((reason) => {
+      if (repository === connectedRepository) setAuthFeedback({ kind: "error", reason });
+    });
+  });
+  medicalUnsubscribe = connectedRepository.medical.subscribe((snapshot) => { state.medical = snapshot; });
   syncUnsubscribe = repository.subscribeSyncStatus((status) => {
     state.sync = status;
     if (status.failedCount) void connectedRepository.conflicts().then((conflicts) => {
@@ -281,10 +313,7 @@ export async function revokeDevice(deviceId: string) {
   if (currentDeviceId && currentDeviceId !== deviceId && keys) {
     const nextKeys = await generateUserKeySet(keys.version + 1);
     const exported = await exportUserKeySet(nextKeys);
-    const result = await auth.revokeDevice(deviceId, {
-      signingPublicKey: exported.signingPublicKey,
-      encryptionPublicKey: exported.encryptionPublicKey,
-    });
+    const result = await auth.revokeDevice(deviceId, exported);
     for (const revokedId of result.revokedDeviceIds) await activeRepository.control.revokeDevice(revokedId);
     if (result.certificate) {
       await activeRepository.control.rotateCurrentDevice(result.certificate);
@@ -364,12 +393,12 @@ export async function updateCredentials(input: { email?: string; password?: stri
   state.session = { ...state.session, email: result.email };
 }
 
-export function switchRole(role: Role) {
+export async function switchRole(role: Role): Promise<void> {
   const proof = state.control.roles.find((request) => request.role === role && request.status === "approved");
   if (!proof || !state.session.accountId || !state.session.device) throw new Error("Эта роль недоступна.");
+  await requireRepository().setActiveRole(role, proof.requestId);
   state.activeRole = role;
   setLastActiveRole(state.session.accountId, state.session.device.deviceId, role);
-  requireRepository().setActiveRole(role, proof.requestId);
 }
 
 export async function requestRole(role: Role) { await requireRepository().control.requestRole(role, state.control.profile?.revision ?? 1); }
@@ -400,6 +429,53 @@ export async function importBootstrapRecovery(bundleText: string, passphrase: st
       ? new Error("Не удалось расшифровать пакет. Проверьте, что выбран bootstrap-recovery.bundle.json от этого развёртывания и введена отдельная фраза KLINOK_RECOVERY_PASSPHRASE, а не пароль учётной записи.")
       : reason;
     setAuthFeedback({ kind: "error", reason: error });
+  } finally {
+    state.busy = false;
+  }
+}
+
+export async function replaceLostBootstrapDevice(bundleText: string, passphrase: string) {
+  state.busy = true;
+  try {
+    const accountId = state.session.accountId;
+    if (!accountId || accountId !== config.p2p.bootstrapAccountId) {
+      throw new Error("Замена утраченного устройства доступна только начальному администратору.");
+    }
+    const deviceId = getDeviceId();
+    const enrollment = state.session.enrollments?.find((candidate) =>
+      candidate.deviceId === deviceId && candidate.status === "pending");
+    if (!deviceId || !enrollment) throw new Error("Запрос текущего устройства не найден. Обновите страницу и повторите попытку.");
+
+    const recoveredKeys = await importBootstrapRecoveryBundle(accountId, bundleText, passphrase);
+    const exported = await exportUserKeySet(recoveredKeys);
+    const { challenge } = await auth.bootstrapDeviceReplacementChallenge();
+    const payload = {
+      action: "bootstrap-device-replacement" as const,
+      challenge,
+      accountId,
+      deviceId,
+      deviceName: enrollment.deviceName ?? getOrCreateDeviceName(),
+      orbitIdentityId: enrollment.orbitIdentityId,
+      userKeyVersion: exported.version,
+      signingPublicKey: exported.signingPublicKey,
+      encryptionPublicKey: exported.encryptionPublicKey,
+    };
+    const replacement = await auth.replaceBootstrapDevice(
+      payload,
+      await signBootstrapDeviceReplacement(payload, recoveredKeys.signingPrivateKey),
+    );
+    keys = recoveredKeys;
+    state.initialized = false;
+    await bootstrapApp(true);
+    const activeRepository = requireRepository();
+    for (const revokedDeviceId of replacement.revokedDeviceIds) {
+      await activeRepository.control.revokeDevice(revokedDeviceId);
+    }
+  } catch (reason) {
+    if (reason instanceof DOMException && reason.name === "OperationError") {
+      throw new Error("Не удалось расшифровать пакет. Проверьте пакет восстановления и отдельную фразу KLINOK_RECOVERY_PASSPHRASE.");
+    }
+    throw reason;
   } finally {
     state.busy = false;
   }

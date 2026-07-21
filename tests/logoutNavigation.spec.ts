@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppIcon from "../src/components/AppIcon.vue";
 import RoleStatusScreen from "../src/screens/RoleStatusScreen.vue";
 import WorkspaceScreen from "../src/screens/WorkspaceScreen.vue";
-import { deleteAccount, logout, revokeDevice, switchRole, updateCredentials, updateProfile } from "../src/appStore";
+import { deleteAccount, logout, replaceLostBootstrapDevice, revokeDevice, switchRole, updateCredentials, updateProfile } from "../src/appStore";
 
 vi.mock("../src/appStore", async () => {
   const { reactive, readonly } = await import("vue");
@@ -29,6 +29,7 @@ vi.mock("../src/appStore", async () => {
         ephemeralPublicKey: { kty: "EC" },
         createdAt: "2026-07-15T00:00:00.000Z",
       }],
+      serverKeySetAvailable: false,
     },
     control: {
       profile: { accountId: "account-1", revision: 1, firstName: "Максим", patronymic: "Сергеевич", lastName: "Иванов", updatedAt: "2026-07-15T00:00:00.000Z" },
@@ -49,8 +50,12 @@ vi.mock("../src/appStore", async () => {
   });
   return {
     appState: readonly(state),
+    setMockAccountId: (accountId: string) => { state.session.accountId = accountId; },
     setMockActiveRole: (role: "owner" | "doctor" | "administrator" | null) => { state.activeRole = role; },
     setMockDevices: (devices: typeof state.session.devices) => { state.session.devices = devices; },
+    setMockDevicePending: (pending: boolean) => { state.devicePending = pending; },
+    setMockServerKeySetAvailable: (available: boolean) => { state.session.serverKeySetAvailable = available; },
+    setMockProfile: (profile: typeof state.control.profile) => { state.control.profile = profile; },
     setMockSync: (sync: typeof state.sync) => { state.sync = sync; },
     approveDeviceEnrollment: vi.fn(),
     bootstrapApp: vi.fn(),
@@ -62,6 +67,7 @@ vi.mock("../src/appStore", async () => {
     importBootstrapRecovery: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
     rejectDeviceEnrollment: vi.fn(),
+    replaceLostBootstrapDevice: vi.fn(),
     requestRole: vi.fn(),
     revokeDevice: vi.fn(),
     switchRole: vi.fn(),
@@ -86,19 +92,42 @@ async function mountAt(component: object, path: string, props: Record<string, un
 
 beforeEach(async () => {
   const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+    setMockAccountId: (accountId: string) => void;
     setMockActiveRole: (role: "owner" | "doctor" | "administrator" | null) => void;
     setMockDevices: (devices: Array<{ deviceId: string; deviceName: string; status: string }>) => void;
+    setMockDevicePending: (pending: boolean) => void;
+    setMockServerKeySetAvailable: (available: boolean) => void;
+    setMockProfile: (profile: {
+      accountId: string;
+      revision: number;
+      firstName: string;
+      patronymic: string;
+      lastName: string;
+      updatedAt: string;
+    }) => void;
     setMockSync: (sync: { pendingCount: number; failedCount: number; syncing: boolean; lastError: string }) => void;
   };
+  mockedStore.setMockAccountId("account-1");
   mockedStore.setMockActiveRole("owner");
   mockedStore.setMockDevices([
     { deviceId: "current-device", deviceName: "Домашний ноутбук", status: "active" },
     { deviceId: "revoked-device", deviceName: "Старый телефон", status: "revoked" },
   ]);
+  mockedStore.setMockDevicePending(false);
+  mockedStore.setMockServerKeySetAvailable(false);
+  mockedStore.setMockProfile({
+    accountId: "account-1",
+    revision: 1,
+    firstName: "Максим",
+    patronymic: "Сергеевич",
+    lastName: "Иванов",
+    updatedAt: "2026-07-15T00:00:00.000Z",
+  });
   mockedStore.setMockSync({ pendingCount: 0, failedCount: 0, syncing: false, lastError: "" });
   vi.mocked(deleteAccount).mockClear();
   vi.mocked(logout).mockClear();
   vi.mocked(revokeDevice).mockClear();
+  vi.mocked(replaceLostBootstrapDevice).mockClear();
   vi.mocked(updateCredentials).mockClear();
   vi.mocked(updateProfile).mockClear();
   vi.mocked(switchRole).mockClear();
@@ -137,6 +166,8 @@ describe("logout navigation", () => {
     expect(wrapper.find(".workspace-sidebar-footer .workspace-nav-item.active").text()).toContain("Настройки пользователя");
     expect(wrapper.text()).toContain("Телефон Максима");
     expect(wrapper.text()).toContain("Домашний ноутбук");
+    expect(wrapper.text()).toContain("Управляйте подтверждёнными устройствами и сеансами.");
+    expect(wrapper.text()).not.toContain("новое устройство подтверждается автоматически");
     expect(wrapper.text()).toContain("ID: pending-device");
     expect(wrapper.text()).toContain("Это устройство");
     expect(wrapper.text()).not.toContain("Старый телефон");
@@ -190,6 +221,65 @@ describe("logout navigation", () => {
       .trigger("click");
     await flushPromises();
     expect(deleteAccount).toHaveBeenCalledOnce();
+  });
+
+  it("disables account deletion for the bootstrap Administrator", async () => {
+    const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+      setMockAccountId: (accountId: string) => void;
+    };
+    mockedStore.setMockAccountId("bootstrap-administrator");
+    const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+    const deleteButton = wrapper.findAll<HTMLButtonElement>("button")
+      .find((button) => button.text() === "Удалить аккаунт")!;
+
+    expect(deleteButton.element.disabled).toBe(true);
+    expect(deleteButton.attributes("title")).toBe("Начальный аккаунт администратора нельзя удалить.");
+    await deleteButton.trigger("click");
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+    expect(deleteAccount).not.toHaveBeenCalled();
+  });
+
+  it("offers offline replacement when a bootstrap device is pending", async () => {
+    const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+      setMockAccountId: (accountId: string) => void;
+      setMockDevicePending: (pending: boolean) => void;
+    };
+    mockedStore.setMockAccountId("bootstrap-administrator");
+    mockedStore.setMockDevicePending(true);
+    const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+
+    expect(wrapper.text()).toContain("Все действующие устройства утрачены?");
+    expect(wrapper.text()).toContain("Все прежние устройства и сеансы будут отозваны.");
+    const fileInput = wrapper.get<HTMLInputElement>('input[type="file"]');
+    Object.defineProperty(fileInput.element, "files", {
+      configurable: true,
+      value: [new File(["recovery"], "bootstrap-recovery.bundle.json", { type: "application/json" })],
+    });
+    await fileInput.trigger("change");
+    await flushPromises();
+    await wrapper.get<HTMLInputElement>('input[aria-label="Пароль пакета"], input[type="password"]').setValue("offline recovery passphrase");
+    const replaceButton = wrapper.get<HTMLButtonElement>("button.primary-action");
+    expect(replaceButton.element.disabled).toBe(false);
+    await wrapper.get(".profile-gate form").trigger("submit");
+    await flushPromises();
+
+    expect(replaceLostBootstrapDevice).toHaveBeenCalledWith("recovery", "offline recovery passphrase");
+    expect(wrapper.text()).toContain("Утраченное устройство заменено.");
+  });
+
+  it("hides legacy approval and recovery controls after server key migration", async () => {
+    const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+      setMockAccountId: (accountId: string) => void;
+      setMockDevicePending: (pending: boolean) => void;
+      setMockServerKeySetAvailable: (available: boolean) => void;
+    };
+    mockedStore.setMockAccountId("bootstrap-administrator");
+    mockedStore.setMockDevicePending(true);
+    mockedStore.setMockServerKeySetAvailable(true);
+    const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+
+    expect(wrapper.text()).not.toContain("Все действующие устройства утрачены?");
+    expect(wrapper.text()).not.toContain("Подтвердить и передать ключи");
   });
 
   it("confirms device revocation before executing it", async () => {
@@ -283,6 +373,45 @@ describe("logout navigation", () => {
 
     await wrapper.get('button[aria-label="Закрыть сообщение"]').trigger("click");
     expect(wrapper.find(".profile-form-feedback").exists()).toBe(false);
+  });
+
+  it("allows repeated profile edits while background snapshots are received", async () => {
+    const mockedStore = await import("../src/appStore") as typeof import("../src/appStore") & {
+      setMockProfile: (profile: {
+        accountId: string;
+        revision: number;
+        firstName: string;
+        patronymic: string;
+        lastName: string;
+        updatedAt: string;
+      }) => void;
+    };
+    const { wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
+    const firstName = wrapper.get<HTMLInputElement>('input[autocomplete="given-name"]');
+    const profileSave = wrapper.get<HTMLButtonElement>('button[form="profile-form"]');
+
+    await firstName.setValue("Мария");
+    await wrapper.get(".profile-form").trigger("submit");
+    await flushPromises();
+    expect(updateProfile).toHaveBeenLastCalledWith({ firstName: "Мария", patronymic: "Сергеевич", lastName: "Иванов" });
+
+    await firstName.setValue("Анна");
+    mockedStore.setMockProfile({
+      accountId: "account-1",
+      revision: 2,
+      firstName: "Мария",
+      patronymic: "Сергеевич",
+      lastName: "Иванов",
+      updatedAt: "2026-07-21T00:00:00.000Z",
+    });
+    await flushPromises();
+
+    expect(firstName.element.value).toBe("Анна");
+    expect(profileSave.element.disabled).toBe(false);
+    await wrapper.get(".profile-form").trigger("submit");
+    await flushPromises();
+    expect(updateProfile).toHaveBeenCalledTimes(2);
+    expect(updateProfile).toHaveBeenLastCalledWith({ firstName: "Анна", patronymic: "Сергеевич", lastName: "Иванов" });
   });
 
   it("changes approved active roles through real radio controls", async () => {

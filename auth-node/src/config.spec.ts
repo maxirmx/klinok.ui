@@ -10,6 +10,9 @@ describe("auth configuration", () => {
     const config = loadAuthConfig({});
     expect(config.trustProxy).toBe(false);
     expect(config.publicOrigin).toBe("http://localhost:8080");
+    expect(config.escrowKeyPath).toBe(".klinok-auth/user-key-escrow-key.json");
+    expect(config.bootstrapAccountId).toBe("bootstrap-administrator");
+    expect(config.bootstrapSigningPublicKey).toBeUndefined();
     expect(config.rateLimit).toEqual(DEFAULT_AUTH_RATE_LIMITS);
   });
 
@@ -26,5 +29,14 @@ describe("auth configuration", () => {
 
   it("rejects non-positive thresholds", () => {
     expect(() => loadAuthConfig({ KLINOK_RATE_LIMIT_LOGIN_IP_PER_15_MINUTES: "0" })).toThrow(/positive integer/);
+  });
+
+  it("parses the bootstrap signing trust anchor", () => {
+    const key = { kty: "EC", crv: "P-256", x: "x", y: "y" };
+    expect(loadAuthConfig({
+      KLINOK_BOOTSTRAP_ACCOUNT_ID: "root-account",
+      KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY: JSON.stringify(key),
+    })).toMatchObject({ bootstrapAccountId: "root-account", bootstrapSigningPublicKey: key });
+    expect(() => loadAuthConfig({ KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY: "invalid" })).toThrow(/JSON Web Key/);
   });
 });

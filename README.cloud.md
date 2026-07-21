@@ -102,7 +102,7 @@ export KLINOK_BOOTSTRAP_EMAIL='administrator@example.com'
 export KLINOK_BOOTSTRAP_PASSWORD='a-long-unique-password'
 export KLINOK_RECOVERY_PASSPHRASE='a-separate-long-offline-passphrase'
 
-docker compose -f docker-compose-ghrc.yml run --rm --no-deps -T \
+docker compose -f docker-compose.yml run --rm --no-deps -T \
   -e KLINOK_BOOTSTRAP_EMAIL \
   -e KLINOK_BOOTSTRAP_PASSWORD \
   -e KLINOK_RECOVERY_PASSPHRASE \
@@ -113,13 +113,14 @@ This creates:
 
 - the immutable bootstrap Administrator account;
 - the authentication attestation private key;
+- the user-key escrow master key;
 - the bootstrap signing anchor;
 - an encrypted recovery bundle.
 
 Extract the authentication attestation public key:
 
 ```sh
-docker compose -f docker-compose-ghrc.yml run --rm --no-deps -T \
+docker compose -f docker-compose.yml run --rm --no-deps -T \
   auth-blue node -e \
   "const fs=require('fs');process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync('/data/provisioned/auth-attestation-public-key.json'))))"
 ```
@@ -127,7 +128,7 @@ docker compose -f docker-compose-ghrc.yml run --rm --no-deps -T \
 Extract the bootstrap signing public key:
 
 ```sh
-docker compose -f docker-compose-ghrc.yml run --rm --no-deps -T \
+docker compose -f docker-compose.yml run --rm --no-deps -T \
   auth-blue node -e \
   "const fs=require('fs');process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync('/data/provisioned/bootstrap-public-anchor.json')).signingPublicKey))"
 ```
@@ -146,13 +147,13 @@ Copy the recovery bundle to secure offline storage:
 ```sh
 umask 077
 
-docker compose -f docker-compose-ghrc.yml run --rm --no-deps -T \
+docker compose -f docker-compose.yml run --rm --no-deps -T \
   auth-blue node -e \
   "const fs=require('fs');process.stdout.write(fs.readFileSync('/data/provisioned/bootstrap-recovery.bundle.json','utf8'))" \
   > bootstrap-recovery.bundle.json
 ```
 
-Keep its passphrase separately. Losing every bootstrap device and the offline recovery bundle requires resetting the operational deployment. Remove the bootstrap password and recovery passphrase from the shell after provisioning:
+Keep its passphrase separately as an emergency and legacy-migration backup. New installations also keep the bootstrap account's encrypted private-key copy in the authentication data directory, so a successfully authenticated replacement browser is approved automatically. Remove the bootstrap password and recovery passphrase from the shell after provisioning:
 
 ```sh
 unset KLINOK_BOOTSTRAP_EMAIL KLINOK_BOOTSTRAP_PASSWORD KLINOK_RECOVERY_PASSPHRASE
@@ -163,17 +164,17 @@ unset KLINOK_BOOTSTRAP_EMAIL KLINOK_BOOTSTRAP_PASSWORD KLINOK_RECOVERY_PASSPHRAS
 Pull the configured image versions and start the trusted P2P node first:
 
 ```sh
-docker compose --env-file .env -f docker-compose-ghrc.yml pull
-docker compose --env-file .env -f docker-compose-ghrc.yml up -d p2p-blue
-docker compose --env-file .env -f docker-compose-ghrc.yml ps
+docker compose --env-file klinok.env -f docker-compose.yml pull
+docker compose --env-file klinok.env -f docker-compose.yml up -d p2p-blue
+docker compose --env-file klinok.env -f docker-compose.yml ps
 ```
 
 Wait until `p2p-blue` is healthy, and then start authentication and the UI:
 
 ```sh
-docker compose --env-file .env -f docker-compose-ghrc.yml up -d auth-blue
-docker compose --env-file .env -f docker-compose-ghrc.yml up -d ui-blue
-docker compose --env-file .env -f docker-compose-ghrc.yml ps
+docker compose --env-file klinok.env -f docker-compose.yml up -d auth-blue
+docker compose --env-file klinok.env -f docker-compose.yml up -d ui-blue
+docker compose --env-file klinok.env -f docker-compose.yml ps
 ```
 
 The resulting startup order is:
@@ -209,10 +210,12 @@ docker compose --env-file .env -f docker-compose-ghrc.yml logs --tail=200 ui-blu
 
 Back up both persistent data directories:
 
-- `auth/data` contains accounts, sessions, and the attestation private key;
+- `auth/data` contains accounts, encrypted user private-key sets, the attestation private key, and `user-key-escrow-key.json`;
 - `p2p/data` contains control and medical events plus the stable P2P identity.
 
-For a consistent filesystem backup, briefly stop the affected containers or use a quiesced disk snapshot. Store backups encrypted and test restoration periodically.
+For a consistent filesystem backup, briefly stop the affected containers or use a quiesced disk snapshot. Store backups encrypted and test restoration periodically. The auth data directory must be restored as one unit: without `user-key-escrow-key.json`, none of its encrypted account key sets can be recovered.
+
+The authentication service can decrypt all account key sets. This prototype therefore relies on the authentication host as a trusted key custodian and does not provide strict end-to-end key custody. A successful password login or email password reset authorizes automatic enrollment and key delivery to a new browser.
 
 Never deploy either backend service with ephemeral storage. Do not run `docker compose down -v` against an operational deployment, because it can delete persistent volumes.
 

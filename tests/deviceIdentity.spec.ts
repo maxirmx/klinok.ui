@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { generateUserKeySet, stableSerialize } from "@klinok/protocol";
 import {
   clearDeviceId,
   getDeviceId,
@@ -6,6 +7,7 @@ import {
   getOrCreateDeviceId,
   getOrCreateDeviceName,
   setDeviceName,
+  signBootstrapDeviceReplacement,
 } from "../src/repositories/deviceVault";
 
 beforeEach(() => {
@@ -37,5 +39,31 @@ describe("local device identity", () => {
     setDeviceName("Домашний ноутбук");
     expect(getDeviceName()).toBe("Домашний ноутбук");
     expect(getOrCreateDeviceName()).toBe("Домашний ноутбук");
+  });
+
+  it("signs a bootstrap replacement payload with the recovered private key", async () => {
+    const keys = await generateUserKeySet();
+    const payload = {
+      action: "bootstrap-device-replacement" as const,
+      challenge: "single-use-challenge",
+      accountId: "bootstrap-administrator",
+      deviceId: "replacement-device",
+      deviceName: "Новый ноутбук",
+      orbitIdentityId: "orbit-replacement",
+      userKeyVersion: 1,
+      signingPublicKey: await crypto.subtle.exportKey("jwk", keys.signingPublicKey),
+      encryptionPublicKey: await crypto.subtle.exportKey("jwk", keys.encryptionPublicKey),
+    };
+    const signature = await signBootstrapDeviceReplacement(payload, keys.signingPrivateKey);
+    const bytes = Uint8Array.from(
+      atob(signature.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(signature.length / 4) * 4, "=")),
+      (character) => character.charCodeAt(0),
+    );
+    await expect(crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      keys.signingPublicKey,
+      bytes,
+      new TextEncoder().encode(stableSerialize(payload)),
+    )).resolves.toBe(true);
   });
 });

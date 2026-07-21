@@ -2,6 +2,8 @@ import {
   exportUserKeySet,
   generateUserKeySet,
   importUserKeySet,
+  stableSerialize,
+  type BootstrapDeviceReplacementPayload,
   type ExportedUserKeySet,
   type UserKeySet,
 } from "@klinok/protocol";
@@ -160,6 +162,19 @@ export async function importBootstrapRecoveryBundle(accountId: string, bundleTex
   combined.set(tag, ciphertext.length);
   const cleartext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes(bundle.iv), tagLength: 128 }, key, combined);
   return storeExportedUserKeys(accountId, JSON.parse(new TextDecoder().decode(cleartext)) as ExportedUserKeySet);
+}
+
+export async function signBootstrapDeviceReplacement(
+  payload: BootstrapDeviceReplacementPayload,
+  signingPrivateKey: CryptoKey,
+): Promise<string> {
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    signingPrivateKey,
+    new TextEncoder().encode(stableSerialize(payload)),
+  );
+  const binary = String.fromCharCode(...new Uint8Array(signature));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 export function getLastActiveRole(accountId: string, deviceId: string): string | null {

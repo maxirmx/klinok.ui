@@ -44,9 +44,10 @@ export class MedicalRepository {
     this.factory = new EventFactory({ context, keys });
   }
 
-  setActiveRole(role: ActiveRoleContext["role"], roleProofId: string) {
+  async setActiveRole(role: ActiveRoleContext["role"], roleProofId: string): Promise<void> {
     this.context = { ...this.context, role, roleProofId };
     this.factory.setContext(this.context);
+    await this.emit();
   }
 
   async initialize() {

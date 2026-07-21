@@ -4,8 +4,8 @@ Klinok is a Russian-language, local-first veterinary application with operationa
 
 ## Architecture
 
-- `src/` — Vue UI. It starts with `GET /api/auth/session`, keeps private user keys in IndexedDB, and opens P2P databases only for an authenticated, attested device.
-- `auth-node/` — Fastify/LevelDB authentication service for credentials, email verification, password recovery, HTTP sessions, device enrollment, and SMTP delivery.
+- `src/` — Vue UI. It starts with `GET /api/auth/session`, caches private user keys in IndexedDB, and opens P2P databases only for an authenticated, attested device.
+- `auth-node/` — Fastify/LevelDB authentication service for credentials, email verification, password recovery, HTTP sessions, automatic device enrollment, encrypted user-key escrow, and SMTP delivery.
 - `p2p-node/` — untrusted OrbitDB storage/transport node. It verifies signed envelopes but receives no passwords or user private keys.
 - `packages/protocol/` — shared event contracts, cryptography, authorization rules, and deterministic reducers used by browser and Node runtimes.
 
@@ -73,6 +73,44 @@ run, use `KLINOK_SKIP_BUILD=true ./scripts/run-local.sh`. Stop the stack with:
 COMPOSE_PROJECT_NAME=klinok_local docker compose down
 ```
 
+### Clean local reset
+
+An ordinary `docker compose down` preserves the authentication LevelDB and P2P
+OrbitDB data in Docker volumes. To remove all local containers and database data and
+start from scratch, run:
+
+```sh
+COMPOSE_PROJECT_NAME=klinok_local docker compose down -v --remove-orphans
+rm -rf .klinok-local
+./scripts/run-local.sh
+```
+
+The `-v` option permanently removes the local authentication accounts, roles, pets,
+medical records, and P2P history. Removing `.klinok-local` also removes the generated
+mixed-development configuration and the local copy of the bootstrap recovery bundle.
+Save that recovery bundle elsewhere first if it is needed for an existing deployment.
+
+The browser stores its device identity, a cached copy of its private keys, application
+data, and the durable outbox in IndexedDB and other site storage for
+`http://localhost:8080`. Clear this storage as well after deleting the Docker volumes
+so that an old browser identity is not reused with the new deployment:
+
+1. Close every open Klinok tab except one.
+2. Open `http://localhost:8080` and the browser Developer Tools.
+3. In Chrome or Edge, select **Application → Storage → Clear site data**. In Firefox,
+   select **Storage → Indexed DB**, delete the Klinok databases, and clear the site
+   cookies and local storage for `localhost`.
+4. Reload the application and sign in with the credentials printed by
+   `./scripts/run-local.sh`.
+
+A new browser profile can be used instead. A private/incognito window is appropriate
+for short tests only because its device identity is deleted when the window closes.
+Browser storage does not need to be cleared for ordinary restarts or UI rebuilds.
+For an account that has completed automatic server-key migration, clearing browser
+storage is recoverable: sign in again and the new device is approved automatically.
+Legacy accounts without a server key copy still require an active old device or the
+bootstrap recovery bundle until they next sign in from an active browser.
+
 If Compose crashes with `SIGBUS` or reports an input/output error under WSL, quit
 Docker Desktop, run `wsl --shutdown` in Windows PowerShell, and restart Docker Desktop.
 
@@ -89,13 +127,26 @@ npm run build
 Provision exactly once with secrets supplied through the environment or Docker secrets:
 
 ```sh
-export KLINOK_BOOTSTRAP_EMAIL=administrator@example.ru
-export KLINOK_BOOTSTRAP_PASSWORD='a-long-initial-password'
-export KLINOK_RECOVERY_PASSPHRASE='a-separate-long-offline-passphrase'
+export KLINOK_BOOTSTRAP_EMAIL="${KLINOK_BOOTSTRAP_EMAIL:-maxirmx@sw.consulting}"
+export KLINOK_BOOTSTRAP_PASSWORD="${KLINOK_BOOTSTRAP_PASSWORD:-Password&Spaniel&26}"
+export KLINOK_RECOVERY_PASSPHRASE="${KLINOK_RECOVERY_PASSPHRASE:-Bene facta me clarum non fecerunt}"
 npm run build:auth && npm run auth:provision
 ```
 
-Store `bootstrap-recovery.bundle.json` offline. The bootstrap account and Administrator role cannot be deleted or revoked. Losing every bootstrap device and the offline recovery bundle requires resetting the operational deployment.
+Newly provisioned bootstrap keys are encrypted by the authentication service and can
+be restored after an ordinary sign-in, including after browser storage is cleared.
+Store `bootstrap-recovery.bundle.json` and `KLINOK_RECOVERY_PASSPHRASE` separately
+offline as an emergency and legacy-migration backup. The bootstrap account remains
+protected from deletion.
+
+The authentication service stores every account's exported private keys encrypted
+with `/data/user-key-escrow-key.json`. It can decrypt these keys, so this prototype
+does not provide strict end-to-end key custody. Back up the authentication data volume
+as one unit: losing the escrow master-key file makes the encrypted account key copies
+unrecoverable. `KLINOK_BOOTSTRAP_ACCOUNT_ID` and
+`KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY` must remain identical for the UI,
+authentication service, and P2P node; the supplied Docker Compose files wire these
+values automatically.
 
 ## Ограничение частоты запросов к сервису аутентификации
 
