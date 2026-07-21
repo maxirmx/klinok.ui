@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
   PET_SEXES,
+  type DirectoryProfileDto,
   type PetSex,
 } from "@klinok/protocol";
 import AppIcon from "../components/AppIcon.vue";
@@ -10,7 +11,7 @@ import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PetProfileHeader from "../components/PetProfileHeader.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
-import { appState, deleteDirectoryPet, logout, requireRepository, syncDirectoryPet } from "../appStore";
+import { appState, deleteDirectoryPet, logout, requireRepository, searchDoctorDirectory, syncDirectoryPet } from "../appStore";
 import {
   normalizePetInput,
   petBirthSummary,
@@ -29,7 +30,11 @@ const deleteConfirmation = ref(false);
 const grantDialogOpen = ref(false);
 const grantBusy = ref(false);
 const grantError = ref("");
-const manualGrant = reactive({ doctorDisplayName: "", doctorAccountId: "", delegate: false });
+const doctorQuery = ref("");
+const doctorResults = ref<DirectoryProfileDto[]>([]);
+const doctorSearchPerformed = ref(false);
+const selectedDoctor = ref<DirectoryProfileDto | null>(null);
+const grantDelegate = ref(false);
 const birthMode = ref<"date" | "year">("date");
 const draft = reactive({
   name: "",
@@ -61,6 +66,9 @@ const isCreate = computed(() => props.scenarioId === "owner-pet-create");
 const isEdit = computed(() => props.scenarioId === "owner-pet-edit");
 const isAccess = computed(() => props.scenarioId === "owner-pet-access");
 const isForm = computed(() => isCreate.value || isEdit.value);
+const medicalPageSizes = [10, 20, 50] as const;
+const medicalPage = ref(1);
+const medicalPageSize = ref<(typeof medicalPageSizes)[number]>(10);
 const pageTitle = computed(() => {
   if (isHome.value) return "Мои питомцы";
   if (isCreate.value) return "Добавить питомца";
@@ -70,9 +78,26 @@ const pageTitle = computed(() => {
   return "Питомец не найден";
 });
 const petRecords = computed(() =>
-  selectedPet.value ? appState.medical.records.filter((record) => record.petId === selectedPet.value!.petId) : [],
+  selectedPet.value
+    ? appState.medical.records
+      .filter((record) => record.petId === selectedPet.value!.petId)
+      .sort((left, right) => right.encounterDate.localeCompare(left.encounterDate)
+        || right.createdAt.localeCompare(left.createdAt))
+    : [],
 );
+const medicalPageCount = computed(() => Math.max(1, Math.ceil(petRecords.value.length / medicalPageSize.value)));
+const medicalPageStart = computed(() => petRecords.value.length ? (medicalPage.value - 1) * medicalPageSize.value + 1 : 0);
+const medicalPageEnd = computed(() => Math.min(medicalPage.value * medicalPageSize.value, petRecords.value.length));
+const pagedPetRecords = computed(() => petRecords.value.slice(
+  (medicalPage.value - 1) * medicalPageSize.value,
+  medicalPage.value * medicalPageSize.value,
+));
 const confirmedIds = computed(() => new Set(appState.medical.confirmations.map((item) => item.recordId)));
+
+watch([() => selectedPet.value?.petId, medicalPageSize], () => { medicalPage.value = 1; });
+watch(medicalPageCount, (pageCount) => {
+  if (medicalPage.value > pageCount) medicalPage.value = pageCount;
+});
 
 type AccessRow = {
   accountId: string;
@@ -303,15 +328,37 @@ async function copyPetLink() {
 
 function openGrantDialog() {
   grantError.value = "";
+  doctorQuery.value = "";
+  doctorResults.value = [];
+  doctorSearchPerformed.value = false;
+  selectedDoctor.value = null;
+  grantDelegate.value = false;
   grantDialogOpen.value = true;
 }
 
+async function findDoctors() {
+  grantBusy.value = true;
+  grantError.value = "";
+  doctorResults.value = [];
+  doctorSearchPerformed.value = false;
+  selectedDoctor.value = null;
+  try {
+    const result = await searchDoctorDirectory(doctorQuery.value, 1, 50);
+    const activeDoctorIds = new Set(appState.medical.grants
+      .filter((grant) => grant.petId === selectedPet.value?.petId && grant.status === "active")
+      .map((grant) => grant.granteeAccountId));
+    doctorResults.value = result.items.filter((doctor) => !activeDoctorIds.has(doctor.accountId));
+    doctorSearchPerformed.value = true;
+  } catch (reason) {
+    grantError.value = reason instanceof Error ? reason.message : "Не удалось найти врача.";
+  } finally {
+    grantBusy.value = false;
+  }
+}
+
 async function grantDoctor() {
-  if (!selectedPet.value) return;
-  const doctorDisplayName = manualGrant.doctorDisplayName.trim();
-  const doctorAccountId = manualGrant.doctorAccountId.trim();
-  if (!doctorDisplayName || !doctorAccountId) {
-    grantError.value = "Укажите ФИО и идентификатор аккаунта врача.";
+  if (!selectedPet.value || !selectedDoctor.value) {
+    grantError.value = "Выберите врача из результатов поиска.";
     return;
   }
   grantBusy.value = true;
@@ -319,13 +366,14 @@ async function grantDoctor() {
   try {
     await requireRepository().medical.grantDoctor(
       selectedPet.value!.petId,
-      doctorAccountId,
-      ["read", "write_unconfirmed", ...(manualGrant.delegate ? ["delegate" as const] : [])],
-      { granteeDisplayName: doctorDisplayName },
+      selectedDoctor.value!.accountId,
+      ["read", "write_unconfirmed", ...(grantDelegate.value ? ["delegate" as const] : [])],
+      { granteeDisplayName: selectedDoctor.value!.displayName },
     );
-    manualGrant.doctorDisplayName = "";
-    manualGrant.doctorAccountId = "";
-    manualGrant.delegate = false;
+    doctorQuery.value = "";
+    doctorResults.value = [];
+    selectedDoctor.value = null;
+    grantDelegate.value = false;
     grantDialogOpen.value = false;
     actionError.value = "";
     actionMessage.value = "Доступ предоставлен.";
@@ -365,6 +413,16 @@ function formatDate(value?: string) {
   return match ? `${match[3]}.${match[2]}.${match[1]}` : value;
 }
 
+function formatLocalDateTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("ru-RU", {
+    dateStyle: "short",
+    timeStyle: "medium",
+  }).format(date);
+}
+
 function recordSection(record: (typeof appState.medical.records)[number], kind: keyof typeof ENCOUNTER_SECTION_LABELS) {
   return record.sections?.[kind];
 }
@@ -390,16 +448,6 @@ function recordSection(record: (typeof appState.medical.records)[number], kind: 
       >
         <AppIcon name="plus" />
       </RouterLink>
-      <button
-        v-else-if="isAccess && selectedPet"
-        class="primary-action inline owner-profile-action"
-        type="button"
-        title="Предоставить доступ"
-        aria-label="Предоставить доступ"
-        @click="openGrantDialog"
-      >
-        <AppIcon name="plus" />
-      </button>
     </div>
 
     <section v-if="isHome" class="owner-home">
@@ -543,12 +591,22 @@ function recordSection(record: (typeof appState.medical.records)[number], kind: 
       </article>
 
       <article class="panel owner-access-panel">
-        <p v-if="!accessRows.length" class="owner-access-empty">Доступы и ожидающие запросы отсутствуют.</p>
-        <div v-else class="owner-access-table-wrap">
+        <div class="owner-access-table-wrap">
           <table class="owner-access-table">
             <thead>
               <tr>
-                <th><span class="visually-hidden">Действия</span></th>
+                <th class="owner-access-actions-header">
+                  <button
+                    class="primary-action inline access-icon-action"
+                    type="button"
+                    title="Предоставить доступ"
+                    aria-label="Предоставить доступ"
+                    @click="openGrantDialog"
+                  >
+                    <AppIcon name="plus" />
+                  </button>
+                  <span class="visually-hidden">Действия</span>
+                </th>
                 <th>ФИО врача</th>
                 <th>Доступ</th>
                 <th>Делегирование</th>
@@ -580,14 +638,16 @@ function recordSection(record: (typeof appState.medical.records)[number], kind: 
                     </template>
                     <template v-else-if="row.status === 'granted' && row.grant">
                       <button
-                        v-if="row.grant.actions.includes('delegate')"
                         class="outline-action inline access-icon-action"
+                        :class="{ 'danger-outline': row.grant.actions.includes('delegate') }"
                         type="button"
-                        title="Отключить делегирование"
-                        aria-label="Отключить делегирование"
-                        @click="action(() => requireRepository().medical.disableGrantDelegation(row.grant!.grantId), 'Делегирование отключено.')"
+                        :title="row.grant.actions.includes('delegate') ? 'Отключить делегирование' : 'Разрешить делегирование'"
+                        :aria-label="row.grant.actions.includes('delegate') ? 'Отключить делегирование' : 'Разрешить делегирование'"
+                        @click="row.grant.actions.includes('delegate')
+                          ? action(() => requireRepository().medical.disableGrantDelegation(row.grant!.grantId), 'Делегирование отключено.')
+                          : action(() => requireRepository().medical.enableGrantDelegation(row.grant!.grantId), 'Делегирование разрешено.')"
                       >
-                        <AppIcon name="share-off" />
+                        <AppIcon name="share" />
                       </button>
                       <button
                         class="outline-action inline danger-outline access-icon-action"
@@ -624,6 +684,9 @@ function recordSection(record: (typeof appState.medical.records)[number], kind: 
                   {{ row.status === 'granted' ? row.grant?.actions.includes('delegate') ? 'Да' : 'Нет' : '' }}
                 </td>
               </tr>
+              <tr v-if="!accessRows.length">
+                <td colspan="4" class="owner-access-empty">Доступы и ожидающие запросы отсутствуют.</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -634,29 +697,28 @@ function recordSection(record: (typeof appState.medical.records)[number], kind: 
         title="Предоставить доступ"
         :busy="grantBusy"
       >
-        <form class="form-stack grant-access-form" @submit.prevent="grantDoctor">
+        <div class="form-stack grant-access-form">
           <p v-if="grantError" class="form-alert error" role="alert">{{ grantError }}</p>
-          <label>
-            <span>ФИО врача</span>
-            <input v-model="manualGrant.doctorDisplayName" required />
-          </label>
-          <label>
-            <span>Идентификатор аккаунта врача</span>
-            <input v-model="manualGrant.doctorAccountId" required />
-          </label>
-          <label class="check-row">
-            <input v-model="manualGrant.delegate" type="checkbox" />
-            <span>Разрешить врачу делегирование</span>
-          </label>
-          <div class="confirmation-dialog-actions">
-            <button class="outline-action inline" type="button" :disabled="grantBusy" @click="grantDialogOpen = false">
-              Отмена
+          <form class="form-stack grant-search-form" @submit.prevent="findDoctors">
+            <label>
+              <span>ФИО врача, его часть или полный ID</span>
+              <input v-model="doctorQuery" type="search" required />
+            </label>
+            <button
+              class="primary-action inline access-icon-action grant-search-action"
+              type="submit"
+              :disabled="grantBusy"
+              :title="grantBusy ? 'Поиск врача…' : 'Найти врача'"
+              :aria-label="grantBusy ? 'Поиск врача…' : 'Найти врача'"
+            >
+              <AppIcon name="search" />
             </button>
-            <button class="primary-action inline" type="submit" :disabled="grantBusy">
-              {{ grantBusy ? 'Предоставление…' : 'Предоставить доступ' }}
-            </button>
-          </div>
-        </form>
+          </form>
+          <div v-for="doctor in doctorResults" :key="doctor.accountId" class="list-row"><div><strong>{{ doctor.displayName }}</strong><span>{{ doctor.accountId }}</span></div><button class="outline-action inline access-icon-action" type="button" title="Выбрать врача" aria-label="Выбрать врача" @click="selectedDoctor = doctor"><AppIcon name="check" /></button></div>
+          <p v-if="doctorSearchPerformed && !doctorResults.length">Врачи не найдены.</p>
+          <form v-if="selectedDoctor" class="form-stack" @submit.prevent="grantDoctor"><strong>Выбран врач: {{ selectedDoctor.displayName }}</strong><label class="check-row"><input v-model="grantDelegate" type="checkbox" /><span>Разрешить врачу делегирование</span></label><div class="confirmation-dialog-actions"><button class="outline-action inline access-icon-action" type="button" :disabled="grantBusy" title="Отмена" aria-label="Отмена" @click="grantDialogOpen = false"><AppIcon name="close" /></button><button class="primary-action inline access-icon-action" type="submit" :disabled="grantBusy" :title="grantBusy ? 'Предоставление доступа…' : 'Предоставить доступ'" :aria-label="grantBusy ? 'Предоставление доступа…' : 'Предоставить доступ'"><AppIcon name="check" /></button></div></form>
+          <div v-else class="confirmation-dialog-actions"><button class="outline-action inline access-icon-action" type="button" :disabled="grantBusy" title="Отмена" aria-label="Отмена" @click="grantDialogOpen = false"><AppIcon name="close" /></button></div>
+        </div>
       </ModalDialog>
     </section>
 
@@ -721,17 +783,64 @@ function recordSection(record: (typeof appState.medical.records)[number], kind: 
       <article class="panel owner-medical-placeholder">
         <h2>Медицинская карта</h2>
         <p v-if="!petRecords.length">Записи появятся здесь после приёма у врача.</p>
-        <div v-for="record in petRecords" :key="record.recordId" class="record-card">
-          <div class="owner-encounter-heading"><div><strong>{{ record.encounterDate }} · {{ encounterSummary(record) }}</strong><small>Редакция {{ record.revision }} · {{ record.authorDisplayName }} ({{ record.authorAccountId }})</small></div><span v-if="confirmedIds.has(record.recordId)" class="status-badge approved">Подтверждён</span><button v-else class="primary-action inline" @click="action(() => requireRepository().medical.confirmRecord(record.petId, record.recordId, record.revision), 'Приём подтверждён.')">Подтвердить приём</button></div>
-          <div v-for="(label, kind) in ENCOUNTER_SECTION_LABELS" v-show="recordSection(record, kind)" :key="kind" class="encounter-history-section">
-            <h3>{{ label }}</h3>
-            <template v-if="isWhatHappenedValue(recordSection(record, kind)?.value)">
-              <ul><li v-for="id in whatHappenedSelectedIds(recordSection(record, kind)?.value)" :key="id">{{ whatHappenedPath(id) }}</li></ul>
-              <p>{{ whatHappenedComment(recordSection(record, kind)?.value) }}</p>
-            </template>
-            <p v-else-if="isFreeTextValue(recordSection(record, kind)?.value)">{{ freeText(recordSection(record, kind)?.value) }}</p>
-            <small>{{ recordSection(record, kind)?.authorDisplayName }} · {{ recordSection(record, kind)?.updatedAt }}</small>
+        <details v-for="record in pagedPetRecords" :key="record.recordId" class="owner-encounter-record">
+          <summary class="owner-encounter-summary">
+            <span class="owner-encounter-summary-copy">
+              <strong>{{ formatDate(record.encounterDate) }} · {{ encounterSummary(record) }}</strong>
+              <small>Редакция {{ record.revision }} · {{ record.authorDisplayName }}</small>
+            </span>
+            <span class="status-badge" :class="confirmedIds.has(record.recordId) ? 'approved' : 'pending'">
+              {{ confirmedIds.has(record.recordId) ? 'Подтверждён' : 'Ожидает подтверждения' }}
+            </span>
+          </summary>
+          <div class="owner-encounter-sections">
+            <button
+              v-if="!confirmedIds.has(record.recordId)"
+              class="primary-action inline owner-encounter-confirm"
+              @click="action(() => requireRepository().medical.confirmRecord(record.petId, record.recordId, record.revision), 'Приём подтверждён.')"
+            >
+              Подтвердить приём
+            </button>
+            <div v-for="(label, kind) in ENCOUNTER_SECTION_LABELS" v-show="recordSection(record, kind)" :key="kind" class="encounter-history-section">
+              <h3>{{ label }}</h3>
+              <template v-if="isWhatHappenedValue(recordSection(record, kind)?.value)">
+                <ul><li v-for="id in whatHappenedSelectedIds(recordSection(record, kind)?.value)" :key="id">{{ whatHappenedPath(id) }}</li></ul>
+                <p>{{ whatHappenedComment(recordSection(record, kind)?.value) }}</p>
+              </template>
+              <p v-else-if="isFreeTextValue(recordSection(record, kind)?.value)">{{ freeText(recordSection(record, kind)?.value) }}</p>
+              <small>{{ recordSection(record, kind)?.authorDisplayName }} · {{ formatLocalDateTime(recordSection(record, kind)?.updatedAt) }}</small>
+            </div>
           </div>
+        </details>
+        <div v-if="petRecords.length" class="administrator-pagination owner-medical-pagination" aria-label="Навигация по медицинским записям">
+          <span>Показаны {{ medicalPageStart }}–{{ medicalPageEnd }} из {{ petRecords.length }}</span>
+          <div class="administrator-page-buttons">
+            <button
+              type="button"
+              :disabled="medicalPage <= 1"
+              title="Предыдущая страница"
+              aria-label="Предыдущая страница"
+              @click="medicalPage--"
+            >
+              <AppIcon name="chevron-left" />
+            </button>
+            <span>{{ medicalPage }} / {{ medicalPageCount }}</span>
+            <button
+              type="button"
+              :disabled="medicalPage >= medicalPageCount"
+              title="Следующая страница"
+              aria-label="Следующая страница"
+              @click="medicalPage++"
+            >
+              <AppIcon name="chevron" />
+            </button>
+          </div>
+          <label>
+            <span>Записей на странице</span>
+            <select v-model.number="medicalPageSize">
+              <option v-for="size in medicalPageSizes" :key="size" :value="size">{{ size }}</option>
+            </select>
+          </label>
         </div>
       </article>
 

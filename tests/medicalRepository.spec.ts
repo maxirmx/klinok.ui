@@ -211,6 +211,12 @@ describe("medical authorization repository", () => {
     await expect(doctor.medical.delegateGrant(grantId, "delegated-doctor-account", ["read"]))
       .rejects.toMatchObject({ code: "GRANT_DELEGATION_FORBIDDEN" });
 
+    await owner.medical.enableGrantDelegation(grantId);
+    await tick();
+    expect((await owner.medical.snapshot()).grants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ grantId, actions: ["read", "write_unconfirmed", "delegate"] }),
+    ]));
+
     const recordId = await doctor.medical.saveRecord({ petId, title: "Осмотр", text: "Состояние стабильное" });
     await tick();
     const ownerRecord = (await owner.medical.snapshot()).records.find((record) => record.recordId === recordId)!;

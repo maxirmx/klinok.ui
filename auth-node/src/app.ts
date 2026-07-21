@@ -626,10 +626,13 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
   }, async (request, reply) => {
     const current = await authenticated(request, reply, false);
     if (!current) return;
-    if (!await hasObservedRole(current.account.accountId, "doctor")) return error(reply, 403, "DOCTOR_ROLE_REQUIRED", "Требуется одобренная роль врача.");
+    const maySearchDoctors = await hasObservedRole(current.account.accountId, "owner")
+      || await hasObservedRole(current.account.accountId, "doctor");
+    if (!maySearchDoctors) return error(reply, 403, "DIRECTORY_ROLE_REQUIRED", "Требуется одобренная роль владельца или врача.");
     const query = request.query.query?.trim().toLocaleLowerCase("ru") ?? "";
     const profiles = (await store.listDirectoryProfiles()).filter((profile) => profile.accountId !== current.account.accountId
-      && (!query || `${profile.displayName} ${profile.accountId}`.toLocaleLowerCase("ru").includes(query))
+      && (!query || profile.displayName.toLocaleLowerCase("ru").includes(query)
+        || profile.accountId.toLocaleLowerCase("ru") === query)
       && profile.accountId !== current.account.accountId);
     const approved: DirectoryProfileDto[] = [];
     for (const profile of profiles) if (await hasObservedRole(profile.accountId, "doctor")) approved.push(profile);
@@ -637,6 +640,26 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
       ? left.accountId.localeCompare(right.accountId)
       : left.displayName.localeCompare(right.displayName, "ru") || left.accountId.localeCompare(right.accountId));
     return reply.header("Cache-Control", "no-store").send(directoryPage(approved, request.query.page, request.query.pageSize));
+  });
+
+  app.get<{ Querystring: { owner?: string; pet?: string; sort?: string; page?: string; pageSize?: string } }>("/api/auth/directory/pets", {
+    config: { rateLimit: { max: options.config.rateLimit.sessionIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply, false);
+    if (!current) return;
+    if (!await hasObservedRole(current.account.accountId, "doctor")) return error(reply, 403, "DOCTOR_ROLE_REQUIRED", "Требуется одобренная роль врача.");
+    const ownerQuery = request.query.owner?.trim().toLocaleLowerCase("ru") ?? "";
+    const petQuery = request.query.pet?.trim().toLocaleLowerCase("ru") ?? "";
+    if (!ownerQuery || !petQuery) return error(reply, 400, "PET_SEARCH_INVALID", "Укажите ФИО или ID владельца и кличку или ID питомца.");
+    const pets = (await store.listDirectoryPets()).filter((pet) =>
+      (pet.ownerDisplayName.toLocaleLowerCase("ru").includes(ownerQuery)
+        || pet.ownerAccountId.toLocaleLowerCase("ru") === ownerQuery)
+      && (pet.name.toLocaleLowerCase("ru").includes(petQuery)
+        || pet.petId.toLocaleLowerCase("ru") === petQuery));
+    pets.sort((left, right) => request.query.sort === "pet"
+      ? left.name.localeCompare(right.name, "ru") || left.ownerDisplayName.localeCompare(right.ownerDisplayName, "ru")
+      : left.ownerDisplayName.localeCompare(right.ownerDisplayName, "ru") || left.name.localeCompare(right.name, "ru"));
+    return reply.header("Cache-Control", "no-store").send(directoryPage(pets, request.query.page, request.query.pageSize));
   });
 
   app.get<{ Params: { petId: string } }>("/api/auth/directory/pets/:petId", {
@@ -668,7 +691,12 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
       .map((grant) => [grant.petId, grant]));
     const query = request.query.query?.trim().toLocaleLowerCase("ru") ?? "";
     const pets = (await store.listDirectoryPets()).filter((pet) => access.has(pet.petId)
-      && (!query || `${pet.ownerDisplayName} ${pet.ownerAccountId} ${pet.name} ${pet.petId} ${pet.species}`.toLocaleLowerCase("ru").includes(query)))
+      && (!query
+        || pet.ownerDisplayName.toLocaleLowerCase("ru").includes(query)
+        || pet.ownerAccountId.toLocaleLowerCase("ru") === query
+        || pet.name.toLocaleLowerCase("ru").includes(query)
+        || pet.petId.toLocaleLowerCase("ru") === query
+        || pet.species.toLocaleLowerCase("ru").includes(query)))
       .map((pet): DirectoryPetDto => ({ ...pet, permissions: access.get(pet.petId)!.actions, grantId: access.get(pet.petId)!.grantId }));
     pets.sort((left, right) => request.query.sort === "pet"
       ? left.name.localeCompare(right.name, "ru")

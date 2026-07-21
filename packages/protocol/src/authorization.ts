@@ -360,10 +360,11 @@ function capabilityResult(event: SignedEvent, state: ProtocolState): Verificatio
   if (event.eventType === "grant.actions.updated") {
     const grant = state.grants.get(event.resourceId);
     const actions = event.metadata.actions as PetGrantAction[] | undefined;
-    const expectedActions = grant?.actions.filter((action) => action !== "delegate");
+    const expectedActions = grant?.actions.includes("delegate")
+      ? grant.actions.filter((action) => action !== "delegate")
+      : grant ? [...grant.actions, "delegate" as const] : undefined;
     const validUpdate = grant?.petId === petId &&
       isGrantEffectivelyActive(state, grant) &&
-      grant.actions.includes("delegate") &&
       Array.isArray(actions) &&
       actions.length === expectedActions?.length &&
       actions.every((action, index) => action === expectedActions?.[index]);
@@ -371,7 +372,7 @@ function capabilityResult(event: SignedEvent, state: ProtocolState): Verificatio
       return {
         accepted: false,
         code: "PET_GRANT_ACTIONS_UPDATE_INVALID",
-        message: "A grant action update may only disable delegation on an active grant.",
+        message: "A grant action update may only toggle delegation on an active grant.",
       };
     }
     return hasActiveRoleProof(state, event, "owner") && ownerId === event.actorAccountId

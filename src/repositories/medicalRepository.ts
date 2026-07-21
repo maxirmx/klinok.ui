@@ -439,14 +439,26 @@ export class MedicalRepository {
   }
 
   async disableGrantDelegation(grantId: string): Promise<void> {
+    await this.updateGrantDelegation(grantId, false);
+  }
+
+  async enableGrantDelegation(grantId: string): Promise<void> {
+    await this.updateGrantDelegation(grantId, true);
+  }
+
+  private async updateGrantDelegation(grantId: string, enabled: boolean): Promise<void> {
     const grant = this.control.signed.state.grants.get(grantId);
     if (!grant || !isGrantEffectivelyActive(this.control.signed.state, grant)) {
       throw new Error("Действующий доступ не найден.");
     }
-    if (!grant.actions.includes("delegate")) throw new Error("Делегирование уже отключено.");
+    if (grant.actions.includes("delegate") === enabled) {
+      throw new Error(enabled ? "Делегирование уже разрешено." : "Делегирование уже отключено.");
+    }
     const stored = await getPetKey(this.context.accountId, grant.petId);
     if (!stored) throw new Error("Ключ питомца недоступен.");
-    const actions = grant.actions.filter((candidate) => candidate !== "delegate");
+    const actions: PetGrantAction[] = enabled
+      ? [...grant.actions, "delegate"]
+      : grant.actions.filter((candidate) => candidate !== "delegate");
     await this.append(await this.factory.create({
       database: "medical",
       eventType: "grant.actions.updated",

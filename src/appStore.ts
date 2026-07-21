@@ -411,6 +411,10 @@ export function lookupPetDirectory(petId: string): Promise<DirectoryPetDto> {
   return auth.lookupDirectoryPet(petId);
 }
 
+export function searchPetDirectory(owner = "", pet = "", page = 1, pageSize = 20, sort = "owner"): Promise<DirectoryPageDto<DirectoryPetDto>> {
+  return auth.searchDirectoryPets(owner, pet, page, pageSize, sort);
+}
+
 export function loadDoctorPets(query = "", page = 1, pageSize = 20, sort = "owner"): Promise<DirectoryPageDto<DirectoryPetDto>> {
   return auth.getMyDirectoryPets(query, page, pageSize, sort);
 }

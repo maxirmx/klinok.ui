@@ -21,9 +21,9 @@ This file is a part of Klinok ui application
   --surface-soft: var(--brand-sky-soft);
   --surface-muted: var(--brand-bg-sky);
   --surface-card: var(--brand-sky-soft);
-  --text: #102033;
-  --text-soft: rgba(16, 32, 51, 0.68);
-  --text-muted: rgba(16, 32, 51, 0.46);
+  --text: #04080c;
+  --text-soft: rgba(5, 10, 16, 0.68);
+  --text-muted: rgba(10, 19, 30, 0.46);
   --line: var(--brand-sky-border);
   --accent: var(--brand-sky);
   --accent-strong: var(--brand-orange);
@@ -572,7 +572,7 @@ label > span {
   display: block;
   border-radius: 10px;
   background: var(--brand-sky-soft);
-  border: 1px solid rgba(64, 135, 209, 0.12);
+  border: 1px solid rgba(27, 55, 84, 0.12);
   color: var(--text);
 }
 
@@ -649,7 +649,7 @@ dd {
   align-items: center;
   padding: 12px 16px;
   border-top: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.42);
+  background: rgba(43, 37, 37, 0.744);
 }
 
 .doctor-mini small {
@@ -2193,11 +2193,46 @@ dd {
 .encounter-history { border-bottom: 1px solid var(--line); padding: 12px 0; }
 .encounter-history summary { display: grid; grid-template-columns: 110px minmax(200px, 1fr) minmax(160px, .5fr); gap: 12px; cursor: pointer; }
 .encounter-history[open] { display: grid; gap: 12px; }
-.owner-encounter-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.owner-encounter-heading > div { display: grid; gap: 4px; }
+.owner-encounter-record {
+  width: 100%;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.owner-encounter-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.owner-encounter-summary::-webkit-details-marker { display: none; }
+.owner-encounter-summary::before {
+  content: "›";
+  color: var(--accent);
+  font-size: 20px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 150ms ease;
+}
+.owner-encounter-record[open] > .owner-encounter-summary::before { transform: rotate(90deg); }
+.owner-encounter-summary-copy { display: grid; min-width: 0; gap: 4px; }
+.owner-encounter-summary-copy :is(strong, small) { overflow-wrap: anywhere; }
+.owner-encounter-sections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  margin-top: 12px;
+}
+.owner-encounter-sections > .encounter-history-section { width: 100%; min-width: 0; }
+.owner-encounter-confirm { justify-self: end; }
+.owner-medical-pagination { margin-top: 16px; }
 
 @media (max-width: 760px) {
-  .doctor-heading, .owner-encounter-heading { align-items: stretch; flex-direction: column; }
+  .doctor-heading { align-items: stretch; flex-direction: column; }
+  .owner-encounter-summary { grid-template-columns: auto minmax(0, 1fr); }
+  .owner-encounter-summary > .status-badge { grid-column: 2; justify-self: start; }
   .doctor-filters, .doctor-history-filters { grid-template-columns: 1fr; }
   .epicrisis-row, .encounter-history summary { grid-template-columns: 1fr; }
   .doctor-table th:nth-child(2), .doctor-table th:nth-child(3) { width: auto; }
@@ -3009,7 +3044,8 @@ dd {
   gap: 7px 14px;
 }
 .workspace-content .owner-form-grid > label,
-.workspace-content .owner-birth-field {
+.workspace-content .owner-birth-field,
+.workspace-content .grant-access-form label {
   display: grid;
   min-width: 0;
   gap: 3px;
@@ -3019,14 +3055,16 @@ dd {
   line-height: 1.35;
 }
 .workspace-content .owner-form-grid > label > span,
-.workspace-content .owner-birth-field > legend {
+.workspace-content .owner-birth-field > legend,
+.workspace-content .grant-access-form label > span {
   color: #344054;
   font-family: var(--font);
   font-size: .9rem;
   font-weight: 400;
   line-height: 1.35;
 }
-.owner-form-grid :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+.owner-form-grid :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea),
+.grant-access-form :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
   width: 100%;
   border: 1px solid #d0d5dd;
   border-radius: 7px;
@@ -3037,7 +3075,8 @@ dd {
   font-size: .9rem;
   line-height: 1.35;
 }
-.owner-form-grid :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+.owner-form-grid :is(input:not([type="checkbox"]):not([type="radio"]), select),
+.grant-access-form :is(input:not([type="checkbox"]):not([type="radio"]), select) {
   height: 32px;
   min-height: 32px;
 }
@@ -3176,6 +3215,7 @@ dd {
 .owner-access-table th:first-child { width: 94px; }
 .owner-access-table th:nth-child(3) { width: 126px; }
 .owner-access-table th:nth-child(4) { width: 126px; }
+.owner-access-actions-header { height: 52px; box-sizing: border-box; }
 .owner-access-table tbody tr:last-child td { border-bottom: 0; }
 .owner-access-action-list {
   display: flex;
@@ -3196,20 +3236,34 @@ dd {
 .owner-access-doctor small { margin-top: 3px; color: var(--text-muted); font-size: 10px; }
 .status-badge.granted { background: #dcfae6; color: #067647; }
 .status-badge.requested { background: #fef0c7; color: #93370d; }
-.grant-access-form label {
-  display: grid;
-  gap: 6px;
+.grant-access-form,
+.grant-access-form .form-stack { gap: 7px; }
+.grant-access-form {
+  color: #344054;
+  font-family: var(--font);
+  font-size: .9rem;
+  line-height: 1.35;
 }
-.grant-access-form input:not([type="checkbox"]) {
-  width: 100%;
-  min-height: 40px;
-  box-sizing: border-box;
-  border: 1px solid #d0d5dd;
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: #fff;
-  color: var(--text);
-  font: inherit;
+.grant-access-form :is(p, .list-row) { font-size: .9rem; line-height: 1.35; }
+.grant-access-form p { margin: 0; }
+.workspace-content .grant-access-form :is(.primary-action, .outline-action) {
+  font-family: var(--font);
+  font-size: .9rem;
+}
+.workspace-content .grant-access-form .access-icon-action {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  justify-self: end;
+  padding: 0;
+}
+.workspace-content .grant-access-form .grant-search-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+.workspace-content .grant-access-form .list-row {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 .grant-access-form .form-alert { margin: 0; }
 
@@ -3565,14 +3619,15 @@ dd {
   .owner-access-table tbody,
   .owner-access-table tr,
   .owner-access-table td { display: block; width: 100%; box-sizing: border-box; }
-  .owner-access-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    clip-path: inset(50%);
-    white-space: nowrap;
+  .owner-access-table thead { display: block; }
+  .owner-access-table thead tr { display: block; overflow: visible; border: 0; border-radius: 0; }
+  .owner-access-table thead th { display: none; }
+  .owner-access-table thead .owner-access-actions-header {
+    display: block;
+    width: 100%;
+    height: auto;
+    padding: 8px 0;
+    background: transparent;
   }
   .owner-access-table tbody { display: grid; gap: 10px; }
   .owner-access-table tr {
@@ -3593,6 +3648,13 @@ dd {
     font-size: 10px;
     font-weight: 700;
   }
+  .owner-access-table .owner-access-doctor {
+    grid-template-rows: auto auto;
+    row-gap: 3px;
+  }
+  .owner-access-table .owner-access-doctor::before { grid-row: 1 / span 2; }
+  .owner-access-table .owner-access-doctor strong { grid-column: 2; grid-row: 1; }
+  .owner-access-table .owner-access-doctor small { grid-column: 2; grid-row: 2; margin-top: 0; }
   .owner-access-action-list { justify-content: flex-start; }
   .owner-access-table td.is-empty { display: none; }
 }

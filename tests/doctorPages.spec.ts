@@ -15,6 +15,7 @@ const directoryMocks = vi.hoisted(() => ({
   loadDoctorPets: vi.fn(),
   lookupPetDirectory: vi.fn(),
   searchDoctorDirectory: vi.fn(),
+  searchPetDirectory: vi.fn(),
 }));
 
 vi.mock("../src/appStore", async () => {
@@ -36,6 +37,7 @@ vi.mock("../src/appStore", async () => {
     logout: vi.fn().mockResolvedValue(undefined),
     requireRepository: () => ({ medical: repositoryMocks }),
     searchDoctorDirectory: directoryMocks.searchDoctorDirectory,
+    searchPetDirectory: directoryMocks.searchPetDirectory,
     setDoctorMedicalState: (medical: MedicalSnapshot) => { state.medical = medical; },
   };
 });
@@ -116,6 +118,7 @@ beforeEach(async () => {
     page: 1, pageSize: 20, total: 1, pageCount: 1,
   });
   directoryMocks.searchDoctorDirectory.mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0, pageCount: 1 });
+  directoryMocks.searchPetDirectory.mockResolvedValue({ items: [], page: 1, pageSize: 50, total: 0, pageCount: 1 });
 });
 
 describe("Doctor pages", () => {
@@ -127,6 +130,36 @@ describe("Doctor pages", () => {
     expect(wrapper.get(".doctor-table").text()).toContain("Ольга Владелец · Собака Буся");
     expect(wrapper.get(".doctor-table").text()).toContain("Чтение, Запись, Делегирование");
     expect(directoryMocks.loadDoctorPets).toHaveBeenCalledWith("", 1, 20, "owner");
+  });
+
+  it("finds a pet by partial owner name and pet name before requesting access", async () => {
+    directoryMocks.searchPetDirectory.mockResolvedValue({
+      items: [{
+        petId: "pet-2",
+        ownerAccountId: "owner-2",
+        ownerDisplayName: "Ольга Петровна Владелец",
+        species: "Кошка",
+        name: "Буся",
+        updatedAt: "2026-07-21T10:00:00.000Z",
+      }],
+      page: 1, pageSize: 50, total: 1, pageCount: 1,
+    });
+    const wrapper = await mountAt("/doctor/pets/request-access", "doctor-pet-request-access");
+    expect(wrapper.findAll("label span").map((label) => label.text())).toEqual(expect.arrayContaining([
+      "ФИО владельца, его часть или полный ID",
+      "Кличка, её часть или полный ID питомца",
+    ]));
+    await wrapper.get('input[type="search"]').setValue("Петровна");
+    await wrapper.findAll('input[type="search"]')[1]!.setValue("Буся");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(directoryMocks.searchPetDirectory).toHaveBeenCalledWith("Петровна", "Буся", 1, 50);
+    expect(wrapper.get(".directory-result").text()).toContain("Ольга Петровна Владелец · Кошка Буся");
+    expect(wrapper.get(".directory-result").text()).toContain("owner-2 · pet-2");
+    await wrapper.get(".directory-result button").trigger("click");
+    await flushPromises();
+    expect(repositoryMocks.requestAccess).toHaveBeenCalledWith("pet-2");
   });
 
   it("saves a structured encounter with the mandatory taxonomy section", async () => {

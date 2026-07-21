@@ -21,6 +21,13 @@ describe("auth client", () => {
     await expect(new AuthClient().login("a@b.ru", "password")).rejects.toMatchObject<AuthClientError>({ code: "LOGIN_FAILED", status: 401 });
   });
 
+  it("encodes owner and pet directory search terms", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], page: 1, pageSize: 50, total: 0, pageCount: 1 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await new AuthClient().searchDirectoryPets("Иванов Иван", "Барс", 1, 50);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/directory/pets?owner=%D0%98%D0%B2%D0%B0%D0%BD%D0%BE%D0%B2+%D0%98%D0%B2%D0%B0%D0%BD&pet=%D0%91%D0%B0%D1%80%D1%81&page=1&pageSize=50&sort=owner");
+  });
+
   it("sends credential changes through an authenticated CSRF request", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ authenticated: true, csrfToken: "csrf" }), { status: 200 }))

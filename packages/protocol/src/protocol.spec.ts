@@ -407,7 +407,7 @@ describe("klinok protocol", () => {
     expect(state.grantRequests.get(rejectedRequest.requestId)?.request.status).toBe("rejected");
   });
 
-  it("lets the pet Owner disable future delegation without revoking existing child grants", async () => {
+  it("lets the pet Owner toggle future delegation without revoking existing child grants", async () => {
     const { keys, state } = await actorFixture("owner");
     state.petOwners.set("pet-1", "account-1");
     state.knownEvents.add("grant-event");
@@ -460,6 +460,21 @@ describe("klinok protocol", () => {
     applyAcceptedEvent(updated, state);
 
     expect(state.grants.get("grant-1")?.actions).toEqual(["read", "write_unconfirmed"]);
+    expect(isGrantEffectivelyActive(state, state.grants.get("child-grant"))).toBe(true);
+
+    const reenabled = await signedFor(state, keys, {
+      database: "medical",
+      eventType: "grant.actions.updated",
+      aggregateId: "pet-1",
+      resourceId: "grant-1",
+      activeRole: "owner",
+      parents: [updated.eventId],
+      metadata: { petId: "pet-1", grantId: "grant-1", actions: ["read", "write_unconfirmed", "delegate"] },
+    });
+    await expect(verifySignedEvent(reenabled, state)).resolves.toMatchObject({ accepted: true });
+    applyAcceptedEvent(reenabled, state);
+
+    expect(state.grants.get("grant-1")?.actions).toEqual(["read", "write_unconfirmed", "delegate"]);
     expect(isGrantEffectivelyActive(state, state.grants.get("child-grant"))).toBe(true);
   });
 

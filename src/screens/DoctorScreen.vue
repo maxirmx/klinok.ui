@@ -9,10 +9,10 @@ import WorkspaceShell from "../components/WorkspaceShell.vue";
 import {
   appState,
   loadDoctorPets,
-  lookupPetDirectory,
   logout,
   requireRepository,
   searchDoctorDirectory,
+  searchPetDirectory,
 } from "../appStore";
 import {
   ENCOUNTER_SECTION_LABELS,
@@ -43,8 +43,10 @@ const homePageSize = ref<(typeof pageSizes)[number]>(pageSizes.includes(storedPa
 const directoryPets = ref<DirectoryPetDto[]>([]);
 const directoryTotal = ref(0);
 const directoryPageCount = ref(1);
-const lookupId = ref("");
-const lookupResult = ref<DirectoryPetDto | null>(null);
+const petOwnerQuery = ref("");
+const petNameQuery = ref("");
+const petSearchResults = ref<DirectoryPetDto[]>([]);
+const petSearchPerformed = ref(false);
 const doctorQuery = ref("");
 const doctors = ref<DirectoryProfileDto[]>([]);
 const delegationTarget = ref<DirectoryProfileDto | null>(null);
@@ -132,17 +134,21 @@ async function refreshPets() {
   }
 }
 
-async function lookupPet() {
-  lookupResult.value = null;
-  await perform(async () => { lookupResult.value = await lookupPetDirectory(lookupId.value.trim()); });
+async function findPets() {
+  petSearchResults.value = [];
+  petSearchPerformed.value = false;
+  await perform(async () => {
+    const result = await searchPetDirectory(petOwnerQuery.value, petNameQuery.value, 1, 50);
+    petSearchResults.value = result.items;
+    petSearchPerformed.value = true;
+  });
 }
 
-async function requestAccess() {
-  if (!lookupResult.value) return;
+async function requestAccess(pet: DirectoryPetDto) {
   await perform(async () => {
-    await requireRepository().medical.requestAccess(lookupResult.value!.petId);
-    lookupResult.value = null;
-    lookupId.value = "";
+    await requireRepository().medical.requestAccess(pet.petId);
+    petSearchResults.value = petSearchResults.value.filter((candidate) => candidate.petId !== pet.petId);
+    if (!petSearchResults.value.length) petSearchPerformed.value = false;
   }, "Запрос отправлен владельцу.");
 }
 
@@ -253,7 +259,7 @@ onMounted(() => { void refreshPets(); });
     <section v-if="scenarioId === 'doctor-home'" class="panel doctor-page">
       <div class="doctor-heading"><div><h2>Доступные питомцы</h2><p>Медицинские карты, к которым вам предоставлен доступ.</p></div><RouterLink class="primary-action inline" to="/doctor/pets/request-access">Запросить доступ</RouterLink></div>
       <div class="doctor-filters">
-        <label><span>Поиск</span><input v-model="homeQuery" type="search" placeholder="ФИО, ID, кличка или вид" /></label>
+        <label><span>Поиск</span><input v-model="homeQuery" type="search" placeholder="ФИО, кличка, вид или полный ID" /></label>
         <label><span>Сортировка</span><select v-model="homeSort"><option value="owner">По ФИО владельца</option><option value="pet">По кличке</option></select></label>
       </div>
       <div class="administrator-table-wrap">
@@ -273,7 +279,7 @@ onMounted(() => { void refreshPets(); });
     </section>
 
     <section v-else-if="scenarioId === 'doctor-pet-request-access'" class="doctor-page">
-      <article class="panel"><h2>Запросить доступ</h2><form class="form-stack" @submit.prevent="lookupPet"><label><span>Точный ID питомца</span><input v-model="lookupId" required /></label><button class="primary-action inline" :disabled="busy">Найти</button></form><div v-if="lookupResult" class="directory-result"><strong>{{ lookupResult.ownerDisplayName }} · {{ lookupResult.species }} {{ lookupResult.name }}</strong><span>{{ lookupResult.ownerAccountId }} · {{ lookupResult.petId }}</span><button class="primary-action inline" @click="requestAccess">Отправить запрос</button></div></article>
+      <article class="panel"><h2>Запросить доступ</h2><form class="form-stack" @submit.prevent="findPets"><label><span>ФИО владельца, его часть или полный ID</span><input v-model="petOwnerQuery" type="search" required /></label><label><span>Кличка, её часть или полный ID питомца</span><input v-model="petNameQuery" type="search" required /></label><button class="primary-action inline" :disabled="busy">Найти</button></form><div v-for="pet in petSearchResults" :key="pet.petId" class="directory-result"><strong>{{ pet.ownerDisplayName }} · {{ pet.species }} {{ pet.name }}</strong><span>{{ pet.ownerAccountId }} · {{ pet.petId }}</span><button class="primary-action inline" :disabled="busy" @click="requestAccess(pet)">Отправить запрос</button></div><p v-if="petSearchPerformed && !petSearchResults.length">Питомцы не найдены.</p></article>
       <article class="panel"><h2>Предыдущие запросы</h2><div v-for="request in pendingRequests" :key="request.requestId" class="list-row"><div><strong>{{ request.petId }}</strong><span>{{ request.status }}</span></div><button v-if="request.status === 'pending'" class="outline-action inline danger-link" @click="perform(() => requireRepository().medical.cancelAccessRequest(request.requestId), 'Запрос отменён.')">Отменить</button></div><p v-if="!pendingRequests.length">Запросов пока нет.</p></article>
     </section>
 
@@ -288,7 +294,7 @@ onMounted(() => { void refreshPets(); });
       <article class="panel"><h2>Предыдущие приёмы</h2><details v-for="record in pagedRecords" :id="`encounter-${record.recordId}`" :key="record.recordId" class="encounter-history" :open="expandedRecordId === record.recordId"><summary><span>{{ record.encounterDate }}</span><strong>{{ encounterSummary(record) }}</strong><span>{{ record.authorDisplayName }}</span></summary><div v-for="(label, kind) in ENCOUNTER_SECTION_LABELS" v-show="record.sections[kind]" :key="kind" class="encounter-history-section"><h3>{{ label }}</h3><template v-if="isWhatHappenedValue(record.sections[kind]?.value)"><ul><li v-for="id in whatHappenedSelectedIds(record.sections[kind]?.value)" :key="id">{{ whatHappenedPath(id) }}</li></ul><p>{{ whatHappenedComment(record.sections[kind]?.value) }}</p></template><p v-else-if="isFreeTextValue(record.sections[kind]?.value)">{{ freeText(record.sections[kind]?.value) }}</p><small>{{ record.sections[kind]?.authorDisplayName }} · {{ record.sections[kind]?.authorAccountId }} · {{ record.sections[kind]?.updatedAt }}</small></div><button v-if="canWrite" class="outline-action inline" @click="editRecord(record)">{{ confirmedIds.has(record.recordId) ? 'Добавить дополнение' : 'Редактировать' }}</button></details><div class="administrator-pagination"><button :disabled="historyPage <= 1" @click="historyPage--">Назад</button><span>{{ historyPage }} / {{ historyPageCount }}</span><button :disabled="historyPage >= historyPageCount" @click="historyPage++">Вперёд</button><label>На странице <select v-model.number="historyPageSize"><option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option></select></label></div></article>
     </section>
 
-    <section v-else-if="selectedPet && scenarioId === 'doctor-pet-delegate'" class="panel doctor-page"><h2>Делегировать доступ: {{ selectedPet.name }}</h2><p v-if="!canDelegate">Текущий доступ не разрешает делегирование.</p><template v-else><form class="form-stack" @submit.prevent="findDoctors"><label><span>ФИО или ID врача</span><input v-model="doctorQuery" required /></label><button class="primary-action inline">Найти врача</button></form><div v-for="doctor in doctors" :key="doctor.accountId" class="list-row"><div><strong>{{ doctor.displayName }}</strong><span>{{ doctor.accountId }}</span></div><button class="outline-action inline" @click="delegationTarget = doctor">Выбрать</button></div><form v-if="delegationTarget" class="form-stack" @submit.prevent="delegationConfirm = true"><strong>{{ delegationTarget.displayName }}</strong><label class="check-row"><input type="checkbox" checked disabled /><span>Чтение</span></label><label v-if="selectedGrant?.actions.includes('write_unconfirmed')" class="check-row"><input v-model="delegationWrite" type="checkbox" /><span>Создание неподтверждённых приёмов</span></label><label v-if="selectedGrant?.actions.includes('delegate')" class="check-row"><input v-model="delegationDelegate" type="checkbox" /><span>Дальнейшее делегирование</span></label><button class="primary-action inline">Делегировать</button></form></template></section>
+    <section v-else-if="selectedPet && scenarioId === 'doctor-pet-delegate'" class="panel doctor-page"><h2>Делегировать доступ: {{ selectedPet.name }}</h2><p v-if="!canDelegate">Текущий доступ не разрешает делегирование.</p><template v-else><form class="form-stack" @submit.prevent="findDoctors"><label><span>ФИО, его часть или полный ID врача</span><input v-model="doctorQuery" required /></label><button class="primary-action inline">Найти врача</button></form><div v-for="doctor in doctors" :key="doctor.accountId" class="list-row"><div><strong>{{ doctor.displayName }}</strong><span>{{ doctor.accountId }}</span></div><button class="outline-action inline" @click="delegationTarget = doctor">Выбрать</button></div><form v-if="delegationTarget" class="form-stack" @submit.prevent="delegationConfirm = true"><strong>{{ delegationTarget.displayName }}</strong><label class="check-row"><input type="checkbox" checked disabled /><span>Чтение</span></label><label v-if="selectedGrant?.actions.includes('write_unconfirmed')" class="check-row"><input v-model="delegationWrite" type="checkbox" /><span>Создание неподтверждённых приёмов</span></label><label v-if="selectedGrant?.actions.includes('delegate')" class="check-row"><input v-model="delegationDelegate" type="checkbox" /><span>Дальнейшее делегирование</span></label><button class="primary-action inline">Делегировать</button></form></template></section>
 
     <section v-else-if="selectedPet && scenarioId === 'doctor-pet-cancel-access'" class="panel doctor-page"><h2>Отказаться от доступа</h2><p>Вы и все врачи, которым вы делегировали доступ к {{ selectedPet.name }}, потеряете медицинскую карту. Ключ питомца будет заменён.</p><button class="primary-action inline danger-link" @click="relinquishConfirm = true">Подтвердить отказ</button></section>
     <section v-else class="owner-empty-state"><p>Питомец недоступен или данные ещё не синхронизированы.</p><RouterLink class="primary-action inline" to="/doctor/home">На главную</RouterLink></section>

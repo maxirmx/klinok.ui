@@ -29,6 +29,7 @@ defineProps<{
     | "link"
     | "trash"
     | "restore"
+    | "share"
     | "share-off"
     | "more";
 }>();
@@ -122,6 +123,12 @@ defineProps<{
     </g>
     <g v-else-if="name === 'restore'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
       <path d="M4.5 8.5V4.8m0 0h3.7M4.5 4.8l3 2.7a7.2 7.2 0 1 1-2.1 7.4" />
+    </g>
+    <g v-else-if="name === 'share'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
+      <circle cx="18" cy="5" r="2.2" />
+      <circle cx="6" cy="12" r="2.2" />
+      <circle cx="18" cy="19" r="2.2" />
+      <path d="m8 11 7.8-4.6M8 13l7.8 4.6" />
     </g>
     <g v-else-if="name === 'share-off'" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
       <circle cx="18" cy="5" r="2.2" />
