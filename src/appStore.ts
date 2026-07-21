@@ -192,7 +192,7 @@ async function connectRepository(session: AuthSessionDto) {
       const preferred = approved.find((role) => role.role === initialRole) ?? approved[0];
       state.activeRole = preferred?.role ?? null;
       if (preferred) {
-        repository?.setActiveRole(preferred.role, preferred.requestId);
+        void repository?.setActiveRole(preferred.role, preferred.requestId);
         setLastActiveRole(accountId, deviceId, preferred.role);
       }
     }
@@ -364,12 +364,12 @@ export async function updateCredentials(input: { email?: string; password?: stri
   state.session = { ...state.session, email: result.email };
 }
 
-export function switchRole(role: Role) {
+export async function switchRole(role: Role): Promise<void> {
   const proof = state.control.roles.find((request) => request.role === role && request.status === "approved");
   if (!proof || !state.session.accountId || !state.session.device) throw new Error("Эта роль недоступна.");
+  await requireRepository().setActiveRole(role, proof.requestId);
   state.activeRole = role;
   setLastActiveRole(state.session.accountId, state.session.device.deviceId, role);
-  requireRepository().setActiveRole(role, proof.requestId);
 }
 
 export async function requestRole(role: Role) { await requireRepository().control.requestRole(role, state.control.profile?.revision ?? 1); }

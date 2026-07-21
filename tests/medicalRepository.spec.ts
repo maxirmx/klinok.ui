@@ -11,7 +11,7 @@ import {
 import { ControlRepository } from "../src/repositories/controlRepository";
 import { MemoryEventTransport } from "../src/repositories/eventTransport";
 import { MedicalRepository } from "../src/repositories/medicalRepository";
-import type { PetProfileInput } from "../src/repositories/types";
+import type { MedicalSnapshot, PetProfileInput } from "../src/repositories/types";
 
 async function client(transport: MemoryEventTransport, accountId: string, role: Role) {
   const keys = await generateUserKeySet();
@@ -50,6 +50,38 @@ const petInput = (name = "Шарик"): PetProfileInput => ({
 });
 
 describe("medical authorization repository", () => {
+  it("refreshes the pet projection when switching back from administrator to owner", async () => {
+    const transport = new MemoryEventTransport();
+    await transport.initialize();
+    const administrator = await client(transport, "bootstrap-administrator", "administrator");
+    await administrator.control.initialize({
+      profile: { firstName: "Начальный", lastName: "Администратор" },
+      requestedRoles: ["administrator"],
+    });
+    const owner = await client(transport, "owner-account", "owner");
+    await owner.control.initialize({
+      profile: { firstName: "Ольга", lastName: "Владелец" },
+      requestedRoles: ["owner"],
+    });
+    await tick();
+    const ownerRole = (await owner.control.snapshot()).roles.find((item) => item.role === "owner")!;
+    owner.control.setActiveRole("owner", ownerRole.requestId);
+    await owner.medical.setActiveRole("owner", ownerRole.requestId);
+    await owner.medical.initialize();
+
+    const petId = await owner.medical.createPet(petInput());
+    let latest: MedicalSnapshot | undefined;
+    const unsubscribe = owner.medical.subscribe((snapshot) => { latest = snapshot; });
+    await waitFor(() => latest?.pets.some((pet) => pet.petId === petId) ?? false);
+
+    await owner.medical.setActiveRole("administrator", "administrator-role");
+    expect(latest?.pets).toEqual([]);
+
+    await owner.medical.setActiveRole("owner", "owner-role");
+    expect(latest?.pets).toEqual([expect.objectContaining({ petId, name: "Шарик" })]);
+    unsubscribe();
+  });
+
   it("shares a pet by grant, lets the Doctor draft, confirms immutably, and rotates on revocation", async () => {
     const transport = new MemoryEventTransport();
     await transport.initialize();
@@ -70,9 +102,9 @@ describe("medical authorization repository", () => {
     owner.control.setActiveRole("owner", (await owner.control.snapshot()).roles.find((item) => item.role === "owner")!.requestId);
     doctor.control.setActiveRole("doctor", (await doctor.control.snapshot()).roles.find((item) => item.role === "doctor")!.requestId);
     delegatedDoctor.control.setActiveRole("doctor", (await delegatedDoctor.control.snapshot()).roles.find((item) => item.role === "doctor")!.requestId);
-    owner.medical.setActiveRole("owner", (await owner.control.snapshot()).roles.find((item) => item.role === "owner")!.requestId);
-    doctor.medical.setActiveRole("doctor", (await doctor.control.snapshot()).roles.find((item) => item.role === "doctor")!.requestId);
-    delegatedDoctor.medical.setActiveRole("doctor", (await delegatedDoctor.control.snapshot()).roles.find((item) => item.role === "doctor")!.requestId);
+    await owner.medical.setActiveRole("owner", (await owner.control.snapshot()).roles.find((item) => item.role === "owner")!.requestId);
+    await doctor.medical.setActiveRole("doctor", (await doctor.control.snapshot()).roles.find((item) => item.role === "doctor")!.requestId);
+    await delegatedDoctor.medical.setActiveRole("doctor", (await delegatedDoctor.control.snapshot()).roles.find((item) => item.role === "doctor")!.requestId);
     await owner.medical.initialize();
     await doctor.medical.initialize();
     await delegatedDoctor.medical.initialize();
@@ -148,8 +180,8 @@ describe("medical authorization repository", () => {
     await tick();
     owner.control.setActiveRole("owner", (await owner.control.snapshot()).roles.find((item) => item.role === "owner")!.requestId);
     doctor.control.setActiveRole("doctor", (await doctor.control.snapshot()).roles.find((item) => item.role === "doctor")!.requestId);
-    owner.medical.setActiveRole("owner", (await owner.control.snapshot()).roles.find((item) => item.role === "owner")!.requestId);
-    doctor.medical.setActiveRole("doctor", (await doctor.control.snapshot()).roles.find((item) => item.role === "doctor")!.requestId);
+    await owner.medical.setActiveRole("owner", (await owner.control.snapshot()).roles.find((item) => item.role === "owner")!.requestId);
+    await doctor.medical.setActiveRole("doctor", (await doctor.control.snapshot()).roles.find((item) => item.role === "doctor")!.requestId);
     await owner.medical.initialize();
     await doctor.medical.initialize();
 

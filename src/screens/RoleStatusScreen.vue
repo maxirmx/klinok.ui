@@ -206,7 +206,7 @@ async function saveCredentials() {
 
 async function activate(role: Role) {
   const changed = await action("roles", "Активная роль изменена.", async () => {
-    switchRole(role);
+    await switchRole(role);
     if (typeof route.query.continue === "string" && route.query.switch === role) await router.push(route.query.continue);
   });
   if (!changed) return;
