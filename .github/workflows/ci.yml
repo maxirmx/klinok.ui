@@ -98,7 +98,7 @@ jobs:
       - run: npm run test:e2e:compose
       - name: Upload E2E diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: compose-e2e-diagnostics
           path: test-results/
