@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   createProtocolState,
+  deviceProjectionKey,
   exportUserKeySet,
   generateUserKeySet,
   reduceSignedEvents,
+  signEvent,
   type ActiveRoleContext,
   type DeviceCertificate,
   type SignedEvent,
@@ -12,7 +14,7 @@ import { EventIngestService, handleEventIngestRequest } from "../p2p-node/src/ev
 import { ControlRepository } from "../src/repositories/controlRepository";
 import { MemoryEventTransport } from "../src/repositories/eventTransport";
 
-async function generatedEvents(accountId = "owner-account", deviceId = "owner-device"): Promise<SignedEvent[]> {
+async function generatedAccount(accountId = "owner-account", deviceId = "owner-device") {
   const keys = await generateUserKeySet();
   const exported = await exportUserKeySet(keys);
   const context: ActiveRoleContext = {
@@ -44,20 +46,25 @@ async function generatedEvents(accountId = "owner-account", deviceId = "owner-de
     personalDataConsentVersion: "1",
     userAgreementVersion: "1",
   });
-  return transport.list("control");
+  return { events: await transport.list("control"), keys, certificate };
+}
+
+async function generatedEvents(accountId = "owner-account", deviceId = "owner-device"): Promise<SignedEvent[]> {
+  return (await generatedAccount(accountId, deviceId)).events;
 }
 
 function service() {
   const persisted: SignedEvent[] = [];
+  const state = createProtocolState("bootstrap-administrator");
   const ingest = new EventIngestService({
-    state: createProtocolState("bootstrap-administrator"),
+    state,
     databases: {
       control: { async add(event) { persisted.push(event); } },
       medical: { async add(event) { persisted.push(event); } },
     },
     verification: { requireTrustedAttestation: false },
   });
-  return { ingest, persisted };
+  return { ingest, persisted, state };
 }
 
 describe("trusted-node event ingestion", () => {
@@ -74,6 +81,49 @@ describe("trusted-node event ingestion", () => {
       expect.objectContaining({ aggregateId: "first-account", resourceId: sharedDeviceId }),
       expect.objectContaining({ aggregateId: "second-account", resourceId: sharedDeviceId }),
     ]));
+  });
+
+  it("rejects cross-account device projection poisoning before persistence or state mutation", async () => {
+    const sharedDeviceId = "shared-browser-device";
+    const first = await generatedAccount("first-account", sharedDeviceId);
+    const second = await generatedAccount("second-account", sharedDeviceId);
+    const { ingest, persisted, state } = service();
+    const setup = await ingest.ingest([...first.events, ...second.events]);
+    expect(setup.results.every((result) => result.status === "persisted")).toBe(true);
+    const persistedCount = persisted.length;
+
+    const source = first.events.find((event) => event.eventType === "profile.updated")!;
+    const { signature: _signature, ...unsignedSource } = source;
+    void _signature;
+    const poisonedRotation = await signEvent({
+      ...unsignedSource,
+      eventId: crypto.randomUUID(),
+      operationId: crypto.randomUUID(),
+      eventType: "device.rotated",
+      aggregateId: first.certificate.accountId,
+      resourceId: sharedDeviceId,
+      parents: [],
+      metadata: { accountId: first.certificate.accountId, certificate: { ...second.certificate, userKeyVersion: 2 } },
+    }, first.keys.signingPrivateKey);
+    const maliciousRevocation = await signEvent({
+      ...unsignedSource,
+      eventId: crypto.randomUUID(),
+      operationId: crypto.randomUUID(),
+      eventType: "device.revoked",
+      aggregateId: first.certificate.accountId,
+      resourceId: sharedDeviceId,
+      parents: [],
+      metadata: { accountId: second.certificate.accountId, deviceId: sharedDeviceId },
+    }, first.keys.signingPrivateKey);
+
+    const response = await ingest.ingest([poisonedRotation, maliciousRevocation]);
+
+    expect(response.results).toEqual([
+      expect.objectContaining({ status: "rejected", code: "DEVICE_BINDING_INVALID" }),
+      expect.objectContaining({ status: "rejected", code: "DEVICE_BINDING_INVALID" }),
+    ]);
+    expect(persisted).toHaveLength(persistedCount);
+    expect(state.devices.get(deviceProjectionKey(second.certificate.accountId, sharedDeviceId))).toEqual(second.certificate);
   });
 
   it("reduces reversed replicated events without recording temporary dependency conflicts", async () => {

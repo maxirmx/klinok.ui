@@ -44,7 +44,7 @@ async function register(page: Page, request: APIRequestContext, input: {
   await page.getByRole("button", { name: "Продолжить" }).click();
   await page.getByLabel(/исполнилось 18/).check();
   await page.getByRole("button", { name: "Зарегистрироваться" }).click();
-  await expect(page.getByText(/Письмо отправлено/)).toBeVisible();
+  await expect(page.getByText(/Перейдите в Вашу программу электронной почты/)).toBeVisible();
   await page.goto(await verificationLink(request, input.email));
   await expect(page.getByText(/Почта подтверждена/)).toBeVisible();
 }

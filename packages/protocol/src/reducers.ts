@@ -91,12 +91,10 @@ export function applyAcceptedEvent(event: SignedEvent, state: ProtocolState): vo
   if (event.eventType === "account.deleted") state.accounts.set(event.aggregateId, "deleted");
   if (event.eventType === "device.attested" || event.eventType === "device.rotated") {
     const certificate = event.metadata.certificate as unknown as DeviceCertificate;
-    state.devices.set(deviceProjectionKey(certificate.accountId, certificate.deviceId), certificate);
+    state.devices.set(deviceProjectionKey(event.actorAccountId, event.actorDeviceId), certificate);
   }
   if (event.eventType === "device.revoked") {
-    const accountId = String(event.metadata.accountId ?? event.aggregateId);
-    const deviceId = String(event.metadata.deviceId ?? event.resourceId);
-    const key = deviceProjectionKey(accountId, deviceId);
+    const key = deviceProjectionKey(event.actorAccountId, event.resourceId);
     const device = state.devices.get(key);
     if (device) state.devices.set(key, { ...device, status: "revoked" });
   }
