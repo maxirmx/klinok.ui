@@ -38,3 +38,14 @@ export async function getPetKey(accountId: string, petId: string): Promise<{ ver
     key: await crypto.subtle.importKey("jwk", stored.jwk, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]),
   };
 }
+
+export async function deletePetKey(accountId: string, petId: string): Promise<void> {
+  const database = await db();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).delete(`${accountId}:${petId}`);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  database.close();
+}

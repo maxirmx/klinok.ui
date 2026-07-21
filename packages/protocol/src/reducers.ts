@@ -1,6 +1,7 @@
 import {
   chooseConcurrentRoleStatus,
   deviceProjectionKey,
+  isGrantEffectivelyActive,
   roleProjectionKey,
   shouldDeferEventVerification,
   verifySignedEvent,
@@ -154,9 +155,13 @@ export function applyAcceptedEvent(event: SignedEvent, state: ProtocolState): vo
       }
     }
   }
-  if (event.eventType === "grant.revoked") {
+  if (event.eventType === "grant.revoked" || event.eventType === "grant.relinquished") {
     const grant = state.grants.get(event.resourceId);
-    if (grant) state.grants.set(event.resourceId, { ...grant, status: "revoked", revokedAt: event.createdAt });
+    if (grant) state.grants.set(event.resourceId, {
+      ...grant,
+      status: event.eventType === "grant.revoked" ? "revoked" : "relinquished",
+      revokedAt: event.createdAt,
+    });
   }
   if (event.eventType === "grant.actions.updated") {
     const grant = state.grants.get(event.resourceId);
@@ -228,9 +233,12 @@ export function reconcileEffectiveEvents(events: SignedEvent[], state: ProtocolS
     }
   }
   for (const grant of state.grants.values()) {
-    if (grant.status !== "revoked") continue;
-    const revocation = events.findLast((event) => event.eventType === "grant.revoked" && event.resourceId === grant.grantId);
-    const preserved = new Set((revocation?.metadata.priorAuthorizedEventIds ?? []) as string[]);
+    if (isGrantEffectivelyActive(state, grant)) continue;
+    let inactiveGrant: PetAccessGrant | undefined = grant;
+    while (inactiveGrant?.status === "active" && inactiveGrant.parentGrantId) inactiveGrant = state.grants.get(inactiveGrant.parentGrantId);
+    const decision = events.findLast((event) => ["grant.revoked", "grant.relinquished"].includes(event.eventType)
+      && event.resourceId === inactiveGrant?.grantId);
+    const preserved = new Set((decision?.metadata.priorAuthorizedEventIds ?? []) as string[]);
     for (const event of events) {
       if (event.database !== "medical" || event.actorAccountId !== grant.granteeAccountId ||
         String(event.metadata.petId ?? event.aggregateId) !== grant.petId || preserved.has(event.eventId)) continue;

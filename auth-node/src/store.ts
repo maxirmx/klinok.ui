@@ -11,6 +11,11 @@ import type {
   DeviceEnrollmentDto,
   PendingOperationDto,
   RegistrationSetupDto,
+  DirectoryPetDto,
+  DirectoryProfileDto,
+  PetAccessGrant,
+  Role,
+  RoleStatus,
 } from "@klinok/protocol";
 
 export interface EncryptedUserKeySet {
@@ -215,5 +220,69 @@ export class AuthStore {
 
   async putMarker(id: string): Promise<void> {
     await this.db.put(`marker:${id}`, { id, createdAt: new Date().toISOString() });
+  }
+
+  async putDirectoryProfile(profile: DirectoryProfileDto): Promise<void> {
+    await this.db.put(`directory:profile:${profile.accountId}`, profile);
+  }
+
+  async getDirectoryProfile(accountId: string): Promise<DirectoryProfileDto | null> {
+    return this.get<DirectoryProfileDto>(`directory:profile:${accountId}`);
+  }
+
+  async listDirectoryProfiles(): Promise<DirectoryProfileDto[]> {
+    const profiles: DirectoryProfileDto[] = [];
+    for await (const [, value] of this.db.iterator({ gte: "directory:profile:", lt: "directory:profile;" })) {
+      profiles.push(value as DirectoryProfileDto);
+    }
+    return profiles;
+  }
+
+  async putDirectoryPet(pet: DirectoryPetDto): Promise<void> {
+    await this.db.put(`directory:pet:${pet.petId}`, pet);
+  }
+
+  async getDirectoryPet(petId: string): Promise<DirectoryPetDto | null> {
+    return this.get<DirectoryPetDto>(`directory:pet:${petId}`);
+  }
+
+  async deleteDirectoryPet(petId: string): Promise<void> {
+    await this.db.del(`directory:pet:${petId}`);
+  }
+
+  async listDirectoryPets(): Promise<DirectoryPetDto[]> {
+    const pets: DirectoryPetDto[] = [];
+    for await (const [, value] of this.db.iterator({ gte: "directory:pet:", lt: "directory:pet;" })) {
+      pets.push(value as DirectoryPetDto);
+    }
+    return pets;
+  }
+
+  async putObservedRole(accountId: string, role: Role, status: RoleStatus): Promise<void> {
+    await this.db.put(`projection:role:${accountId}:${role}`, status);
+  }
+
+  async getObservedRole(accountId: string, role: Role): Promise<RoleStatus | null> {
+    return this.get<RoleStatus>(`projection:role:${accountId}:${role}`);
+  }
+
+  async putObservedPetOwner(petId: string, ownerAccountId: string): Promise<void> {
+    await this.db.put(`projection:pet-owner:${petId}`, ownerAccountId);
+  }
+
+  async getObservedPetOwner(petId: string): Promise<string | null> {
+    return this.get<string>(`projection:pet-owner:${petId}`);
+  }
+
+  async putObservedGrant(grant: PetAccessGrant): Promise<void> {
+    await this.db.put(`projection:grant:${grant.grantId}`, grant);
+  }
+
+  async listObservedGrants(): Promise<PetAccessGrant[]> {
+    const grants: PetAccessGrant[] = [];
+    for await (const [, value] of this.db.iterator({ gte: "projection:grant:", lt: "projection:grant;" })) {
+      grants.push(value as PetAccessGrant);
+    }
+    return grants;
   }
 }

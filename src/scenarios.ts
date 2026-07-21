@@ -1,5 +1,5 @@
 export type ScenarioRole = "auth" | "owner" | "doctor" | "administrator" | "shared";
-export type ScenarioComponentName = "AuthScreen" | "RoleStatusScreen" | "WorkspaceScreen" | "OwnerScreen" | "AdministratorScreen";
+export type ScenarioComponentName = "AuthScreen" | "RoleStatusScreen" | "WorkspaceScreen" | "OwnerScreen" | "DoctorScreen" | "AdministratorScreen";
 
 export interface ScenarioRegistryEntry {
   id: string;
@@ -33,14 +33,18 @@ export const scenarioRegistry: ScenarioRegistryEntry[] = [
   { id: "owner-pet-detail", title: "Кабинет владельца", role: "owner", path: "/owner/pets/:petId", figmaNodeId: "owner-pages", component: "OwnerScreen", implemented: true },
   { id: "owner-pet-edit", title: "Редактировать питомца", role: "owner", path: "/owner/pets/:petId/edit", figmaNodeId: "owner-pages", component: "OwnerScreen", implemented: true },
   { id: "owner-pet-access", title: "Доступ врачей", role: "owner", path: "/owner/pets/:petId/access", figmaNodeId: "owner-pages", component: "OwnerScreen", implemented: true },
-  { id: "doctor-home", title: "Кабинет врача", role: "doctor", path: "/doctor/home", figmaNodeId: "issue:25", component: "WorkspaceScreen", implemented: true },
+  { id: "doctor-home", title: "Кабинет врача", role: "doctor", path: "/doctor/home", figmaNodeId: "issue:34", component: "DoctorScreen", implemented: true },
+  { id: "doctor-pet-request-access", title: "Запросить доступ", role: "doctor", path: "/doctor/pets/request-access", figmaNodeId: "issue:34", component: "DoctorScreen", implemented: true },
+  { id: "doctor-pet-detail", title: "Медицинская карта", role: "doctor", path: "/doctor/pets/:petId", figmaNodeId: "issue:34", component: "DoctorScreen", implemented: true },
+  { id: "doctor-pet-delegate", title: "Делегировать доступ", role: "doctor", path: "/doctor/pets/:petId/delegate", figmaNodeId: "issue:34", component: "DoctorScreen", implemented: true },
+  { id: "doctor-pet-cancel-access", title: "Отказаться от доступа", role: "doctor", path: "/doctor/pets/:petId/cancel-access", figmaNodeId: "issue:34", component: "DoctorScreen", implemented: true },
   { id: "administrator-home", title: "Кабинет администратора", role: "administrator", path: "/admin/home", figmaNodeId: "issue:25", component: "AdministratorScreen", implemented: true },
   { id: "administrator-audit", title: "Кабинет администратора", role: "administrator", path: "/admin/audit", figmaNodeId: "issue:25", component: "AdministratorScreen", implemented: true },
 ];
 
 export const figmaCoverage: FigmaCoverageEntry[] = scenarioRegistry.map((scenario) => ({
-  id: `issue-25-${scenario.id}`,
-  source: "GitHub issue #25 design comment",
+  id: `${scenario.figmaNodeId.replace(":", "-")}-${scenario.id}`,
+  source: scenario.figmaNodeId === "issue:34" ? "GitHub issue #34" : "GitHub issue #25 design comment",
   status: "implemented",
   scenarioId: scenario.id,
   notes: "Operational registration and role-system cutover.",

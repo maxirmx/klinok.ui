@@ -18,6 +18,9 @@ import {
   type BootstrapDeviceReplacementPayload,
   type DeviceCertificate,
   type DeviceEnrollmentDto,
+  type DirectoryPageDto,
+  type DirectoryPetDto,
+  type DirectoryProfileDto,
   type ExportedUserKeySet,
   type RegistrationSetupDto,
   type Role,
@@ -223,6 +226,17 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     return keySet.version === certificate.userKeyVersion
       && stableSerialize(keySet.signingPublicKey) === stableSerialize(certificate.signingPublicKey)
       && stableSerialize(keySet.encryptionPublicKey) === stableSerialize(certificate.encryptionPublicKey);
+  }
+
+  async function hasObservedRole(accountId: string, role: Role): Promise<boolean> {
+    return await store.getObservedRole(accountId, role) === "approved";
+  }
+
+  function directoryPage<T>(items: T[], rawPage: unknown, rawPageSize: unknown): DirectoryPageDto<T> {
+    const pageSize = [10, 20, 50].includes(Number(rawPageSize)) ? Number(rawPageSize) : 20;
+    const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+    const page = Math.min(pageCount, Math.max(1, Number.isSafeInteger(Number(rawPage)) ? Number(rawPage) : 1));
+    return { items: items.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total: items.length, pageCount };
   }
 
   async function allowAccountMutation(request: FastifyRequest, reply: FastifyReply, accountId: string, sensitive = false): Promise<boolean> {
@@ -583,6 +597,120 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
       updatedAt: now().toISOString(),
     });
     return { operationId };
+  });
+
+  app.put<{ Body: Partial<DirectoryProfileDto> }>("/api/auth/directory/profile", {
+    config: { rateLimit: { max: options.config.rateLimit.mutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply);
+    if (!current) return;
+    if (!await allowAccountMutation(request, reply, current.account.accountId)) return;
+    const firstName = request.body.firstName?.trim();
+    const lastName = request.body.lastName?.trim();
+    const patronymic = request.body.patronymic?.trim();
+    if (!firstName || !lastName) return error(reply, 400, "DIRECTORY_PROFILE_INVALID", "Имя и фамилия обязательны.");
+    const profile: DirectoryProfileDto = {
+      accountId: current.account.accountId,
+      firstName,
+      lastName,
+      ...(patronymic ? { patronymic } : {}),
+      displayName: [firstName, patronymic, lastName].filter(Boolean).join(" "),
+      updatedAt: now().toISOString(),
+    };
+    await store.putDirectoryProfile(profile);
+    return reply.header("Cache-Control", "no-store").send(profile);
+  });
+
+  app.get<{ Querystring: { query?: string; sort?: string; page?: string; pageSize?: string } }>("/api/auth/directory/doctors", {
+    config: { rateLimit: { max: options.config.rateLimit.sessionIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply, false);
+    if (!current) return;
+    if (!await hasObservedRole(current.account.accountId, "doctor")) return error(reply, 403, "DOCTOR_ROLE_REQUIRED", "Требуется одобренная роль врача.");
+    const query = request.query.query?.trim().toLocaleLowerCase("ru") ?? "";
+    const profiles = (await store.listDirectoryProfiles()).filter((profile) => profile.accountId !== current.account.accountId
+      && (!query || `${profile.displayName} ${profile.accountId}`.toLocaleLowerCase("ru").includes(query))
+      && profile.accountId !== current.account.accountId);
+    const approved: DirectoryProfileDto[] = [];
+    for (const profile of profiles) if (await hasObservedRole(profile.accountId, "doctor")) approved.push(profile);
+    approved.sort((left, right) => request.query.sort === "id"
+      ? left.accountId.localeCompare(right.accountId)
+      : left.displayName.localeCompare(right.displayName, "ru") || left.accountId.localeCompare(right.accountId));
+    return reply.header("Cache-Control", "no-store").send(directoryPage(approved, request.query.page, request.query.pageSize));
+  });
+
+  app.get<{ Params: { petId: string } }>("/api/auth/directory/pets/:petId", {
+    config: { rateLimit: { max: options.config.rateLimit.sessionIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply, false);
+    if (!current) return;
+    if (!await hasObservedRole(current.account.accountId, "doctor")) return error(reply, 403, "DOCTOR_ROLE_REQUIRED", "Требуется одобренная роль врача.");
+    const pet = await store.getDirectoryPet(request.params.petId);
+    if (!pet) return error(reply, 404, "PET_NOT_FOUND", "Питомец с таким идентификатором не найден.");
+    return reply.header("Cache-Control", "no-store").send(pet);
+  });
+
+  app.get<{ Querystring: { query?: string; sort?: string; page?: string; pageSize?: string } }>("/api/auth/directory/my-pets", {
+    config: { rateLimit: { max: options.config.rateLimit.sessionIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply, false);
+    if (!current) return;
+    if (!await hasObservedRole(current.account.accountId, "doctor")) return error(reply, 403, "DOCTOR_ROLE_REQUIRED", "Требуется одобренная роль врача.");
+    const grants = await store.listObservedGrants();
+    const byId = new Map(grants.map((grant) => [grant.grantId, grant]));
+    const effective = (grant: (typeof grants)[number] | undefined, seen = new Set<string>()): boolean => {
+      if (!grant || grant.status !== "active" || seen.has(grant.grantId)) return false;
+      if (!grant.parentGrantId) return true;
+      seen.add(grant.grantId);
+      return effective(byId.get(grant.parentGrantId), seen);
+    };
+    const access = new Map(grants.filter((grant) => grant.granteeAccountId === current.account.accountId && effective(grant))
+      .map((grant) => [grant.petId, grant]));
+    const query = request.query.query?.trim().toLocaleLowerCase("ru") ?? "";
+    const pets = (await store.listDirectoryPets()).filter((pet) => access.has(pet.petId)
+      && (!query || `${pet.ownerDisplayName} ${pet.ownerAccountId} ${pet.name} ${pet.petId} ${pet.species}`.toLocaleLowerCase("ru").includes(query)))
+      .map((pet): DirectoryPetDto => ({ ...pet, permissions: access.get(pet.petId)!.actions, grantId: access.get(pet.petId)!.grantId }));
+    pets.sort((left, right) => request.query.sort === "pet"
+      ? left.name.localeCompare(right.name, "ru")
+      : left.ownerDisplayName.localeCompare(right.ownerDisplayName, "ru") || left.name.localeCompare(right.name, "ru"));
+    return reply.header("Cache-Control", "no-store").send(directoryPage(pets, request.query.page, request.query.pageSize));
+  });
+
+  app.put<{ Params: { petId: string }; Body: Pick<DirectoryPetDto, "species" | "name"> }>("/api/auth/directory/pets/:petId", {
+    config: { rateLimit: { max: options.config.rateLimit.mutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply);
+    if (!current) return;
+    if (!await hasObservedRole(current.account.accountId, "owner")) return error(reply, 403, "OWNER_ROLE_REQUIRED", "Требуется одобренная роль владельца.");
+    if (await store.getObservedPetOwner(request.params.petId) !== current.account.accountId) {
+      return error(reply, 409, "PET_PROJECTION_PENDING", "Профиль питомца ещё не подтверждён хранилищем. Повторите попытку.");
+    }
+    const species = request.body.species?.trim();
+    const name = request.body.name?.trim();
+    if (!species || !name) return error(reply, 400, "DIRECTORY_PET_INVALID", "Вид и кличка обязательны.");
+    const profile = await store.getDirectoryProfile(current.account.accountId);
+    if (!profile) return error(reply, 409, "PROFILE_DIRECTORY_MISSING", "Сначала синхронизируйте профиль владельца.");
+    const pet: DirectoryPetDto = {
+      petId: request.params.petId,
+      ownerAccountId: current.account.accountId,
+      ownerDisplayName: profile.displayName,
+      species,
+      name,
+      updatedAt: now().toISOString(),
+    };
+    await store.putDirectoryPet(pet);
+    return reply.header("Cache-Control", "no-store").send(pet);
+  });
+
+  app.delete<{ Params: { petId: string } }>("/api/auth/directory/pets/:petId", {
+    config: { rateLimit: { max: options.config.rateLimit.mutationIpPerMinute, timeWindow: 60_000 } },
+  }, async (request, reply) => {
+    const current = await authenticated(request, reply);
+    if (!current) return;
+    if (!await hasObservedRole(current.account.accountId, "owner")) return error(reply, 403, "OWNER_ROLE_REQUIRED", "Требуется одобренная роль владельца.");
+    if (await store.getObservedPetOwner(request.params.petId) !== current.account.accountId) return error(reply, 403, "PET_OWNER_REQUIRED", "Удалить запись может только владелец.");
+    await store.deleteDirectoryPet(request.params.petId);
+    return reply.code(204).send();
   });
 
   app.patch<{ Body: CredentialsBody }>("/api/auth/credentials", {

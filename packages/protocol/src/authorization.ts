@@ -92,6 +92,7 @@ const STATE_DEPENDENT_VERIFICATION_FAILURES = new Set([
   "DOCTOR_ROLE_REQUIRED",
   "PET_GRANT_REQUIRED",
   "GRANT_DELEGATION_FORBIDDEN",
+  "GRANT_RELINQUISHMENT_FORBIDDEN",
 ]);
 
 /**
@@ -376,6 +377,26 @@ function capabilityResult(event: SignedEvent, state: ProtocolState): Verificatio
     return hasActiveRoleProof(state, event, "owner") && ownerId === event.actorAccountId
       ? { accepted: true }
       : { accepted: false, code: "OWNER_SCOPE_FORBIDDEN", message: "Only the pet Owner may perform this command." };
+  }
+  if (event.eventType === "grant.relinquished") {
+    const grant = state.grants.get(event.resourceId);
+    const valid = grant?.petId === petId && grant.granteeAccountId === event.actorAccountId &&
+      isGrantEffectivelyActive(state, grant) && event.proofIds.includes(grant.grantId) &&
+      Number(event.metadata.nextKeyVersion) === grant.petKeyVersion + 1;
+    return valid && hasActiveRoleProof(state, event, "doctor")
+      ? { accepted: true }
+      : { accepted: false, code: "GRANT_RELINQUISHMENT_FORBIDDEN", message: "Only the grant's Doctor may relinquish an active grant." };
+  }
+  if (event.eventType === "pet.key.rotated" && event.metadata.relinquishedGrantId) {
+    const grantId = String(event.metadata.relinquishedGrantId);
+    const grant = state.grants.get(grantId);
+    const relinquishment = event.parents.map((parent) => state.events.get(parent)).find((parent) =>
+      parent?.eventType === "grant.relinquished" && parent.resourceId === grantId && parent.actorAccountId === event.actorAccountId,
+    );
+    return grant?.petId === petId && grant.granteeAccountId === event.actorAccountId && grant.status === "relinquished" &&
+      relinquishment && hasActiveRoleProof(state, event, "doctor") && Number(event.metadata.keyVersion) === grant.petKeyVersion + 1
+      ? { accepted: true }
+      : { accepted: false, code: "GRANT_RELINQUISHMENT_FORBIDDEN", message: "A Doctor key rotation must be causally linked to relinquishment." };
   }
   if (["pet.updated", "pet.tombstoned", "pet.key.rotated", "grant.created", "grant.revoked", "medical.record.confirmed"].includes(event.eventType)) {
     if (event.eventType === "medical.record.confirmed" && state.confirmedRecords.has(event.resourceId)) {

@@ -19,7 +19,7 @@ import type { Mailer } from "./mailer.js";
 import type { AuthStore } from "./store.js";
 
 interface ObserverRuntime {
-  db: { iterator(): AsyncIterable<unknown>; close(): Promise<void>; events?: { on?(event: string, callback: () => void): void; off?(event: string, callback: () => void): void } };
+  dbs: Array<{ iterator(): AsyncIterable<unknown>; close(): Promise<void>; events?: { on?(event: string, callback: () => void): void; off?(event: string, callback: () => void): void } }>;
   orbitdb: { stop(): Promise<unknown> };
   helia: { stop(): Promise<unknown> };
 }
@@ -28,8 +28,8 @@ function valueFrom(entry: unknown): SignedEvent | null {
   return extractSignedEvent(entry);
 }
 
-function observerAccessController(state: ProtocolState, authAttestationPublicKey: JsonWebKey) {
-  const type = ACCESS_CONTROLLER_TYPES.control;
+function observerAccessController(state: ProtocolState, authAttestationPublicKey: JsonWebKey, database: "control" | "medical") {
+  const type = ACCESS_CONTROLLER_TYPES[database];
   const factory = async () => ({
     type,
     address: `/${type}`,
@@ -92,9 +92,11 @@ export class ControlPlaneObserver {
       import("@orbitdb/core"), import("@libp2p/websockets"), import("@libp2p/bootstrap"), import("@libp2p/identify"),
       import("@libp2p/gossipsub"), import("@chainsafe/libp2p-noise"), import("@chainsafe/libp2p-yamux"), import("@multiformats/multiaddr"), import("blockstore-level"),
     ]);
-    const access = observerAccessController(this.accessState, this.authAttestationPublicKey);
+    const controlAccess = observerAccessController(this.accessState, this.authAttestationPublicKey, "control");
+    const medicalAccess = observerAccessController(this.accessState, this.authAttestationPublicKey, "medical");
     useIdentityProvider(KlinokIdentityProvider);
-    useAccessController(access);
+    useAccessController(controlAccess);
+    useAccessController(medicalAccess);
     const peerAddresses = this.config.controlObserver.trustedNodeMultiaddrs;
     console.log(JSON.stringify({ level: "info", event: "auth.control-observer.starting", trustedNodeMultiaddrs: peerAddresses }));
     const discovery = peerAddresses.filter((item) => item.includes("/p2p/"));
@@ -116,10 +118,11 @@ export class ControlPlaneObserver {
     const helia = withBitswap(withLibp2p(withHTTP(createHeliaLight({ blockstore, codecs: [dagCbor, dagJson, json], hashers: [sha512] })), libp2p));
     await helia.start();
     const orbitdb = await createOrbitDB({ ipfs: helia, id: "klinok-auth-observer", directory: `${this.config.dataDir}/observer-orbitdb` });
-    const db = await orbitdb.open(this.config.controlObserver.databaseAddress ?? this.config.controlObserver.databaseName, { type: "events", AccessController: access });
-    this.runtime = { db, orbitdb, helia };
+    const controlDb = await orbitdb.open(this.config.controlObserver.databaseAddress ?? this.config.controlObserver.databaseName, { type: "events", AccessController: controlAccess });
+    const medicalDb = await orbitdb.open(this.config.controlObserver.medicalDatabaseAddress ?? this.config.controlObserver.medicalDatabaseName ?? "klinok-medical-v3", { type: "events", AccessController: medicalAccess });
+    this.runtime = { dbs: [controlDb, medicalDb], orbitdb, helia };
     this.updateHandler = () => void this.process();
-    db.events?.on?.("update", this.updateHandler);
+    for (const db of this.runtime.dbs) db.events?.on?.("update", this.updateHandler);
     await this.process();
   }
 
@@ -131,9 +134,11 @@ export class ControlPlaneObserver {
   private async processNow(): Promise<void> {
     if (!this.runtime) return;
     const events: SignedEvent[] = [];
-    for await (const entry of this.runtime.db.iterator()) {
-      const event = valueFrom(entry);
-      if (event) events.push(event);
+    for (const db of this.runtime.dbs) {
+      for await (const entry of db.iterator()) {
+        const event = valueFrom(entry);
+        if (event) events.push(event);
+      }
     }
     events.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.eventId.localeCompare(right.eventId));
     const remaining = new Map(events.filter((event) => !this.state.knownEvents.has(event.eventId)).map((event) => [event.eventId, event]));
@@ -157,6 +162,23 @@ export class ControlPlaneObserver {
   }
 
   private async handleAcceptedEvent(event: SignedEvent): Promise<void> {
+    if (event.eventType.startsWith("role.")) {
+      await this.store.putObservedRole(
+        String(event.metadata.accountId ?? event.aggregateId),
+        event.metadata.role as "administrator" | "doctor" | "owner",
+        event.metadata.status as "not_requested" | "pending" | "approved" | "rejected" | "suspended" | "revoked" | "expired",
+      );
+    }
+    if (event.eventType.startsWith("pet.") && event.metadata.ownerAccountId) {
+      await this.store.putObservedPetOwner(String(event.metadata.petId ?? event.aggregateId), String(event.metadata.ownerAccountId));
+    }
+    if (["grant.created", "grant.delegated"].includes(event.eventType) && event.metadata.grant) {
+      await this.store.putObservedGrant(event.metadata.grant as never);
+    }
+    if (["grant.revoked", "grant.relinquished", "grant.actions.updated"].includes(event.eventType)) {
+      const grant = this.state.grants.get(event.resourceId);
+      if (grant) await this.store.putObservedGrant(grant);
+    }
     const accountId = String(event.metadata.accountId ?? event.aggregateId);
     let account = await this.store.getAccount(accountId);
     if (account) {
@@ -198,8 +220,8 @@ export class ControlPlaneObserver {
 
   async stop(): Promise<void> {
     if (!this.runtime) return;
-    if (this.updateHandler) this.runtime.db.events?.off?.("update", this.updateHandler);
-    await this.runtime.db.close();
+    if (this.updateHandler) for (const db of this.runtime.dbs) db.events?.off?.("update", this.updateHandler);
+    for (const db of this.runtime.dbs) await db.close();
     await this.runtime.orbitdb.stop();
     await this.runtime.helia.stop();
     this.runtime = null;

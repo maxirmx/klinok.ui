@@ -113,9 +113,37 @@ export interface PetAccessGrant {
   requestId?: string;
   parentGrantId?: string;
   petKeyVersion: number;
-  status: "active" | "revoked";
+  status: "active" | "revoked" | "relinquished";
   createdAt: string;
   revokedAt?: string;
+}
+
+export interface DirectoryProfileDto {
+  accountId: string;
+  firstName: string;
+  lastName: string;
+  patronymic?: string;
+  displayName: string;
+  updatedAt: string;
+}
+
+export interface DirectoryPetDto {
+  petId: string;
+  ownerAccountId: string;
+  ownerDisplayName: string;
+  species: string;
+  name: string;
+  updatedAt: string;
+  permissions?: readonly PetGrantAction[];
+  grantId?: string;
+}
+
+export interface DirectoryPageDto<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  pageCount: number;
 }
 
 export interface MedicalRecordConfirmation {

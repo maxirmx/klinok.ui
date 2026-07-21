@@ -19,7 +19,7 @@ describe("operational routes", () => {
     expect(text).not.toContain("/auth/code");
     expect(text).not.toContain("/company/");
     expect(text).not.toContain("/vet/");
-    expect(scenarioRegistry.every((scenario) => ["issue:25", "owner-pages"].includes(scenario.figmaNodeId))).toBe(true);
+    expect(scenarioRegistry.every((scenario) => ["issue:25", "issue:34", "owner-pages"].includes(scenario.figmaNodeId))).toBe(true);
   });
 
   it("keeps the prototype pet-list URL as a compatibility redirect", () => {

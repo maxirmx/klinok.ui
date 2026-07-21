@@ -14,10 +14,18 @@ import {
 } from "@klinok/protocol";
 import type { EventTransport } from "./eventTransport";
 import { EventFactory } from "./eventFactory";
-import { getPetKey, putPetKey } from "./petKeyVault";
+import { deletePetKey, getPetKey, putPetKey } from "./petKeyVault";
 import { loadUserKeys } from "./deviceVault";
 import { normalizePetInput, normalizePetProfile } from "../petProfile";
-import type { MedicalRecordDraft, MedicalSnapshot, PetProfile, PetProfileInput } from "./types";
+import { encounterSummary, isFreeTextValue, isWhatHappenedValue } from "../medicalEncounter";
+import type {
+  MedicalEncounterInput,
+  MedicalEncounterSection,
+  MedicalRecordDraft,
+  MedicalSnapshot,
+  PetProfile,
+  PetProfileInput,
+} from "./types";
 import type { ControlRepository } from "./controlRepository";
 
 type Listener = (snapshot: MedicalSnapshot) => void;
@@ -400,6 +408,36 @@ export class MedicalRepository {
     await this.rotatePetKey(grant.petId, stored, [revocationEventId]);
   }
 
+  async relinquishAccess(grantId: string): Promise<void> {
+    const grant = this.control.signed.state.grants.get(grantId);
+    if (!grant || grant.granteeAccountId !== this.context.accountId || !isGrantEffectivelyActive(this.control.signed.state, grant)) {
+      throw new Error("Действующий доступ для отказа не найден.");
+    }
+    const stored = await getPetKey(this.context.accountId, grant.petId);
+    if (!stored) throw new Error("Ключ питомца недоступен.");
+    const event = await this.factory.create({
+      database: "medical",
+      eventType: "grant.relinquished",
+      aggregateId: grant.petId,
+      resourceId: grant.grantId,
+      metadata: {
+        petId: grant.petId,
+        grantId: grant.grantId,
+        nextKeyVersion: stored.version + 1,
+        priorAuthorizedEventIds: this.events
+          .filter((candidate) => candidate.actorAccountId === grant.granteeAccountId && String(candidate.metadata.petId ?? candidate.aggregateId) === grant.petId)
+          .map((candidate) => candidate.eventId),
+      },
+      proofIds: [this.context.roleProofId, grant.grantId],
+      cleartext: { grantId: grant.grantId },
+      parents: this.events.filter((candidate) => candidate.resourceId === grant.grantId).map((candidate) => candidate.eventId).slice(-1),
+      recipients: this.activeCertificates([grant.grantorAccountId, grant.granteeAccountId]),
+      dataKey: stored.key,
+    });
+    await this.append(event);
+    await this.rotatePetKey(grant.petId, stored, [event.eventId], grant.grantId);
+  }
+
   async disableGrantDelegation(grantId: string): Promise<void> {
     const grant = this.control.signed.state.grants.get(grantId);
     if (!grant || !isGrantEffectivelyActive(this.control.signed.state, grant)) {
@@ -448,47 +486,100 @@ export class MedicalRepository {
     petId: string,
     stored: { version: number; key: CryptoKey },
     revocationEventIds: string[],
+    relinquishedGrantId?: string,
   ): Promise<void> {
     const currentPetEvent = this.events.findLast((event) => event.aggregateId === petId && event.eventType.startsWith("pet."));
     const pet = currentPetEvent ? await this.decrypt<PetProfile>(currentPetEvent) : null;
     if (!pet || !currentPetEvent) throw new Error("Профиль питомца недоступен для ротации ключа.");
     const nextKey = await generateDataKey();
-    await putPetKey(this.context.accountId, petId, stored.version + 1, nextKey);
     const activeRecipients = new Set([pet.ownerAccountId]);
     for (const candidate of this.control.signed.state.grants.values()) {
       if (candidate.petId === petId && isGrantEffectivelyActive(this.control.signed.state, candidate)) {
         activeRecipients.add(candidate.granteeAccountId);
       }
     }
+    if (activeRecipients.has(this.context.accountId)) await putPetKey(this.context.accountId, petId, stored.version + 1, nextKey);
     await this.append(await this.factory.create({
       database: "medical", eventType: "pet.key.rotated", aggregateId: petId, resourceId: petId,
-      metadata: { petId, ownerAccountId: pet.ownerAccountId, keyVersion: stored.version + 1 },
+      metadata: {
+        petId,
+        ownerAccountId: pet.ownerAccountId,
+        keyVersion: stored.version + 1,
+        ...(relinquishedGrantId ? { relinquishedGrantId } : {}),
+      },
+      ...(relinquishedGrantId ? { proofIds: [this.context.roleProofId, relinquishedGrantId] } : {}),
       cleartext: { ...pet, keyVersion: stored.version + 1, updatedAt: new Date().toISOString() },
       parents: [...new Set([currentPetEvent.eventId, ...revocationEventIds])],
       recipients: this.activeCertificates([...activeRecipients]), dataKey: nextKey,
     }));
+    if (!activeRecipients.has(this.context.accountId)) await deletePetKey(this.context.accountId, petId);
   }
 
-  async saveRecord(input: Omit<MedicalRecordDraft, "recordId" | "revision" | "authorAccountId" | "createdAt" | "updatedAt"> & { recordId?: string }): Promise<string> {
+  async saveRecord(input: { petId: string; title: string; text: string; recordId?: string; addendumTo?: string }): Promise<string> {
+    return this.saveEncounter({
+      petId: input.petId,
+      encounterDate: new Date().toISOString().slice(0, 10),
+      sections: { "what-happened": { selectedIds: [], comment: input.text } },
+      ...(input.recordId ? { recordId: input.recordId } : {}),
+      ...(input.addendumTo ? { addendumTo: input.addendumTo } : {}),
+    }, input.title);
+  }
+
+  async saveEncounter(input: MedicalEncounterInput, legacyTitle = "Что случилось"): Promise<string> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.encounterDate) || input.encounterDate > new Date().toISOString().slice(0, 10)) {
+      throw new Error("Укажите корректную дату приёма.");
+    }
+    const whatHappened = input.sections["what-happened"];
+    if (!isWhatHappenedValue(whatHappened) || (!whatHappened.selectedIds.length && !whatHappened.comment.trim())) {
+      throw new Error("В разделе «Что случилось» выберите хотя бы один вариант или добавьте комментарий.");
+    }
+    for (const [kind, value] of Object.entries(input.sections)) {
+      if (kind !== "what-happened" && (!isFreeTextValue(value) || !value.text.trim())) {
+        throw new Error("Заполните или удалите пустой дополнительный раздел.");
+      }
+    }
     const stored = await getPetKey(this.context.accountId, input.petId);
     if (!stored) throw new Error("Ключ питомца недоступен.");
     const recordId = input.recordId ?? crypto.randomUUID();
     const previous = this.events.findLast((event) => event.resourceId === recordId && event.eventType.startsWith("medical.record."));
-    const record: MedicalRecordDraft = {
-      ...input, recordId, revision: Number(previous?.metadata.revision ?? 0) + 1,
+    const now = new Date().toISOString();
+    const profile = await this.control.profile();
+    const authorDisplayName = [profile?.firstName, profile?.patronymic, profile?.lastName].filter(Boolean).join(" ") || this.context.accountId;
+    const sections = Object.fromEntries(Object.entries(input.sections).map(([kind, value]) => [kind, {
+      kind,
+      templateVersion: kind === "what-happened" ? "what-happened-v1" : "free-text-v0",
+      value,
       authorAccountId: this.context.accountId,
-      createdAt: String(previous?.metadata.createdAt ?? new Date().toISOString()), updatedAt: new Date().toISOString(),
+      authorDisplayName,
+      updatedAt: now,
+    }])) as MedicalRecordDraft["sections"];
+    const record: MedicalRecordDraft = {
+      petId: input.petId,
+      recordId,
+      revision: Number(previous?.metadata.revision ?? 0) + 1,
+      authorAccountId: this.context.accountId,
+      authorDisplayName,
+      encounterDate: input.encounterDate,
+      title: legacyTitle,
+      text: whatHappened.comment,
+      sections,
+      createdAt: String(previous?.metadata.createdAt ?? now),
+      updatedAt: now,
+      ...(input.addendumTo ? { addendumTo: input.addendumTo } : {}),
     };
     const recipientIds = new Set([this.control.signed.state.petOwners.get(input.petId) ?? "", this.context.accountId]);
-    for (const grant of this.control.signed.state.grants.values()) if (grant.petId === input.petId && grant.status === "active") recipientIds.add(grant.granteeAccountId);
+    for (const grant of this.control.signed.state.grants.values()) {
+      if (grant.petId === input.petId && isGrantEffectivelyActive(this.control.signed.state, grant)) recipientIds.add(grant.granteeAccountId);
+    }
     await this.append(await this.factory.create({
       database: "medical", eventType: previous ? "medical.record.updated" : input.addendumTo ? "medical.addendum.created" : "medical.record.created",
       aggregateId: input.petId, resourceId: recordId,
-      metadata: { petId: input.petId, recordId, revision: record.revision, createdAt: record.createdAt, ...(input.addendumTo ? { addendumTo: input.addendumTo } : {}) },
+      metadata: { petId: input.petId, recordId, revision: record.revision, createdAt: record.createdAt, encounterDate: record.encounterDate, ...(input.addendumTo ? { addendumTo: input.addendumTo } : {}) },
       proofIds: [
         this.context.roleProofId,
         ...[...this.control.signed.state.grants.values()]
-          .filter((grant) => grant.petId === input.petId && grant.granteeAccountId === this.context.accountId && grant.status === "active")
+          .filter((grant) => grant.petId === input.petId && grant.granteeAccountId === this.context.accountId
+            && isGrantEffectivelyActive(this.control.signed.state, grant))
           .map((grant) => grant.grantId),
       ],
       cleartext: record, parents: previous ? [previous.eventId] : [], recipients: this.activeCertificates([...recipientIds].filter(Boolean)), dataKey: stored.key,
@@ -540,9 +631,13 @@ export class MedicalRepository {
         const grant = await this.decrypt<PetAccessGrant>(event);
         if (grant) grants.set(grant.grantId, isGrantEffectivelyActive(this.control.signed.state, grant) ? grant : { ...grant, status: "revoked" });
       }
-      if (event.eventType === "grant.revoked") {
+      if (event.eventType === "grant.revoked" || event.eventType === "grant.relinquished") {
         const grant = grants.get(event.resourceId);
-        if (grant) grants.set(grant.grantId, { ...grant, status: "revoked", revokedAt: event.createdAt });
+        if (grant) grants.set(grant.grantId, {
+          ...grant,
+          status: event.eventType === "grant.relinquished" ? "relinquished" : "revoked",
+          revokedAt: event.createdAt,
+        });
       }
       if (event.eventType === "grant.actions.updated") {
         const grant = grants.get(event.resourceId);
@@ -550,8 +645,30 @@ export class MedicalRepository {
         if (grant && Array.isArray(actions)) grants.set(grant.grantId, { ...grant, actions: [...actions] });
       }
       if (["medical.record.created", "medical.record.updated", "medical.addendum.created"].includes(event.eventType)) {
-        const record = await this.decrypt<MedicalRecordDraft>(event);
-        if (record) records.set(record.recordId, record);
+        const raw = await this.decrypt<Partial<MedicalRecordDraft> & Pick<MedicalRecordDraft, "recordId" | "petId" | "revision" | "authorAccountId" | "createdAt" | "updatedAt">>(event);
+        if (raw) {
+          const authorDisplayName = raw.authorDisplayName || raw.authorAccountId;
+          const sections = raw.sections ?? {
+            "what-happened": {
+              kind: "what-happened",
+              templateVersion: "what-happened-v1",
+              value: { selectedIds: [], comment: raw.text ?? "" },
+              authorAccountId: raw.authorAccountId,
+              authorDisplayName,
+              updatedAt: raw.updatedAt,
+            } satisfies MedicalEncounterSection,
+          };
+          const record: MedicalRecordDraft = {
+            ...raw,
+            authorDisplayName,
+            encounterDate: raw.encounterDate ?? raw.createdAt.slice(0, 10),
+            title: raw.title ?? "Что случилось",
+            text: raw.text ?? "",
+            sections,
+          } as MedicalRecordDraft;
+          if (!record.text) record.text = encounterSummary(record);
+          records.set(record.recordId, record);
+        }
       }
       if (event.eventType === "medical.record.confirmed") {
         const confirmation = await this.decrypt<MedicalRecordConfirmation>(event);

@@ -5,6 +5,7 @@ import AuthScreen from "./screens/AuthScreen.vue";
 import RoleStatusScreen from "./screens/RoleStatusScreen.vue";
 import WorkspaceScreen from "./screens/WorkspaceScreen.vue";
 import OwnerScreen from "./screens/OwnerScreen.vue";
+import DoctorScreen from "./screens/DoctorScreen.vue";
 import AdministratorScreen from "./screens/AdministratorScreen.vue";
 import { appState, bootstrapApp } from "./appStore";
 import { roleHomePath } from "./roleNavigation";
@@ -15,6 +16,7 @@ const components: Record<ScenarioComponentName, Component> = {
   RoleStatusScreen,
   WorkspaceScreen,
   OwnerScreen,
+  DoctorScreen,
   AdministratorScreen,
 };
 const roleByScenario: Partial<Record<string, Role>> = {
@@ -24,6 +26,10 @@ const roleByScenario: Partial<Record<string, Role>> = {
   "owner-pet-edit": "owner",
   "owner-pet-access": "owner",
   "doctor-home": "doctor",
+  "doctor-pet-request-access": "doctor",
+  "doctor-pet-detail": "doctor",
+  "doctor-pet-delegate": "doctor",
+  "doctor-pet-cancel-access": "doctor",
   "administrator-home": "administrator",
   "administrator-audit": "administrator",
 };

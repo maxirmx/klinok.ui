@@ -10,13 +10,14 @@ import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PetProfileHeader from "../components/PetProfileHeader.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
-import { appState, logout, requireRepository } from "../appStore";
+import { appState, deleteDirectoryPet, logout, requireRepository, syncDirectoryPet } from "../appStore";
 import {
   normalizePetInput,
   petBirthSummary,
   preparePetPhoto,
 } from "../petProfile";
 import type { PetProfile, PetProfileInput } from "../repositories/types";
+import { ENCOUNTER_SECTION_LABELS, encounterSummary, freeText, isFreeTextValue, isWhatHappenedValue, whatHappenedComment, whatHappenedPath, whatHappenedSelectedIds } from "../medicalEncounter";
 
 const props = defineProps<{ role: "owner"; scenarioId: string }>();
 const route = useRoute();
@@ -253,6 +254,7 @@ async function savePet() {
   await action(async () => {
     if (isCreate.value) {
       const petId = await requireRepository().medical.createPet(petInput());
+      await syncDirectoryPet({ petId, species: draft.species.trim(), name: draft.name.trim() });
       await router.push(`/owner/pets/${petId}`);
       return;
     }
@@ -265,6 +267,7 @@ async function savePet() {
       updatedAt: selectedPet.value.updatedAt,
       ...petInput(),
     });
+    await syncDirectoryPet({ petId: selectedPet.value.petId, species: draft.species.trim(), name: draft.name.trim() });
     await router.push(`/owner/pets/${selectedPet.value.petId}`);
   });
 }
@@ -351,6 +354,7 @@ async function deletePet() {
   deleteConfirmation.value = false;
   await action(async () => {
     await requireRepository().medical.deletePet(selectedPet.value!.petId);
+    await deleteDirectoryPet(selectedPet.value!.petId);
     await router.push("/owner/home");
   });
 }
@@ -359,6 +363,10 @@ function formatDate(value?: string) {
   if (!value) return "Не указана";
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   return match ? `${match[3]}.${match[2]}.${match[1]}` : value;
+}
+
+function recordSection(record: (typeof appState.medical.records)[number], kind: keyof typeof ENCOUNTER_SECTION_LABELS) {
+  return record.sections?.[kind];
 }
 </script>
 
@@ -714,15 +722,16 @@ function formatDate(value?: string) {
         <h2>Медицинская карта</h2>
         <p v-if="!petRecords.length">Записи появятся здесь после приёма у врача.</p>
         <div v-for="record in petRecords" :key="record.recordId" class="record-card">
-          <div><strong>{{ record.title }}</strong><p>{{ record.text }}</p><small>Редакция {{ record.revision }}</small></div>
-          <span v-if="confirmedIds.has(record.recordId)" class="status-badge approved">Подтверждена</span>
-          <button
-            v-else
-            class="primary-action inline"
-            @click="action(() => requireRepository().medical.confirmRecord(record.petId, record.recordId, record.revision))"
-          >
-            Подтвердить
-          </button>
+          <div class="owner-encounter-heading"><div><strong>{{ record.encounterDate }} · {{ encounterSummary(record) }}</strong><small>Редакция {{ record.revision }} · {{ record.authorDisplayName }} ({{ record.authorAccountId }})</small></div><span v-if="confirmedIds.has(record.recordId)" class="status-badge approved">Подтверждён</span><button v-else class="primary-action inline" @click="action(() => requireRepository().medical.confirmRecord(record.petId, record.recordId, record.revision), 'Приём подтверждён.')">Подтвердить приём</button></div>
+          <div v-for="(label, kind) in ENCOUNTER_SECTION_LABELS" v-show="recordSection(record, kind)" :key="kind" class="encounter-history-section">
+            <h3>{{ label }}</h3>
+            <template v-if="isWhatHappenedValue(recordSection(record, kind)?.value)">
+              <ul><li v-for="id in whatHappenedSelectedIds(recordSection(record, kind)?.value)" :key="id">{{ whatHappenedPath(id) }}</li></ul>
+              <p>{{ whatHappenedComment(recordSection(record, kind)?.value) }}</p>
+            </template>
+            <p v-else-if="isFreeTextValue(recordSection(record, kind)?.value)">{{ freeText(recordSection(record, kind)?.value) }}</p>
+            <small>{{ recordSection(record, kind)?.authorDisplayName }} · {{ recordSection(record, kind)?.updatedAt }}</small>
+          </div>
         </div>
       </article>
 

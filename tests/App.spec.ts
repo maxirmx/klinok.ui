@@ -145,7 +145,7 @@ describe("operational Russian UI", () => {
 
   it.each([
     ["administrator", AdministratorScreen, "/admin/home", ["Пользователи", "Журнал"]],
-    ["doctor", WorkspaceScreen, "/doctor/home", ["Главная страница", "Запросить доступ", "Питомцы", "Новая запись", "Делегирование", "Медкарта"]],
+    ["doctor", WorkspaceScreen, "/doctor/home", ["Питомцы", "Запросить доступ"]],
   ] as const)("renders responsive %s navigation for the current feature set", async (role, component, path, labels) => {
     const workspace = await mountScreen(component, path, { scenarioId: `${role}-home`, role });
     const sidebarLabels = workspace.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text());
@@ -165,6 +165,7 @@ describe("operational Russian UI", () => {
     await target.trigger("click");
     await flushPromises();
     if (role === "administrator") expect(workspace.vm.$route.path).toBe("/admin/audit");
+    else if (role === "doctor") expect(workspace.vm.$route.path).toBe("/doctor/pets/request-access");
     else expect(workspace.vm.$route.hash).toBe(target.attributes("href"));
     expect(target.classes()).toContain("active");
   });

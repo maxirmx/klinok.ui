@@ -70,6 +70,10 @@ const administratorNavigation: WorkspacePathNavItem[] = [
   { id: "administrator-home", label: "Пользователи", icon: "home", path: "/admin/home", exact: true },
   { id: "administrator-audit", label: "Журнал", icon: "book", path: "/admin/audit", exact: true },
 ];
+const doctorNavigation: WorkspacePathNavItem[] = [
+  { id: "doctor-home", label: "Питомцы", icon: "home", path: "/doctor/home", exact: true },
+  { id: "doctor-request-access", label: "Запросить доступ", icon: "plus", path: "/doctor/pets/request-access", exact: true },
+];
 const effectiveRole = computed<Role | null>(() => props.role
   ?? (props.settings
     ? appState.activeRole ?? appState.control.roles.find((request) => request.status === "approved")?.role ?? null
@@ -154,6 +158,12 @@ function selectPath(path: string) {
         </a>
       </nav>
 
+      <nav v-else-if="effectiveRole === 'doctor'" class="workspace-sidebar-nav">
+        <a v-for="item in doctorNavigation" :key="item.id" class="workspace-nav-item" :class="{ active: pathActive(item.path, item.exact) }" :href="item.path" @click.prevent="selectPath(item.path)">
+          <AppIcon :name="item.icon" /><span>{{ item.label }}</span>
+        </a>
+      </nav>
+
       <nav v-else class="workspace-sidebar-nav">
         <a
           v-for="item in navigation"
@@ -215,6 +225,9 @@ function selectPath(path: string) {
             <AppIcon :name="item.icon" />
             <span>{{ item.label }}</span>
           </a>
+        </template>
+        <template v-else-if="effectiveRole === 'doctor'">
+          <a v-for="item in doctorNavigation" :key="item.id" :class="{ active: pathActive(item.path, item.exact) }" :href="item.path" @click.prevent="selectPath(item.path)"><AppIcon :name="item.icon" /><span>{{ item.label }}</span></a>
         </template>
         <template v-else>
           <a

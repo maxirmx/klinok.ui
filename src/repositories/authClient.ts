@@ -4,6 +4,9 @@ import type {
   BootstrapDeviceReplacementPayload,
   DeviceCertificate,
   DeviceEnrollmentDto,
+  DirectoryPageDto,
+  DirectoryPetDto,
+  DirectoryProfileDto,
   ExportedUserKeySet,
   Role,
 } from "@klinok/protocol";
@@ -121,5 +124,34 @@ export class AuthClient {
       `/api/auth/devices/${encodeURIComponent(id)}`,
       { method: "DELETE", ...(userKeySet ? { body: JSON.stringify({ userKeySet }) } : {}) },
     );
+  }
+
+  syncDirectoryProfile(profile: Pick<DirectoryProfileDto, "firstName" | "lastName" | "patronymic">) {
+    return this.request<DirectoryProfileDto>("/api/auth/directory/profile", { method: "PUT", body: JSON.stringify(profile) });
+  }
+
+  searchDoctors(query = "", page = 1, pageSize = 20, sort = "name") {
+    const params = new URLSearchParams({ query, page: String(page), pageSize: String(pageSize), sort });
+    return this.request<DirectoryPageDto<DirectoryProfileDto>>(`/api/auth/directory/doctors?${params}`);
+  }
+
+  lookupDirectoryPet(petId: string) {
+    return this.request<DirectoryPetDto>(`/api/auth/directory/pets/${encodeURIComponent(petId)}`);
+  }
+
+  getMyDirectoryPets(query = "", page = 1, pageSize = 20, sort = "owner") {
+    const params = new URLSearchParams({ query, page: String(page), pageSize: String(pageSize), sort });
+    return this.request<DirectoryPageDto<DirectoryPetDto>>(`/api/auth/directory/my-pets?${params}`);
+  }
+
+  syncDirectoryPet(pet: Pick<DirectoryPetDto, "petId" | "species" | "name">) {
+    return this.request<DirectoryPetDto>(`/api/auth/directory/pets/${encodeURIComponent(pet.petId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ species: pet.species, name: pet.name }),
+    });
+  }
+
+  deleteDirectoryPet(petId: string) {
+    return this.request<void>(`/api/auth/directory/pets/${encodeURIComponent(petId)}`, { method: "DELETE" });
   }
 }

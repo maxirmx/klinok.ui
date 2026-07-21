@@ -17,6 +17,7 @@ services:
     environment:
       KLINOK_CONTROL_DB: klinok-control-v1
       KLINOK_MEDICAL_DB: klinok-medical-v3
+      KLINOK_MEDICAL_DB: klinok-medical-v3
       KLINOK_TRUSTED_NODE: /dns4/klinok.sw.consulting/tcp/8089/tls/ws
       KLINOK_BOOTSTRAP_ACCOUNT_ID: bootstrap-administrator
       KLINOK_AUTH_ATTESTATION_PUBLIC_KEY: ${KLINOK_AUTH_ATTESTATION_PUBLIC_KEY}

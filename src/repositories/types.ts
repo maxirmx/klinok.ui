@@ -52,10 +52,54 @@ export interface MedicalRecordDraft {
   petId: string;
   revision: number;
   authorAccountId: string;
+  authorDisplayName: string;
+  encounterDate: string;
   title: string;
   text: string;
+  sections: Partial<Record<MedicalEncounterSectionKind, MedicalEncounterSection>>;
   createdAt: string;
   updatedAt: string;
+  addendumTo?: string;
+}
+
+export const MEDICAL_ENCOUNTER_SECTION_KINDS = [
+  "what-happened",
+  "general-data",
+  "therapeutic-appointment",
+  "diagnosis",
+  "vaccination",
+  "recommendations",
+  "laboratory-tests",
+  "instrumental-tests",
+  "procedures",
+  "outcome",
+] as const;
+
+export type MedicalEncounterSectionKind = (typeof MEDICAL_ENCOUNTER_SECTION_KINDS)[number];
+
+export interface WhatHappenedSectionValue {
+  selectedIds: readonly string[];
+  comment: string;
+}
+
+export interface FreeTextSectionValue {
+  text: string;
+}
+
+export interface MedicalEncounterSection {
+  kind: MedicalEncounterSectionKind;
+  templateVersion: "what-happened-v1" | "free-text-v0";
+  value: WhatHappenedSectionValue | FreeTextSectionValue;
+  authorAccountId: string;
+  authorDisplayName: string;
+  updatedAt: string;
+}
+
+export interface MedicalEncounterInput {
+  petId: string;
+  encounterDate: string;
+  sections: Partial<Record<MedicalEncounterSectionKind, WhatHappenedSectionValue | FreeTextSectionValue>>;
+  recordId?: string;
   addendumTo?: string;
 }
 

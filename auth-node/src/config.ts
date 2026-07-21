@@ -31,6 +31,8 @@ export interface AuthConfig {
     enabled: boolean;
     databaseName: string;
     databaseAddress?: string;
+    medicalDatabaseName?: string;
+    medicalDatabaseAddress?: string;
     trustedNodeMultiaddrs: string[];
   };
 }
@@ -142,6 +144,8 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
       enabled: bool(env.KLINOK_AUTH_CONTROL_OBSERVER_ENABLED, false),
       databaseName: env.KLINOK_CONTROL_DB ?? "klinok-control-v1",
       ...(env.KLINOK_CONTROL_DB_ADDRESS ? { databaseAddress: env.KLINOK_CONTROL_DB_ADDRESS } : {}),
+      medicalDatabaseName: env.KLINOK_MEDICAL_DB ?? "klinok-medical-v3",
+      ...(env.KLINOK_MEDICAL_DB_ADDRESS ? { medicalDatabaseAddress: env.KLINOK_MEDICAL_DB_ADDRESS } : {}),
       trustedNodeMultiaddrs: (env.KLINOK_P2P_TRUSTED_NODES ?? "").split(",").map((item) => item.trim()).filter(Boolean),
     },
   };

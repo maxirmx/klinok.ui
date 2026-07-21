@@ -632,4 +632,53 @@ describe("klinok protocol", () => {
     expect(state.invalidatedEvents.has("causal-record")).toBe(false);
     expect(state.invalidatedEvents.get("offline-record")).toBe("GRANT_REVOKED");
   });
+
+  it("lets the current Doctor relinquish access and causally rotate the pet key", async () => {
+    const { keys, state } = await actorFixture("doctor");
+    state.grants.set("grant-1", {
+      grantId: "grant-1", petId: "pet-1", grantorAccountId: "owner-1", granteeAccountId: "account-1",
+      actions: ["read", "write_unconfirmed"], petKeyVersion: 1, status: "active", createdAt: "2026-07-10T10:00:00.000Z",
+    });
+    const relinquishment = await signedFor(state, keys, {
+      database: "medical",
+      eventId: "grant-relinquished",
+      eventType: "grant.relinquished",
+      aggregateId: "pet-1",
+      resourceId: "grant-1",
+      activeRole: "doctor",
+      proofIds: ["doctor-proof", "grant-1"],
+      metadata: { petId: "pet-1", grantId: "grant-1", nextKeyVersion: 2 },
+    });
+    await expect(verifySignedEvent(relinquishment, state)).resolves.toMatchObject({ accepted: true });
+    applyAcceptedEvent(relinquishment, state);
+    expect(state.grants.get("grant-1")?.status).toBe("relinquished");
+
+    const rotation = await signedFor(state, keys, {
+      database: "medical",
+      eventId: "pet-key-rotated",
+      eventType: "pet.key.rotated",
+      aggregateId: "pet-1",
+      resourceId: "pet-1",
+      activeRole: "doctor",
+      parents: [relinquishment.eventId],
+      proofIds: ["doctor-proof", "grant-1"],
+      metadata: { petId: "pet-1", keyVersion: 2, relinquishedGrantId: "grant-1" },
+    });
+    await expect(verifySignedEvent(rotation, state)).resolves.toMatchObject({ accepted: true });
+
+    const unlinked = await signedFor(state, keys, {
+      database: "medical",
+      eventId: "unlinked-rotation",
+      eventType: "pet.key.rotated",
+      aggregateId: "pet-1",
+      resourceId: "pet-1",
+      activeRole: "doctor",
+      proofIds: ["doctor-proof", "grant-1"],
+      metadata: { petId: "pet-1", keyVersion: 2, relinquishedGrantId: "grant-1" },
+    });
+    await expect(verifySignedEvent(unlinked, state)).resolves.toMatchObject({
+      accepted: false,
+      code: "GRANT_RELINQUISHMENT_FORBIDDEN",
+    });
+  });
 });

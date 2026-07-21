@@ -44,9 +44,11 @@ vi.mock("../src/appStore", async () => {
   });
   return {
     appState: readonly(state),
+    deleteDirectoryPet: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn().mockResolvedValue(undefined),
     requireRepository: () => ({ medical: repositoryMocks }),
     setOwnerMedicalState: (medical: MedicalSnapshot) => { state.medical = medical; },
+    syncDirectoryPet: vi.fn().mockResolvedValue(undefined),
   };
 });
 
