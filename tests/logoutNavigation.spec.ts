@@ -166,6 +166,8 @@ describe("logout navigation", () => {
     expect(wrapper.find(".workspace-sidebar-footer .workspace-nav-item.active").text()).toContain("Настройки пользователя");
     expect(wrapper.text()).toContain("Телефон Максима");
     expect(wrapper.text()).toContain("Домашний ноутбук");
+    expect(wrapper.text()).toContain("Управляйте подтверждёнными устройствами и сеансами.");
+    expect(wrapper.text()).not.toContain("новое устройство подтверждается автоматически");
     expect(wrapper.text()).toContain("ID: pending-device");
     expect(wrapper.text()).toContain("Это устройство");
     expect(wrapper.text()).not.toContain("Старый телефон");

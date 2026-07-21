@@ -389,7 +389,7 @@ async function confirmDeviceRevocation() {
       </section>
 
       <section class="panel profile-section account-security">
-        <div class="profile-section-heading"><div><h2>Аккаунт и устройства</h2><p>После успешного входа новое устройство подтверждается автоматически и получает серверную копию ключей.</p></div></div>
+        <div class="profile-section-heading"><div><h2>Аккаунт и устройства</h2><p>Управляйте подтверждёнными устройствами и сеансами.</p></div></div>
         <p v-if="feedback.devices" class="form-alert" :class="feedback.devices.kind" :role="feedback.devices.kind === 'error' ? 'alert' : 'status'">{{ feedback.devices.text }}</p>
 
         <template v-if="!appState.session.serverKeySetAvailable && appState.session.enrollments?.some(item => item.status === 'pending' && item.ephemeralPublicKey) && appState.session.device">

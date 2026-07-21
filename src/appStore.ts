@@ -187,6 +187,7 @@ async function connectRepository(session: AuthSessionDto) {
     keys,
     initialRole,
   });
+  const connectedRepository = repository;
   state.repositoryConnected = true;
   for (const operation of session.pendingOperations ?? []) {
     if (operation.kind === "profile" && operation.payload) {
@@ -205,22 +206,33 @@ async function connectRepository(session: AuthSessionDto) {
     }
     if (operation.kind === "account_delete") await repository.control.deleteAccount(operation.operationId);
   }
-  const applyControlSnapshot = (snapshot: ControlSnapshot) => {
+  let roleSwitchQueue = Promise.resolve();
+  const applyControlSnapshot = async (snapshot: ControlSnapshot): Promise<void> => {
     state.control = snapshot;
     const approved = snapshot.roles.filter((role) => role.status === "approved");
     if (!state.activeRole || !approved.some((role) => role.role === state.activeRole)) {
       const preferred = approved.find((role) => role.role === initialRole) ?? approved[0];
-      state.activeRole = preferred?.role ?? null;
-      if (preferred) {
-        void repository?.setActiveRole(preferred.role, preferred.requestId);
-        setLastActiveRole(accountId, deviceId, preferred.role);
-      }
+      state.activeRole = null;
+      if (!preferred) return;
+      const switchTask = roleSwitchQueue.then(() => connectedRepository.setActiveRole(preferred.role, preferred.requestId));
+      roleSwitchQueue = switchTask.catch(() => undefined);
+      await switchTask;
+      if (repository !== connectedRepository) return;
+      const remainsApproved = state.control.roles.some((role) => role.status === "approved"
+        && role.role === preferred.role
+        && role.requestId === preferred.requestId);
+      if (!remainsApproved) return;
+      state.activeRole = preferred.role;
+      setLastActiveRole(accountId, deviceId, preferred.role);
     }
   };
-  applyControlSnapshot(await repository.control.snapshot());
-  controlUnsubscribe = repository.control.subscribe(applyControlSnapshot);
-  medicalUnsubscribe = repository.medical.subscribe((snapshot) => { state.medical = snapshot; });
-  const connectedRepository = repository;
+  await applyControlSnapshot(await connectedRepository.control.snapshot());
+  controlUnsubscribe = connectedRepository.control.subscribe((snapshot) => {
+    void applyControlSnapshot(snapshot).catch((reason) => {
+      if (repository === connectedRepository) setAuthFeedback({ kind: "error", reason });
+    });
+  });
+  medicalUnsubscribe = connectedRepository.medical.subscribe((snapshot) => { state.medical = snapshot; });
   syncUnsubscribe = repository.subscribeSyncStatus((status) => {
     state.sync = status;
     if (status.failedCount) void connectedRepository.conflicts().then((conflicts) => {
