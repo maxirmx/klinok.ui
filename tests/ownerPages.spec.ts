@@ -412,6 +412,7 @@ describe("Owner pages", () => {
     expect(wrapper.get(".workspace-topbar h1").text()).toBe("Кабинет владельца");
     expect(wrapper.get(".owner-page-heading h2").text()).toBe("Доступ врачей");
     expect(wrapper.get(".owner-pet-profile-details").text()).toContain("Шарик");
+    expect(wrapper.get(".owner-pet-id").text()).toBe("pet-1");
     expect(wrapper.get('.owner-profile-actions a[title="Назад к информации о питомце"]').attributes("href"))
     expect(wrapper.findAll(".owner-access-table th").map((header) => header.text())).toEqual([
       "Действия", "ФИО врача", "Доступ", "Делегирование",

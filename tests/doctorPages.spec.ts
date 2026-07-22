@@ -272,6 +272,20 @@ describe("Doctor pages", () => {
   });
 
   it("inherits read and write access while only asking about further delegation", async () => {
+    const delegatedState = snapshot();
+    delegatedState.grants.push({
+      grantId: "grant-child",
+      parentGrantId: "grant-1",
+      petId: pet.petId,
+      grantorAccountId: "doctor-1",
+      granteeAccountId: "doctor-3",
+      granteeDisplayName: "Анна Врач",
+      actions: ["read", "write_unconfirmed"],
+      petKeyVersion: 1,
+      status: "active",
+      createdAt: "2026-07-21T11:00:00.000Z",
+    });
+    await setMedical(delegatedState);
     directoryMocks.searchDoctorDirectory.mockResolvedValue({
       items: [{
         accountId: "doctor-2",
@@ -283,17 +297,25 @@ describe("Doctor pages", () => {
       page: 1, pageSize: 50, total: 1, pageCount: 1,
     });
     const wrapper = await mountAt("/doctor/pets/pet-1/delegate", "doctor-pet-delegate");
-    await wrapper.get('input[required]').setValue("Пётр");
-    await wrapper.get("form").trigger("submit");
     await flushPromises();
-    await wrapper.get(".list-row button").trigger("click");
+    expect(wrapper.get(".owner-pet-id").text()).toBe("pet-1");
+    expect(wrapper.get(".owner-pet-owner").text()).toContain("Ольга Петровна Владелец");
+    expect(wrapper.get(".owner-pet-owner-id").text()).toBe("owner-1");
+    expect(wrapper.get(".owner-access-table tbody tr").text()).toContain("Анна Врач");
+    expect(wrapper.get(".owner-access-table tbody tr").text()).toContain("Предоставлен");
+    await wrapper.get('.owner-access-actions-header button[title="Делегировать доступ"]').trigger("click");
+    const dialog = wrapper.get('[role="dialog"]');
+    await dialog.get('input[required]').setValue("Пётр");
+    await dialog.get("form").trigger("submit");
+    await flushPromises();
+    await dialog.get('.list-row button[title="Выбрать врача"]').trigger("click");
 
     expect(wrapper.text()).not.toContain("Создание неподтверждённых приёмов");
-    expect(wrapper.findAll('.check-row input[type="checkbox"]')).toHaveLength(1);
-    const delegationCheckbox = wrapper.get<HTMLInputElement>('.check-row input[type="checkbox"]');
+    expect(dialog.findAll('.check-row input[type="checkbox"]')).toHaveLength(1);
+    const delegationCheckbox = dialog.get<HTMLInputElement>('.check-row input[type="checkbox"]');
     expect(delegationCheckbox.element.closest("label")?.textContent).toContain("Разрешить дальнейшее делегирование");
     await delegationCheckbox.setValue(true);
-    await wrapper.findAll("form")[1]!.trigger("submit");
+    await dialog.findAll("form")[1]!.trigger("submit");
     await wrapper.get('[role="alertdialog"] .primary-action').trigger("click");
     await flushPromises();
 

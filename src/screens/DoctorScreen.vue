@@ -7,6 +7,7 @@ import AppPaginator from "../components/AppPaginator.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import MedicalRecordEntry from "../components/MedicalRecordEntry.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import PetAccessManager from "../components/PetAccessManager.vue";
 import PetProfileDetails from "../components/PetProfileDetails.vue";
 import PetProfileHeader from "../components/PetProfileHeader.vue";
 import WhatHappenedTree from "../components/WhatHappenedTree.vue";
@@ -29,6 +30,7 @@ import {
   isWhatHappenedValue,
   whatHappenedPath,
 } from "../medicalEncounter";
+import type { PetAccessRow } from "../petAccess";
 import type { MedicalEncounterSectionKind, MedicalRecordDraft } from "../repositories/types";
 
 const props = defineProps<{ role: "doctor"; scenarioId: string }>();
@@ -56,9 +58,13 @@ const petSearchResults = ref<DirectoryPetDto[]>([]);
 const petSearchPerformed = ref(false);
 const doctorQuery = ref("");
 const doctors = ref<DirectoryProfileDto[]>([]);
+const doctorSearchPerformed = ref(false);
 const delegationTarget = ref<DirectoryProfileDto | null>(null);
 const delegationDelegate = ref(false);
 const delegationConfirm = ref(false);
+const delegationDialogOpen = ref(false);
+const delegationPage = ref(1);
+const delegationPageSize = ref<(typeof pageSizes)[number]>(10);
 const relinquishConfirm = ref(false);
 const historyQuery = ref("");
 const historyFrom = ref("");
@@ -90,6 +96,24 @@ const petRecords = computed(() => appState.medical.records.filter((record) => re
 const currentDirectoryPet = computed(() => selectedDirectoryPet.value?.petId === petId.value
   ? selectedDirectoryPet.value
   : directoryPets.value.find((pet) => pet.petId === petId.value));
+const delegatedAccessRows = computed<PetAccessRow[]>(() => {
+  if (!selectedGrant.value) return [];
+  return appState.medical.grants
+    .filter((grant) => grant.parentGrantId === selectedGrant.value!.grantId)
+    .map((grant): PetAccessRow => {
+      const profile = appState.control.profiles.find((candidate) => candidate.accountId === grant.granteeAccountId);
+      return {
+        accountId: grant.granteeAccountId,
+        displayName: grant.granteeDisplayName
+          || (profile ? [profile.firstName, profile.patronymic, profile.lastName].filter(Boolean).join(" ") : grant.granteeAccountId),
+        status: grant.status === "active" ? "granted" : "revoked",
+        delegationAllowed: grant.actions.includes("delegate"),
+        grantId: grant.grantId,
+      };
+    })
+    .sort((left, right) => left.displayName.localeCompare(right.displayName, "ru"));
+});
+const delegationPageCount = computed(() => Math.max(1, Math.ceil(delegatedAccessRows.value.length / delegationPageSize.value)));
 const optionalAvailable = computed(() => OPTIONAL_ENCOUNTER_SECTION_KINDS.filter((kind) => !encounter.optionalKinds.includes(kind)));
 
 const filteredRecords = computed(() => petRecords.value.filter((record) => {
@@ -250,11 +274,22 @@ function editRecord(record: (typeof appState.medical.records)[number]) {
 }
 
 async function findDoctors() {
+  doctorSearchPerformed.value = false;
   await perform(async () => {
     const result = await searchDoctorDirectory(doctorQuery.value, 1, 50);
     const existing = new Set(appState.medical.grants.filter((grant) => grant.petId === petId.value && grant.status === "active").map((grant) => grant.granteeAccountId));
     doctors.value = result.items.filter((doctor) => doctor.accountId !== appState.session.accountId && !existing.has(doctor.accountId));
+    doctorSearchPerformed.value = true;
   });
+}
+
+function openDelegationDialog() {
+  doctorQuery.value = "";
+  doctors.value = [];
+  doctorSearchPerformed.value = false;
+  delegationTarget.value = null;
+  delegationDelegate.value = false;
+  delegationDialogOpen.value = true;
 }
 
 async function delegate() {
@@ -262,6 +297,7 @@ async function delegate() {
   const actions: PetGrantAction[] = selectedGrant.value.actions.filter((action) => action !== "delegate");
   if (delegationDelegate.value && selectedGrant.value.actions.includes("delegate")) actions.push("delegate");
   delegationConfirm.value = false;
+  delegationDialogOpen.value = false;
   await perform(async () => {
     await requireRepository().medical.delegateGrant(selectedGrant.value!.grantId, delegationTarget.value!.accountId, actions);
     await router.push(`/doctor/pets/${petId.value}`);
@@ -296,6 +332,10 @@ watch(requestDialogOpen, (open) => {
   if (!open && props.scenarioId === "doctor-pet-request-access") void router.replace("/doctor/home");
 });
 watch([historyQuery, historyFrom, historyTo, historySection, historyStatus, historySort, historyPageSize], () => { historyPage.value = 1; });
+watch([petId, delegationPageSize], () => { delegationPage.value = 1; });
+watch(delegationPageCount, (pageCount) => {
+  if (delegationPage.value > pageCount) delegationPage.value = pageCount;
+});
 onMounted(() => { void refreshPets(); });
 </script>
 
@@ -463,7 +503,44 @@ onMounted(() => { void refreshPets(); });
       </article>
     </section>
 
-    <section v-else-if="selectedPet && scenarioId === 'doctor-pet-delegate'" class="panel doctor-page"><h2>Делегировать доступ: {{ selectedPet.name }}</h2><p v-if="!canDelegate">Текущий доступ не разрешает делегирование.</p><template v-else><form class="form-stack" @submit.prevent="findDoctors"><label><span>ФИО, его часть или полный ID врача</span><input v-model="doctorQuery" required /></label><button class="primary-action inline">Найти врача</button></form><div v-for="doctor in doctors" :key="doctor.accountId" class="list-row"><div><strong>{{ doctor.displayName }}</strong><span>{{ doctor.accountId }}</span></div><button class="outline-action inline" @click="delegationTarget = doctor">Выбрать</button></div><form v-if="delegationTarget" class="form-stack" @submit.prevent="delegationConfirm = true"><strong>{{ delegationTarget.displayName }}</strong><label v-if="selectedGrant?.actions.includes('delegate')" class="check-row"><input v-model="delegationDelegate" type="checkbox" /><span>Разрешить дальнейшее делегирование</span></label><button class="primary-action inline">Делегировать</button></form></template></section>
+    <PetAccessManager
+      v-else-if="selectedPet && scenarioId === 'doctor-pet-delegate'"
+      v-model:page="delegationPage"
+      v-model:page-size="delegationPageSize"
+      :pet="selectedPet"
+      :rows="delegatedAccessRows"
+      :page-sizes="pageSizes"
+      :owner-display-name="currentDirectoryPet?.ownerDisplayName || selectedPet.ownerAccountId"
+      :owner-account-id="currentDirectoryPet?.ownerAccountId || selectedPet.ownerAccountId"
+      :can-add="canDelegate"
+      add-label="Делегировать доступ"
+      empty-message="Делегированные доступы отсутствуют."
+      @add="openDelegationDialog"
+    >
+      <template #headerActions>
+        <RouterLink class="outline-action inline owner-profile-action" :to="`/doctor/pets/${selectedPet.petId}`" title="Назад к медицинской карте" aria-label="Назад к медицинской карте"><AppIcon name="chevron-left" /></RouterLink>
+      </template>
+      <p v-if="!canDelegate" class="form-alert error">Текущий доступ не разрешает делегирование.</p>
+      <ModalDialog v-model="delegationDialogOpen" title="Делегировать доступ" :busy="busy">
+        <div class="form-stack grant-access-form">
+          <form class="form-stack grant-search-form" @submit.prevent="findDoctors">
+            <label><span>ФИО врача, его часть или полный ID</span><input v-model="doctorQuery" required /></label>
+            <button class="primary-action inline access-icon-action grant-search-action" type="submit" :disabled="busy" :title="busy ? 'Поиск врача…' : 'Найти врача'" :aria-label="busy ? 'Поиск врача…' : 'Найти врача'"><AppIcon name="search" /></button>
+          </form>
+          <div v-for="doctor in doctors" :key="doctor.accountId" class="list-row"><div><strong>{{ doctor.displayName }}</strong><span>{{ doctor.accountId }}</span></div><button class="outline-action inline access-icon-action" type="button" title="Выбрать врача" aria-label="Выбрать врача" @click="delegationTarget = doctor"><AppIcon name="check" /></button></div>
+          <p v-if="doctorSearchPerformed && !doctors.length">Врачи не найдены.</p>
+          <form v-if="delegationTarget" class="form-stack" @submit.prevent="delegationConfirm = true">
+            <strong>Выбран врач: {{ delegationTarget.displayName }}</strong>
+            <label v-if="selectedGrant?.actions.includes('delegate')" class="check-row"><input v-model="delegationDelegate" type="checkbox" /><span>Разрешить дальнейшее делегирование</span></label>
+            <div class="confirmation-dialog-actions">
+              <button class="outline-action inline access-icon-action" type="button" :disabled="busy" title="Отмена" aria-label="Отмена" @click="delegationDialogOpen = false"><AppIcon name="close" /></button>
+              <button class="primary-action inline access-icon-action" type="submit" :disabled="busy" title="Делегировать доступ" aria-label="Делегировать доступ"><AppIcon name="check" /></button>
+            </div>
+          </form>
+          <div v-else class="confirmation-dialog-actions"><button class="outline-action inline access-icon-action" type="button" :disabled="busy" title="Отмена" aria-label="Отмена" @click="delegationDialogOpen = false"><AppIcon name="close" /></button></div>
+        </div>
+      </ModalDialog>
+    </PetAccessManager>
 
     <section v-else-if="selectedPet && scenarioId === 'doctor-pet-cancel-access'" class="panel doctor-page"><h2>Отказаться от доступа</h2><p>Вы и все врачи, которым вы делегировали доступ к {{ selectedPet.name }}, потеряете медицинскую карту. Ключ питомца будет заменён.</p><button class="primary-action inline danger-link" @click="relinquishConfirm = true">Подтвердить отказ</button></section>
     <section v-else class="owner-empty-state"><p>Питомец недоступен или данные ещё не синхронизированы.</p><RouterLink class="primary-action inline" to="/doctor/home">На главную</RouterLink></section>

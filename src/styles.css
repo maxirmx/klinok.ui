@@ -1626,7 +1626,17 @@ dd {
   overflow: hidden;
   border-radius: 16px;
 }
-.owner-pet-profile-header h2 { margin: 0 0 7px; font-size: 26px; }
+.owner-pet-profile-header .owner-pet-profile-details h2 { margin: 0 0 1px; font-size: 26px; }
+.owner-pet-id,
+.owner-pet-owner-id {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.owner-pet-id { margin: 0 0 7px; }
+.owner-pet-owner { margin-bottom: 1px !important; }
+.owner-pet-owner strong { color: var(--text); }
 .owner-pet-profile-header p { margin: 4px 0; color: var(--text-muted); }
 .owner-profile-actions {
   grid-column: 3;

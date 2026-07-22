@@ -11,6 +11,7 @@ import AppPaginator from "../components/AppPaginator.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import MedicalRecordEntry from "../components/MedicalRecordEntry.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import PetAccessManager from "../components/PetAccessManager.vue";
 import PetProfileDetails from "../components/PetProfileDetails.vue";
 import PetProfileHeader from "../components/PetProfileHeader.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
@@ -20,6 +21,7 @@ import {
   petBirthSummary,
   preparePetPhoto,
 } from "../petProfile";
+import type { PetAccessRow } from "../petAccess";
 import type { MedicalRecordDraft, PetProfile, PetProfileInput } from "../repositories/types";
 
 const props = defineProps<{ role: "owner"; scenarioId: string }>();
@@ -102,19 +104,11 @@ watch(medicalPageCount, (pageCount) => {
   if (medicalPage.value > pageCount) medicalPage.value = pageCount;
 });
 
-type AccessRow = {
-  accountId: string;
-  displayName: string;
-  status: "granted" | "requested" | "revoked";
-  grant?: (typeof appState.medical.grants)[number];
-  request?: (typeof appState.medical.accessRequests)[number];
-};
-
 function latest<T>(items: T[], timestamp: (item: T) => string): T | undefined {
   return [...items].sort((left, right) => timestamp(right).localeCompare(timestamp(left)))[0];
 }
 
-const accessRows = computed<AccessRow[]>(() => {
+const accessRows = computed<PetAccessRow[]>(() => {
   if (!selectedPet.value) return [];
   const grants = appState.medical.grants.filter((grant) => grant.petId === selectedPet.value!.petId);
   const requests = appState.medical.accessRequests.filter((request) => request.petId === selectedPet.value!.petId);
@@ -123,7 +117,7 @@ const accessRows = computed<AccessRow[]>(() => {
     ...requests.filter((request) => request.status === "pending").map((request) => request.requesterAccountId),
   ]);
 
-  return [...accountIds].map((accountId): AccessRow | null => {
+  return [...accountIds].map((accountId): PetAccessRow | null => {
     const doctorGrants = grants.filter((grant) => grant.granteeAccountId === accountId);
     const doctorRequests = requests.filter((request) => request.requesterAccountId === accountId);
     const activeGrant = latest(
@@ -153,18 +147,20 @@ const accessRows = computed<AccessRow[]>(() => {
       namedRequest?.requesterDisplayName ??
       profileName) || "ФИО не указано";
 
-    if (activeGrant) return { accountId, displayName, status: "granted", grant: activeGrant };
-    if (pendingRequest) return { accountId, displayName, status: "requested", request: pendingRequest };
-    if (revokedGrant) return { accountId, displayName, status: "revoked", grant: revokedGrant };
+    if (activeGrant) return {
+      accountId,
+      displayName,
+      status: "granted",
+      grantId: activeGrant.grantId,
+      delegationAllowed: activeGrant.actions.includes("delegate"),
+    };
+    if (pendingRequest) return { accountId, displayName, status: "requested", requestId: pendingRequest.requestId };
+    if (revokedGrant) return { accountId, displayName, status: "revoked", grantId: revokedGrant.grantId };
     return null;
-  }).filter((row): row is AccessRow => Boolean(row))
+  }).filter((row): row is PetAccessRow => Boolean(row))
     .sort((left, right) => left.displayName.localeCompare(right.displayName, "ru"));
 });
 const accessPageCount = computed(() => Math.max(1, Math.ceil(accessRows.value.length / accessPageSize.value)));
-const pagedAccessRows = computed(() => accessRows.value.slice(
-  (accessPage.value - 1) * accessPageSize.value,
-  accessPage.value * accessPageSize.value,
-));
 
 watch([() => selectedPet.value?.petId, accessPageSize], () => { accessPage.value = 1; });
 watch(accessPageCount, (pageCount) => {
@@ -397,7 +393,7 @@ async function grantDoctor() {
   }
 }
 
-async function regrantAccess(row: AccessRow) {
+async function regrantAccess(row: PetAccessRow) {
   if (!selectedPet.value) return;
   await action(
     () => requireRepository().medical.grantDoctor(
@@ -579,132 +575,37 @@ function confirmMedicalRecord(record: MedicalRecordDraft) {
       </form>
     </section>
 
-    <section v-else-if="isAccess && selectedPet" class="owner-pet-detail owner-pet-access-page">
-      <article class="panel owner-pet-profile">
-        <PetProfileHeader :pet="selectedPet">
-          <template #actions>
-            <RouterLink
-              class="outline-action inline owner-profile-action"
-              :to="`/owner/pets/${selectedPet.petId}`"
-              title="Назад к информации о питомце"
-              aria-label="Назад к информации о питомце"
-            >
-              <AppIcon name="chevron-left" />
-            </RouterLink>
-          </template>
-        </PetProfileHeader>
-      </article>
-
-      <article class="panel owner-access-panel">
-        <div class="owner-access-table-wrap">
-          <table class="owner-access-table">
-            <thead>
-              <tr>
-                <th class="owner-access-actions-header">
-                  <button
-                    class="primary-action inline access-icon-action"
-                    type="button"
-                    title="Предоставить доступ"
-                    aria-label="Предоставить доступ"
-                    @click="openGrantDialog"
-                  >
-                    <AppIcon name="plus" />
-                  </button>
-                  <span class="visually-hidden">Действия</span>
-                </th>
-                <th>ФИО врача</th>
-                <th>Доступ</th>
-                <th>Делегирование</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in pagedAccessRows" :key="row.accountId">
-                <td class="owner-access-actions" data-label="Действия">
-                  <div class="owner-access-action-list">
-                    <template v-if="row.status === 'requested' && row.request">
-                      <button
-                        class="primary-action inline access-icon-action"
-                        type="button"
-                        title="Предоставить доступ"
-                        aria-label="Предоставить доступ"
-                        @click="action(() => requireRepository().medical.approveAccessRequest(row.request!.requestId), 'Доступ предоставлен.')"
-                      >
-                        <AppIcon name="check" />
-                      </button>
-                      <button
-                        class="outline-action inline danger-outline access-icon-action"
-                        type="button"
-                        title="Отклонить запрос"
-                        aria-label="Отклонить запрос"
-                        @click="action(() => requireRepository().medical.rejectAccessRequest(row.request!.requestId), 'Запрос отклонён.')"
-                      >
-                        <AppIcon name="close" />
-                      </button>
-                    </template>
-                    <template v-else-if="row.status === 'granted' && row.grant">
-                      <button
-                        class="outline-action inline access-icon-action"
-                        :class="{ 'danger-outline': row.grant.actions.includes('delegate') }"
-                        type="button"
-                        :title="row.grant.actions.includes('delegate') ? 'Отключить делегирование' : 'Разрешить делегирование'"
-                        :aria-label="row.grant.actions.includes('delegate') ? 'Отключить делегирование' : 'Разрешить делегирование'"
-                        @click="row.grant.actions.includes('delegate')
-                          ? action(() => requireRepository().medical.disableGrantDelegation(row.grant!.grantId), 'Делегирование отключено.')
-                          : action(() => requireRepository().medical.enableGrantDelegation(row.grant!.grantId), 'Делегирование разрешено.')"
-                      >
-                        <AppIcon name="share" />
-                      </button>
-                      <button
-                        class="outline-action inline danger-outline access-icon-action"
-                        type="button"
-                        title="Отозвать доступ"
-                        aria-label="Отозвать доступ"
-                        @click="action(() => requireRepository().medical.revokeGrant(row.grant!.grantId), 'Доступ отозван.')"
-                      >
-                        <AppIcon name="close" />
-                      </button>
-                    </template>
-                    <button
-                      v-else
-                      class="primary-action inline access-icon-action"
-                      type="button"
-                      title="Предоставить доступ повторно"
-                      aria-label="Предоставить доступ повторно"
-                      @click="regrantAccess(row)"
-                    >
-                      <AppIcon name="check" />
-                    </button>
-                  </div>
-                </td>
-                <td class="owner-access-doctor" data-label="ФИО врача">
-                  <strong>{{ row.displayName }}</strong>
-                  <small>{{ row.accountId }}</small>
-                </td>
-                <td data-label="Доступ">
-                  <span class="status-badge" :class="row.status">
-                    {{ row.status === 'granted' ? 'Предоставлен' : row.status === 'requested' ? 'Запрошен' : 'Отозван' }}
-                  </span>
-                </td>
-                <td :class="{ 'is-empty': row.status !== 'granted' }" data-label="Делегирование">
-                  {{ row.status === 'granted' ? row.grant?.actions.includes('delegate') ? 'Да' : 'Нет' : '' }}
-                </td>
-              </tr>
-              <tr v-if="!accessRows.length">
-                <td colspan="4" class="owner-access-empty">Доступы и ожидающие запросы отсутствуют.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <AppPaginator
-          v-if="accessRows.length"
-          v-model:page="accessPage"
-          v-model:page-size="accessPageSize"
-          :total-items="accessRows.length"
-          :page-sizes="pageSizes"
-          page-size-label="Врачей на странице"
-          aria-label="Навигация по доступам врачей"
-        />
-      </article>
+    <PetAccessManager
+      v-else-if="isAccess && selectedPet"
+      v-model:page="accessPage"
+      v-model:page-size="accessPageSize"
+      :pet="selectedPet"
+      :rows="accessRows"
+      :page-sizes="pageSizes"
+      empty-message="Доступы и ожидающие запросы отсутствуют."
+      @add="openGrantDialog"
+    >
+      <template #headerActions>
+        <RouterLink
+          class="outline-action inline owner-profile-action"
+          :to="`/owner/pets/${selectedPet.petId}`"
+          title="Назад к информации о питомце"
+          aria-label="Назад к информации о питомце"
+        >
+          <AppIcon name="chevron-left" />
+        </RouterLink>
+      </template>
+      <template #rowActions="{ row }">
+        <template v-if="row.status === 'requested' && row.requestId">
+          <button class="primary-action inline access-icon-action" type="button" title="Предоставить доступ" aria-label="Предоставить доступ" @click="action(() => requireRepository().medical.approveAccessRequest(row.requestId!), 'Доступ предоставлен.')"><AppIcon name="check" /></button>
+          <button class="outline-action inline danger-outline access-icon-action" type="button" title="Отклонить запрос" aria-label="Отклонить запрос" @click="action(() => requireRepository().medical.rejectAccessRequest(row.requestId!), 'Запрос отклонён.')"><AppIcon name="close" /></button>
+        </template>
+        <template v-else-if="row.status === 'granted' && row.grantId">
+          <button class="outline-action inline access-icon-action" :class="{ 'danger-outline': row.delegationAllowed }" type="button" :title="row.delegationAllowed ? 'Отключить делегирование' : 'Разрешить делегирование'" :aria-label="row.delegationAllowed ? 'Отключить делегирование' : 'Разрешить делегирование'" @click="row.delegationAllowed ? action(() => requireRepository().medical.disableGrantDelegation(row.grantId!), 'Делегирование отключено.') : action(() => requireRepository().medical.enableGrantDelegation(row.grantId!), 'Делегирование разрешено.')"><AppIcon name="share" /></button>
+          <button class="outline-action inline danger-outline access-icon-action" type="button" title="Отозвать доступ" aria-label="Отозвать доступ" @click="action(() => requireRepository().medical.revokeGrant(row.grantId!), 'Доступ отозван.')"><AppIcon name="close" /></button>
+        </template>
+        <button v-else class="primary-action inline access-icon-action" type="button" title="Предоставить доступ повторно" aria-label="Предоставить доступ повторно" @click="regrantAccess(row)"><AppIcon name="check" /></button>
+      </template>
 
       <ModalDialog
         v-model="grantDialogOpen"
@@ -734,7 +635,7 @@ function confirmMedicalRecord(record: MedicalRecordDraft) {
           <div v-else class="confirmation-dialog-actions"><button class="outline-action inline access-icon-action" type="button" :disabled="grantBusy" title="Отмена" aria-label="Отмена" @click="grantDialogOpen = false"><AppIcon name="close" /></button></div>
         </div>
       </ModalDialog>
-    </section>
+    </PetAccessManager>
 
     <section v-else-if="selectedPet" class="owner-pet-detail">
       <article class="panel owner-pet-profile">
