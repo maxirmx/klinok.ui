@@ -419,6 +419,7 @@ describe("Owner pages", () => {
     expect(wrapper.find('.owner-page-heading button[title="Предоставить доступ"]').exists()).toBe(false);
     expect(wrapper.get('.owner-access-actions-header button[title="Предоставить доступ"]')
       .getComponent(AppIcon).props("name")).toBe("plus");
+    expect(wrapper.get(".owner-access-panel .app-paginator").text()).toContain("Показаны 1–4 из 4");
     const rows = wrapper.findAll(".owner-access-table tbody tr");
     expect(rows).toHaveLength(4);
     const requestedRow = rows.find((row) => row.text().includes("Анна Врач"))!;
@@ -461,6 +462,31 @@ describe("Owner pages", () => {
       ["read", "write_unconfirmed"],
       { granteeDisplayName: "Виктор Врач" },
     );
+  });
+
+  it("paginates doctor access rows with the shared paginator", async () => {
+    await setMedical(snapshot({
+      pets: [pet],
+      grants: Array.from({ length: 11 }, (_, index) => ({
+        grantId: `grant-${index}`,
+        petId: pet.petId,
+        grantorAccountId: pet.ownerAccountId,
+        granteeAccountId: `doctor-${index}`,
+        granteeDisplayName: `Врач ${String(index).padStart(2, "0")}`,
+        actions: ["read" as const],
+        petKeyVersion: 1,
+        status: "active" as const,
+        createdAt: "2026-07-17T10:00:00.000Z",
+      })),
+    }));
+    const wrapper = await mountAt("/owner/pets/pet-1/access", "owner-pet-access");
+
+    expect(wrapper.findAll(".owner-access-table tbody tr")).toHaveLength(10);
+    const paginator = wrapper.get(".owner-access-panel .app-paginator");
+    expect(paginator.text()).toContain("Показаны 1–10 из 11");
+    await paginator.get('button[title="Следующая страница"]').trigger("click");
+    expect(wrapper.findAll(".owner-access-table tbody tr")).toHaveLength(1);
+    expect(paginator.text()).toContain("Показаны 11–11 из 11");
   });
 
   it("finds a doctor by partial ФИО and grants access from an accessible modal", async () => {

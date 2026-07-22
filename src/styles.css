@@ -1821,7 +1821,7 @@ dd {
 }
 .administrator-search input,
 .administrator-audit-filters select,
-.administrator-pagination select {
+.app-paginator select {
   width: 100%;
   height: 40px;
   min-height: 40px;
@@ -1836,10 +1836,10 @@ dd {
   padding: 8px 12px 8px 38px;
 }
 .administrator-audit-filters select,
-.administrator-pagination select { padding: 7px 30px 7px 10px; }
+.app-paginator select { padding: 7px 30px 7px 10px; }
 .administrator-search input:focus-visible,
 .administrator-audit-filters select:focus-visible,
-.administrator-pagination select:focus-visible {
+.app-paginator select:focus-visible {
   border-color: var(--brand);
   outline: 3px solid rgba(17, 130, 91, .14);
 }
@@ -1913,7 +1913,7 @@ dd {
   color: var(--text-muted);
   font-size: 10px;
 }
-.administrator-pagination {
+.app-paginator {
   display: grid;
   grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr);
   align-items: center;
@@ -1921,20 +1921,20 @@ dd {
   color: var(--text-soft);
   font-size: 12px;
 }
-.administrator-pagination > label {
+.app-paginator > label {
   display: flex;
   align-items: center;
   justify-self: end;
   gap: 8px;
 }
-.administrator-pagination select { width: 72px; min-height: 34px; }
-.administrator-page-buttons {
+.app-paginator select { width: 72px; min-height: 34px; }
+.app-paginator-buttons {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
 }
-.administrator-page-buttons button {
+.app-paginator-buttons button {
   display: inline-grid;
   width: 32px;
   height: 32px;
@@ -1945,17 +1945,17 @@ dd {
   place-items: center;
   cursor: pointer;
 }
-.administrator-page-buttons button.active {
+.app-paginator-buttons button.active {
   border-color: var(--brand);
   background: var(--brand-bg-neutral);
   color: var(--brand);
   font-weight: 700;
 }
-.administrator-page-buttons button:disabled {
+.app-paginator-buttons button:disabled {
   opacity: .4;
   cursor: default;
 }
-.administrator-page-buttons .app-icon { width: 14px; height: 14px; }
+.app-paginator-buttons .app-icon { width: 14px; height: 14px; }
 .administrator-audit-filters {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(160px, .35fr) minmax(190px, .45fr);
@@ -2083,8 +2083,8 @@ dd {
     align-items: start;
   }
   .administrator-role-actions { justify-content: flex-start; }
-  .administrator-pagination { grid-template-columns: 1fr; justify-items: center; }
-  .administrator-pagination > label { justify-self: center; }
+  .app-paginator { grid-template-columns: 1fr; justify-items: center; }
+  .app-paginator > label { justify-self: center; }
 
   .owner-section-heading {
     align-items: center;

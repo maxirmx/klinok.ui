@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import type { AccountProfile, Role, RoleRequest, RoleStatus } from "@klinok/protocol";
 import AppIcon from "../components/AppIcon.vue";
+import AppPaginator from "../components/AppPaginator.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
 import { appState, decideRole, getConfig, logout } from "../appStore";
@@ -140,8 +141,6 @@ const filteredRows = computed(() => {
 
 const pageCount = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / pageSize.value)));
 const pagedRows = computed(() => filteredRows.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value));
-const pageStart = computed(() => filteredRows.value.length ? (page.value - 1) * pageSize.value + 1 : 0);
-const pageEnd = computed(() => Math.min(page.value * pageSize.value, filteredRows.value.length));
 
 function changeSort(field: SortField) {
   if (sortField.value === field) sortDirection.value = sortDirection.value === "asc" ? "desc" : "asc";
@@ -290,8 +289,6 @@ const auditPageCount = computed(() => Math.max(1, Math.ceil(filteredAuditRows.va
 const pagedAuditRows = computed(() =>
   filteredAuditRows.value.slice((auditPage.value - 1) * auditPageSize.value, auditPage.value * auditPageSize.value),
 );
-const auditPageStart = computed(() => filteredAuditRows.value.length ? (auditPage.value - 1) * auditPageSize.value + 1 : 0);
-const auditPageEnd = computed(() => Math.min(auditPage.value * auditPageSize.value, filteredAuditRows.value.length));
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat("ru-RU", {
@@ -444,46 +441,12 @@ watch(auditPageCount, (count) => { if (auditPage.value > count) auditPage.value 
             </table>
           </div>
 
-          <div class="administrator-pagination" aria-label="Навигация по страницам">
-            <span>Показаны {{ pageStart }}–{{ pageEnd }} из {{ filteredRows.length }}</span>
-            <div class="administrator-page-buttons">
-              <button
-                type="button"
-                :disabled="page === 1"
-                title="Предыдущая страница"
-                aria-label="Предыдущая страница"
-                @click="page--"
-              >
-                <AppIcon name="chevron-left" />
-              </button>
-              <button
-                v-for="pageNumber in pageCount"
-                :key="pageNumber"
-                type="button"
-                :class="{ active: page === pageNumber }"
-                :aria-label="`Страница ${pageNumber}`"
-                :aria-current="page === pageNumber ? 'page' : undefined"
-                @click="page = pageNumber"
-              >
-                {{ pageNumber }}
-              </button>
-              <button
-                type="button"
-                :disabled="page === pageCount"
-                title="Следующая страница"
-                aria-label="Следующая страница"
-                @click="page++"
-              >
-                <AppIcon name="chevron" />
-              </button>
-            </div>
-            <label>
-              <span>Строк на странице</span>
-              <select v-model.number="pageSize">
-                <option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option>
-              </select>
-            </label>
-          </div>
+          <AppPaginator
+            v-model:page="page"
+            v-model:page-size="pageSize"
+            :total-items="filteredRows.length"
+            :page-sizes="pageSizes"
+          />
         </template>
       </article>
     </section>
@@ -569,46 +532,13 @@ watch(auditPageCount, (count) => { if (auditPage.value > count) auditPage.value 
             </table>
           </div>
 
-          <div class="administrator-pagination" aria-label="Навигация по журналу">
-            <span>Показаны {{ auditPageStart }}–{{ auditPageEnd }} из {{ filteredAuditRows.length }}</span>
-            <div class="administrator-page-buttons">
-              <button
-                type="button"
-                :disabled="auditPage === 1"
-                title="Предыдущая страница"
-                aria-label="Предыдущая страница"
-                @click="auditPage--"
-              >
-                <AppIcon name="chevron-left" />
-              </button>
-              <button
-                v-for="pageNumber in auditPageCount"
-                :key="pageNumber"
-                type="button"
-                :class="{ active: auditPage === pageNumber }"
-                :aria-label="`Страница ${pageNumber}`"
-                :aria-current="auditPage === pageNumber ? 'page' : undefined"
-                @click="auditPage = pageNumber"
-              >
-                {{ pageNumber }}
-              </button>
-              <button
-                type="button"
-                :disabled="auditPage === auditPageCount"
-                title="Следующая страница"
-                aria-label="Следующая страница"
-                @click="auditPage++"
-              >
-                <AppIcon name="chevron" />
-              </button>
-            </div>
-            <label>
-              <span>Строк на странице</span>
-              <select v-model.number="auditPageSize">
-                <option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option>
-              </select>
-            </label>
-          </div>
+          <AppPaginator
+            v-model:page="auditPage"
+            v-model:page-size="auditPageSize"
+            :total-items="filteredAuditRows.length"
+            :page-sizes="pageSizes"
+            aria-label="Навигация по журналу"
+          />
         </template>
       </article>
     </section>

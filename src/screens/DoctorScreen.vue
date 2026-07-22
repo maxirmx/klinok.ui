@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import type { DirectoryPetDto, DirectoryProfileDto, PetGrantAction } from "@klinok/protocol";
 import AppIcon from "../components/AppIcon.vue";
+import AppPaginator from "../components/AppPaginator.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import MedicalRecordEntry from "../components/MedicalRecordEntry.vue";
 import ModalDialog from "../components/ModalDialog.vue";
@@ -48,7 +49,6 @@ const homePageSize = ref<(typeof pageSizes)[number]>(pageSizes.includes(storedPa
 const directoryPets = ref<DirectoryPetDto[]>([]);
 const selectedDirectoryPet = ref<DirectoryPetDto | null>(null);
 const directoryTotal = ref(0);
-const directoryPageCount = ref(1);
 const requestDialogOpen = ref(props.scenarioId === "doctor-pet-request-access");
 const petOwnerQuery = ref("");
 const petNameQuery = ref("");
@@ -91,8 +91,6 @@ const currentDirectoryPet = computed(() => selectedDirectoryPet.value?.petId ===
   ? selectedDirectoryPet.value
   : directoryPets.value.find((pet) => pet.petId === petId.value));
 const optionalAvailable = computed(() => OPTIONAL_ENCOUNTER_SECTION_KINDS.filter((kind) => !encounter.optionalKinds.includes(kind)));
-const homePageStart = computed(() => directoryTotal.value ? (homePage.value - 1) * homePageSize.value + 1 : 0);
-const homePageEnd = computed(() => Math.min(homePage.value * homePageSize.value, directoryTotal.value));
 
 const filteredRecords = computed(() => petRecords.value.filter((record) => {
   const confirmed = confirmedIds.value.has(record.recordId);
@@ -104,7 +102,6 @@ const filteredRecords = computed(() => petRecords.value.filter((record) => {
   const content = `${encounterSummary(record)} ${record.authorDisplayName} ${record.authorAccountId} ${Object.values(record.sections).map((section) => section && isFreeTextValue(section.value) ? section.value.text : "").join(" ")}`.toLocaleLowerCase("ru");
   return !historyQuery.value.trim() || content.includes(historyQuery.value.trim().toLocaleLowerCase("ru"));
 }).sort((left, right) => (historySort.value === "desc" ? -1 : 1) * (left.encounterDate.localeCompare(right.encounterDate) || left.createdAt.localeCompare(right.createdAt))));
-const historyPageCount = computed(() => Math.max(1, Math.ceil(filteredRecords.value.length / historyPageSize.value)));
 const pagedRecords = computed(() => filteredRecords.value.slice((historyPage.value - 1) * historyPageSize.value, historyPage.value * historyPageSize.value));
 
 async function perform(task: () => Promise<unknown>, success = ""): Promise<boolean> {
@@ -139,7 +136,6 @@ async function refreshPets() {
     );
     directoryPets.value = result.items;
     directoryTotal.value = result.total;
-    directoryPageCount.value = result.pageCount;
   } catch {
     const direction = homeSortDirection.value === "asc" ? 1 : -1;
     const pets = appState.medical.pets.map((pet) => {
@@ -149,7 +145,6 @@ async function refreshPets() {
       ? left.name.localeCompare(right.name, "ru") || left.ownerDisplayName.localeCompare(right.ownerDisplayName, "ru")
       : left.ownerDisplayName.localeCompare(right.ownerDisplayName, "ru") || left.name.localeCompare(right.name, "ru")));
     directoryTotal.value = pets.length;
-    directoryPageCount.value = Math.max(1, Math.ceil(pets.length / homePageSize.value));
     directoryPets.value = pets.slice((homePage.value - 1) * homePageSize.value, homePage.value * homePageSize.value);
   }
 }
@@ -388,15 +383,15 @@ onMounted(() => { void refreshPets(); });
           </tbody>
         </table>
       </div>
-      <div class="administrator-pagination doctor-access-pagination" aria-label="Навигация по питомцам">
-        <span>Показаны {{ homePageStart }}–{{ homePageEnd }} из {{ directoryTotal }}</span>
-        <div class="administrator-page-buttons">
-          <button type="button" :disabled="homePage <= 1" title="Предыдущая страница" aria-label="Предыдущая страница" @click="homePage--"><AppIcon name="chevron-left" /></button>
-          <span>{{ homePage }} / {{ directoryPageCount }}</span>
-          <button type="button" :disabled="homePage >= directoryPageCount" title="Следующая страница" aria-label="Следующая страница" @click="homePage++"><AppIcon name="chevron" /></button>
-        </div>
-        <label><span>Питомцев на странице</span><select v-model.number="homePageSize"><option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option></select></label>
-      </div>
+      <AppPaginator
+        v-model:page="homePage"
+        v-model:page-size="homePageSize"
+        class="doctor-access-pagination"
+        :total-items="directoryTotal"
+        :page-sizes="pageSizes"
+        page-size-label="Питомцев на странице"
+        aria-label="Навигация по питомцам"
+      />
 
       <ModalDialog v-model="requestDialogOpen" title="Запросить доступ" :busy="busy">
         <div class="form-stack grant-access-form doctor-request-access-form">
@@ -456,7 +451,15 @@ onMounted(() => { void refreshPets(); });
           show-author-account-id
           @edit="editRecord"
         />
-        <div class="administrator-pagination"><button :disabled="historyPage <= 1" @click="historyPage--">Назад</button><span>{{ historyPage }} / {{ historyPageCount }}</span><button :disabled="historyPage >= historyPageCount" @click="historyPage++">Вперёд</button><label>На странице <select v-model.number="historyPageSize"><option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option></select></label></div>
+        <AppPaginator
+          v-if="filteredRecords.length"
+          v-model:page="historyPage"
+          v-model:page-size="historyPageSize"
+          :total-items="filteredRecords.length"
+          :page-sizes="pageSizes"
+          page-size-label="Записей на странице"
+          aria-label="Навигация по медицинским записям"
+        />
       </article>
     </section>
 

@@ -213,8 +213,8 @@ describe("Administrator pages", () => {
     expect(searchLabel.get(":scope > span").text()).toBe("ФИО или идентификатор");
     expect(searchLabel.get("input").attributes("placeholder")).toBe("Поиск");
     expect(wrapper.findAll(".administrator-table tbody tr")).toHaveLength(20);
-    expect(wrapper.get(".administrator-pagination").text()).toContain("Показаны 1–20 из 22");
-    await wrapper.get('.administrator-pagination select').setValue("50");
+    expect(wrapper.get(".app-paginator").text()).toContain("Показаны 1–20 из 22");
+    await wrapper.get('.app-paginator select').setValue("50");
     expect(localStorage.getItem("klinok:admin-role-table-page-size")).toBe("50");
     expect(wrapper.findAll(".administrator-table tbody tr")).toHaveLength(22);
 

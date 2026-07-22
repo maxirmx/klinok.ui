@@ -7,6 +7,7 @@ import {
   type PetSex,
 } from "@klinok/protocol";
 import AppIcon from "../components/AppIcon.vue";
+import AppPaginator from "../components/AppPaginator.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import MedicalRecordEntry from "../components/MedicalRecordEntry.vue";
 import ModalDialog from "../components/ModalDialog.vue";
@@ -67,9 +68,11 @@ const isCreate = computed(() => props.scenarioId === "owner-pet-create");
 const isEdit = computed(() => props.scenarioId === "owner-pet-edit");
 const isAccess = computed(() => props.scenarioId === "owner-pet-access");
 const isForm = computed(() => isCreate.value || isEdit.value);
-const medicalPageSizes = [10, 20, 50] as const;
+const pageSizes = [10, 20, 50] as const;
 const medicalPage = ref(1);
-const medicalPageSize = ref<(typeof medicalPageSizes)[number]>(10);
+const medicalPageSize = ref<(typeof pageSizes)[number]>(10);
+const accessPage = ref(1);
+const accessPageSize = ref<(typeof pageSizes)[number]>(10);
 const expandedRecordId = ref("");
 const pageTitle = computed(() => {
   if (isHome.value) return "Мои питомцы";
@@ -88,8 +91,6 @@ const petRecords = computed(() =>
     : [],
 );
 const medicalPageCount = computed(() => Math.max(1, Math.ceil(petRecords.value.length / medicalPageSize.value)));
-const medicalPageStart = computed(() => petRecords.value.length ? (medicalPage.value - 1) * medicalPageSize.value + 1 : 0);
-const medicalPageEnd = computed(() => Math.min(medicalPage.value * medicalPageSize.value, petRecords.value.length));
 const pagedPetRecords = computed(() => petRecords.value.slice(
   (medicalPage.value - 1) * medicalPageSize.value,
   medicalPage.value * medicalPageSize.value,
@@ -158,6 +159,16 @@ const accessRows = computed<AccessRow[]>(() => {
     return null;
   }).filter((row): row is AccessRow => Boolean(row))
     .sort((left, right) => left.displayName.localeCompare(right.displayName, "ru"));
+});
+const accessPageCount = computed(() => Math.max(1, Math.ceil(accessRows.value.length / accessPageSize.value)));
+const pagedAccessRows = computed(() => accessRows.value.slice(
+  (accessPage.value - 1) * accessPageSize.value,
+  accessPage.value * accessPageSize.value,
+));
+
+watch([() => selectedPet.value?.petId, accessPageSize], () => { accessPage.value = 1; });
+watch(accessPageCount, (pageCount) => {
+  if (accessPage.value > pageCount) accessPage.value = pageCount;
 });
 
 function blankDraft() {
@@ -607,7 +618,7 @@ function confirmMedicalRecord(record: MedicalRecordDraft) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in accessRows" :key="row.accountId">
+              <tr v-for="row in pagedAccessRows" :key="row.accountId">
                 <td class="owner-access-actions" data-label="Действия">
                   <div class="owner-access-action-list">
                     <template v-if="row.status === 'requested' && row.request">
@@ -684,6 +695,15 @@ function confirmMedicalRecord(record: MedicalRecordDraft) {
             </tbody>
           </table>
         </div>
+        <AppPaginator
+          v-if="accessRows.length"
+          v-model:page="accessPage"
+          v-model:page-size="accessPageSize"
+          :total-items="accessRows.length"
+          :page-sizes="pageSizes"
+          page-size-label="Врачей на странице"
+          aria-label="Навигация по доступам врачей"
+        />
       </article>
 
       <ModalDialog
@@ -785,36 +805,16 @@ function confirmMedicalRecord(record: MedicalRecordDraft) {
           :open="expandedRecordId === record.recordId"
           @confirm="confirmMedicalRecord"
         />
-        <div v-if="petRecords.length" class="administrator-pagination owner-medical-pagination" aria-label="Навигация по медицинским записям">
-          <span>Показаны {{ medicalPageStart }}–{{ medicalPageEnd }} из {{ petRecords.length }}</span>
-          <div class="administrator-page-buttons">
-            <button
-              type="button"
-              :disabled="medicalPage <= 1"
-              title="Предыдущая страница"
-              aria-label="Предыдущая страница"
-              @click="medicalPage--"
-            >
-              <AppIcon name="chevron-left" />
-            </button>
-            <span>{{ medicalPage }} / {{ medicalPageCount }}</span>
-            <button
-              type="button"
-              :disabled="medicalPage >= medicalPageCount"
-              title="Следующая страница"
-              aria-label="Следующая страница"
-              @click="medicalPage++"
-            >
-              <AppIcon name="chevron" />
-            </button>
-          </div>
-          <label>
-            <span>Записей на странице</span>
-            <select v-model.number="medicalPageSize">
-              <option v-for="size in medicalPageSizes" :key="size" :value="size">{{ size }}</option>
-            </select>
-          </label>
-        </div>
+        <AppPaginator
+          v-if="petRecords.length"
+          v-model:page="medicalPage"
+          v-model:page-size="medicalPageSize"
+          class="owner-medical-pagination"
+          :total-items="petRecords.length"
+          :page-sizes="pageSizes"
+          page-size-label="Записей на странице"
+          aria-label="Навигация по медицинским записям"
+        />
       </article>
 
       <ConfirmationDialog
