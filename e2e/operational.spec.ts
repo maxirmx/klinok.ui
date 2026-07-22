@@ -131,7 +131,7 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   const doctorPage = await newPage(await browser.newContext(), "doctor");
   await register(doctorPage, request, { firstName: "Анна", lastName: "Врач", email: doctorEmail, role: "doctor" });
   await login(doctorPage, doctorEmail);
-  await expect(doctorPage).toHaveURL(/\/profile/);
+  await expect(doctorPage).toHaveURL(/\/profile/, { timeout: replicationTimeout });
   const doctorAccountId = await accountId(doctorPage);
   await expect(doctorPage.getByText("Ожидает решения")).toBeVisible();
 
@@ -206,17 +206,19 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await expect(medicalCard).toBeVisible({ timeout: replicationTimeout });
   await medicalCard.getByRole("link", { name: "Открыть медицинскую карту" }).click();
   await expect(doctorPage).toHaveURL(new RegExp(`/doctor/pets/${petId}$`));
+  await doctorPage.getByText("Всё хорошо, необходимо", { exact: true }).click();
+  await doctorPage.getByLabel("Контрольный осмотр", { exact: true }).check();
   await doctorPage.getByLabel("Комментарий").fill("Состояние стабильное");
-  await doctorPage.getByRole("button", { name: "Сохранить приём" }).click();
-  await expect(doctorPage.locator(".medical-record-entry-epicrisis").filter({ hasText: "Состояние стабильное" })).toBeVisible();
+  await doctorPage.getByRole("button", { name: "Сохранить запись" }).click();
+  await expect(doctorPage.locator(".medical-record-entry-details").filter({ hasText: "Всё хорошо" })).toBeVisible();
 
   await ownerPage.bringToFront();
-  const ownerEpicrisis = ownerPage.locator(".medical-record-entry-epicrisis").filter({ hasText: "Состояние стабильное" });
-  await expect(ownerEpicrisis).toBeVisible({ timeout: replicationTimeout });
-  await ownerEpicrisis.click();
-  const ownerRecord = ownerPage.locator(".medical-record-entry-details").filter({ hasText: "Состояние стабильное" });
-  await ownerRecord.getByRole("button", { name: "Подтвердить приём" }).click();
-  await expect(ownerRecord.getByText("Подтверждён", { exact: true })).toBeVisible();
+  const ownerRecord = ownerPage.locator(".medical-record-entry-details").filter({ hasText: "Всё хорошо" });
+  await expect(ownerRecord).toBeVisible({ timeout: replicationTimeout });
+  await ownerRecord.locator("summary").click();
+  await expect(ownerRecord.getByText("Состояние стабильное", { exact: true })).toBeVisible();
+  await ownerRecord.getByRole("button", { name: "Подтвердить запись" }).click();
+  await expect(ownerRecord.getByText("Подтверждена", { exact: true })).toBeVisible();
   await openProfileAndWaitForSync(ownerPage);
   await ownerPage.locator(".workspace-sidebar").getByRole("link", { name: "Шарик", exact: true }).click();
   await expect(ownerPage).toHaveURL(new RegExp(`/owner/pets/${petId}$`));

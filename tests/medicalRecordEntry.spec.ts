@@ -48,6 +48,35 @@ const record: MedicalRecordDraft = {
 };
 
 describe("MedicalRecordEntry", () => {
+  it.each([
+    ["well.1", "Всё хорошо", "well"],
+    ["problem.digestive.1", "Не всё хорошо", "problem"],
+    ["critical.1", "Всё плохо", "critical"],
+  ])("shows the general condition for %s in the record header", (selectedId, label, tone) => {
+    const whatHappened = record.sections["what-happened"]!;
+    const wrapper = mount(MedicalRecordEntry, {
+      props: {
+        record: {
+          ...record,
+          sections: {
+            ...record.sections,
+            "what-happened": {
+              ...whatHappened,
+              value: { selectedIds: [selectedId], comment: "Подробный комментарий" },
+            },
+          },
+        },
+        mode: "details",
+        confirmed: false,
+      },
+    });
+
+    const summary = wrapper.get(".owner-encounter-summary");
+    expect(summary.text()).toContain(label);
+    expect(summary.text()).not.toContain("Подробный комментарий");
+    expect(summary.get(`.medical-record-condition-${tone}`).text()).toBe(label);
+  });
+
   it("renders and activates the compact epicrisis mode", async () => {
     const wrapper = mount(MedicalRecordEntry, {
       props: { record, mode: "epicrisis", confirmed: false },
@@ -89,10 +118,17 @@ describe("MedicalRecordEntry", () => {
     expect(wrapper.find(".medical-record-chevron-expanded").exists()).toBe(true);
     expect(wrapper.findAll(".encounter-history-section h3").map((node) => node.text()))
       .toEqual(["Что случилось", "Диагноз", "Исход"]);
+    expect(wrapper.get(".owner-encounter-sections").findAll(":scope > .encounter-history-section")).toHaveLength(3);
+    expect(wrapper.get(".owner-encounter-sections").classes()).not.toContain("owner-encounter-sections-editing");
+    const summary = wrapper.get(".owner-encounter-summary");
+    expect(summary.text()).toContain("21.07.2026 · Не всё хорошо");
+    expect(summary.text()).not.toContain("Пищеварением");
+    expect(summary.get(".medical-record-condition-problem").text()).toBe("Не всё хорошо");
+    expect(wrapper.get(".encounter-history-comment").text()).toBe("Не ест со вчерашнего дня");
     expect(wrapper.text()).not.toContain("Рекомендации");
     expect(wrapper.text()).toContain("Анна Врач · doctor-2");
     expect(wrapper.text()).not.toContain("2026-07-21T11:00:00.000Z");
-    expect(wrapper.text()).toContain("Подтверждён");
+    expect(wrapper.text()).toContain("Подтверждена");
     expect(wrapper.find(".medical-record-edit").exists()).toBe(false);
 
     await wrapper.setProps({ confirmed: false });
@@ -100,14 +136,14 @@ describe("MedicalRecordEntry", () => {
     expect(wrapper.get(".owner-encounter-summary").find(".medical-record-actions").exists()).toBe(false);
     expect(wrapper.findAll(".encounter-history-section")[0]!.get(".encounter-history-heading").find(".medical-record-actions").exists()).toBe(true);
     expect(edit.text()).toBe("");
-    expect(edit.attributes("title")).toBe("Редактировать приём");
-    expect(edit.attributes("aria-label")).toBe("Редактировать приём");
+    expect(edit.attributes("title")).toBe("Редактировать запись");
+    expect(edit.attributes("aria-label")).toBe("Редактировать запись");
     expect(edit.getComponent(AppIcon).props("name")).toBe("edit");
     await edit.trigger("click");
     expect(wrapper.emitted("edit")?.[0]).toEqual([record]);
     const remove = wrapper.get(".medical-record-delete");
-    expect(remove.attributes("title")).toBe("Удалить приём");
-    expect(remove.attributes("aria-label")).toBe("Удалить приём");
+    expect(remove.attributes("title")).toBe("Удалить запись");
+    expect(remove.attributes("aria-label")).toBe("Удалить запись");
     expect(remove.getComponent(AppIcon).props("name")).toBe("trash");
     await remove.trigger("click");
     expect(wrapper.emitted("delete")?.[0]).toEqual([record]);
@@ -117,7 +153,14 @@ describe("MedicalRecordEntry", () => {
     const wrapper = mount(MedicalRecordEntry, {
       props: { record, mode: "details", confirmed: false, action: "confirm" },
     });
-    await wrapper.get(".owner-encounter-confirm").trigger("click");
+    const confirm = wrapper.get(".owner-encounter-confirm");
+    expect(confirm.text()).toBe("");
+    expect(confirm.attributes("title")).toBe("Подтвердить запись");
+    expect(confirm.attributes("aria-label")).toBe("Подтвердить запись");
+    expect(confirm.getComponent(AppIcon).props("name")).toBe("check");
+    expect(confirm.element.closest(".encounter-history-heading")).not.toBeNull();
+    expect(confirm.element.closest(".medical-record-actions")).not.toBeNull();
+    await confirm.trigger("click");
     expect(wrapper.emitted("confirm")?.[0]).toEqual([record]);
 
     await wrapper.setProps({ confirmed: true });

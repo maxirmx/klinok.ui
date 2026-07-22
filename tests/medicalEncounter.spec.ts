@@ -3,11 +3,12 @@
 // This file is a part of Klinok application
 
 import { describe, expect, it } from "vitest";
-import { WHAT_HAPPENED_TAXONOMY, encounterSummary, whatHappenedPath } from "../src/medicalEncounter";
+import { WHAT_HAPPENED_TREE, encounterSummary, whatHappenedPath } from "../src/medicalEncounter";
 
 describe("medical encounter templates", () => {
   it("contains stable, arbitrary-depth taxonomy identifiers including laboratory groups", () => {
-    const laboratory = WHAT_HAPPENED_TAXONOMY.find((node) => node.id === "problem")?.children
+    expect(WHAT_HAPPENED_TREE.label).toBe("Что случилось");
+    const laboratory = WHAT_HAPPENED_TREE.children?.find((node) => node.id === "problem")?.children
       ?.find((node) => node.id === "problem.laboratory");
     expect(laboratory?.children?.map((node) => node.id)).toEqual([
       "problem.laboratory.cbc",

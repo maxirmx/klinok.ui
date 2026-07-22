@@ -84,7 +84,6 @@ jobs:
 
   compose-smoke:
     runs-on: ubuntu-latest
-    needs: build
     steps:
       - name: Checkout code
         uses: actions/checkout@v6.0.3

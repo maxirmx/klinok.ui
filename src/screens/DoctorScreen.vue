@@ -9,11 +9,11 @@ import type { DirectoryPetDto, DirectoryProfileDto, PetGrantAction } from "@klin
 import AppIcon from "../components/AppIcon.vue";
 import AppPaginator from "../components/AppPaginator.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
+import EncounterEditorForm from "../components/EncounterEditorForm.vue";
 import MedicalRecordEntry from "../components/MedicalRecordEntry.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PetAccessManager from "../components/PetAccessManager.vue";
 import PetProfileView from "../components/PetProfileView.vue";
-import WhatHappenedTree from "../components/WhatHappenedTree.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
 import {
   appState,
@@ -27,11 +27,9 @@ import {
 import {
   ENCOUNTER_SECTION_LABELS,
   OPTIONAL_ENCOUNTER_SECTION_KINDS,
-  WHAT_HAPPENED_TAXONOMY,
   encounterSummary,
   isFreeTextValue,
   isWhatHappenedValue,
-  whatHappenedPath,
 } from "../medicalEncounter";
 import type { PetAccessRow } from "../petAccess";
 import type { MedicalEncounterSectionKind, MedicalRecordDraft } from "../repositories/types";
@@ -74,6 +72,8 @@ const relinquishConfirm = ref(false);
 const relinquishTarget = ref<{ petId: string; petName: string; grantId: string } | null>(null);
 const recordDeleteConfirm = ref(false);
 const recordDeleteTarget = ref<MedicalRecordDraft | null>(null);
+const sectionDeleteConfirm = ref(false);
+const sectionDeleteTarget = ref<MedicalEncounterSectionKind | null>(null);
 const historyQuery = ref("");
 const historyFrom = ref("");
 const historyTo = ref("");
@@ -82,8 +82,6 @@ const historyStatus = ref<"" | "confirmed" | "unconfirmed">("");
 const historySort = ref<"desc" | "asc">("desc");
 const historyPage = ref(1);
 const historyPageSize = ref<(typeof pageSizes)[number]>(10);
-const expandedRecordId = ref("");
-const encounterForm = ref<HTMLFormElement | null>(null);
 const encounter = reactive({
   recordId: "",
   date: new Date().toISOString().slice(0, 10),
@@ -123,7 +121,9 @@ const delegatedAccessRows = computed<PetAccessRow[]>(() => {
     .sort((left, right) => left.displayName.localeCompare(right.displayName, "ru"));
 });
 const delegationPageCount = computed(() => Math.max(1, Math.ceil(delegatedAccessRows.value.length / delegationPageSize.value)));
-const optionalAvailable = computed(() => OPTIONAL_ENCOUNTER_SECTION_KINDS.filter((kind) => !encounter.optionalKinds.includes(kind)));
+const sectionDeleteDescription = computed(() => sectionDeleteTarget.value
+  ? `Раздел «${ENCOUNTER_SECTION_LABELS[sectionDeleteTarget.value]}» и введённые в нём данные будут удалены из записи.`
+  : "Раздел и введённые в нём данные будут удалены из записи.");
 const relinquishDescription = computed(() => relinquishTarget.value
   ? `Вы и все врачи, которым вы делегировали доступ к ${relinquishTarget.value.petName}, потеряете доступ к медицинской карте`
   : "Вы и все врачи, которым вы делегировали доступ, потеряете доступ к медицинской карте");
@@ -280,19 +280,22 @@ function openRequestDialog() {
   requestDialogOpen.value = true;
 }
 
-function toggleSelection(id: string) {
-  const index = encounter.selectedIds.indexOf(id);
-  if (index >= 0) encounter.selectedIds.splice(index, 1);
-  else encounter.selectedIds.push(id);
-}
-
-function addOptional(kind: MedicalEncounterSectionKind) {
-  if (!encounter.optionalKinds.includes(kind)) encounter.optionalKinds.push(kind);
-}
-
 function removeOptional(kind: MedicalEncounterSectionKind) {
   encounter.optionalKinds = encounter.optionalKinds.filter((item) => item !== kind);
   delete encounter.texts[kind];
+}
+
+function requestRemoveOptional(kind: MedicalEncounterSectionKind) {
+  sectionDeleteTarget.value = kind;
+  sectionDeleteConfirm.value = true;
+}
+
+function confirmRemoveOptional() {
+  const target = sectionDeleteTarget.value;
+  sectionDeleteConfirm.value = false;
+  sectionDeleteTarget.value = null;
+  if (!target) return;
+  removeOptional(target);
 }
 
 function resetEncounter() {
@@ -305,6 +308,7 @@ function resetEncounter() {
 }
 
 async function saveEncounter() {
+  if (!encounter.selectedIds.length) return;
   await perform(async () => {
     const sections: Parameters<ReturnType<typeof requireRepository>["medical"]["saveEncounter"]>[0]["sections"] = {
       "what-happened": { selectedIds: [...encounter.selectedIds], comment: encounter.comment },
@@ -317,12 +321,7 @@ async function saveEncounter() {
       ...(encounter.recordId ? { recordId: encounter.recordId } : {}),
     });
     resetEncounter();
-  }, "Приём сохранён.");
-}
-
-function submitEncounter() {
-  if (encounterForm.value?.reportValidity() === false) return;
-  void saveEncounter();
+  }, "Запись сохранена.");
 }
 
 function editRecord(record: (typeof appState.medical.records)[number]) {
@@ -346,11 +345,10 @@ async function deleteMedicalRecord() {
   if (!target) return;
   const succeeded = await perform(
     () => requireRepository().medical.deleteRecord(target.petId, target.recordId),
-    "Приём удалён.",
+    "Запись удалена.",
   );
   if (!succeeded) return;
   if (encounter.recordId === target.recordId) resetEncounter();
-  if (expandedRecordId.value === target.recordId) expandedRecordId.value = "";
   recordDeleteConfirm.value = false;
   recordDeleteTarget.value = null;
 }
@@ -414,11 +412,6 @@ async function relinquish() {
   relinquishConfirm.value = false;
   relinquishTarget.value = null;
   if (route.path !== "/doctor/home") await router.replace("/doctor/home");
-}
-
-function openRecord(record: MedicalRecordDraft) {
-  expandedRecordId.value = record.recordId;
-  requestAnimationFrame(() => document.getElementById(`encounter-${record.recordId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
 }
 
 watch([homeQuery, homeSort, homeSortDirection, homePageSize], () => {
@@ -564,8 +557,23 @@ onMounted(() => { void refreshPets(); });
         </template>
       </PetProfileView>
 
-      <article class="panel">
-        <h2>Эпикриз</h2>
+      <article v-if="canWrite && !encounter.recordId" class="panel encounter-editor">
+        <EncounterEditorForm
+          v-model:date="encounter.date"
+          v-model:selected-ids="encounter.selectedIds"
+          v-model:comment="encounter.comment"
+          v-model:optional-kinds="encounter.optionalKinds"
+          v-model:texts="encounter.texts"
+          :busy="busy"
+          :editing="false"
+          @save="saveEncounter"
+          @remove-section="requestRemoveOptional"
+        />
+      </article>
+      <article v-else-if="!canWrite" class="panel"><p>Доступ только для чтения: создание и изменение приёмов недоступно.</p></article>
+
+      <article class="panel doctor-medical-record">
+        <h2>Медицинская карта</h2>
         <div class="doctor-history-filters">
           <input v-model="historyQuery" type="search" placeholder="Содержание или автор" aria-label="Поиск по истории" />
           <label class="doctor-history-date-filter"><span>Дата с</span><input v-model="historyFrom" type="date" /></label>
@@ -578,42 +586,30 @@ onMounted(() => { void refreshPets(); });
           v-for="record in pagedRecords"
           :key="record.recordId"
           :record="record"
-          mode="epicrisis"
-          :confirmed="confirmedIds.has(record.recordId)"
-          @activate="openRecord"
-        />
-      </article>
-
-      <article v-if="canWrite" class="panel encounter-editor">
-        <form ref="encounterForm" class="form-stack" @submit.prevent="saveEncounter">
-          <div class="doctor-heading encounter-editor-heading">
-            <h2>{{ encounter.recordId ? 'Редактирование приёма' : 'Сегодняшний приём' }}</h2>
-            <div class="row-actions">
-              <button class="primary-action inline owner-profile-action" type="button" :disabled="busy" title="Сохранить приём" aria-label="Сохранить приём" @click="submitEncounter"><AppIcon name="check" /></button>
-              <button v-if="encounter.recordId" type="button" class="outline-action inline owner-profile-action" title="Отменить редактирование" aria-label="Отменить редактирование" @click="resetEncounter"><AppIcon name="close" /></button>
-            </div>
-          </div>
-          <label><span>Дата</span><input v-model="encounter.date" type="date" required /></label>
-          <fieldset><legend>Что случилось</legend><div class="encounter-chips"><button v-for="id in encounter.selectedIds" :key="id" type="button" class="selection-chip" @click="toggleSelection(id)">{{ whatHappenedPath(id) }} ×</button></div><WhatHappenedTree :nodes="WHAT_HAPPENED_TAXONOMY" :selected="encounter.selectedIds" @toggle="toggleSelection" /><label><span>Комментарий</span><textarea v-model="encounter.comment" rows="4" /></label></fieldset>
-          <article v-for="kind in encounter.optionalKinds" :key="kind" class="encounter-section-card"><div class="doctor-heading"><h3>{{ ENCOUNTER_SECTION_LABELS[kind] }}</h3><button type="button" class="outline-action inline danger-link" @click="removeOptional(kind)">Удалить раздел</button></div><p class="temporary-note">Временный универсальный шаблон free-text-v0.</p><textarea v-model="encounter.texts[kind]" rows="4" required /></article>
-          <label v-if="optionalAvailable.length"><span>Добавить раздел</span><select @change="addOptional(($event.target as HTMLSelectElement).value as MedicalEncounterSectionKind); ($event.target as HTMLSelectElement).value = ''"><option value="">Выберите раздел</option><option v-for="kind in optionalAvailable" :key="kind" :value="kind">{{ ENCOUNTER_SECTION_LABELS[kind] }}</option></select></label>
-        </form>
-      </article>
-      <article v-else class="panel"><p>Доступ только для чтения: создание и изменение приёмов недоступно.</p></article>
-
-      <article class="panel">
-        <h2>Предыдущие приёмы</h2>
-        <MedicalRecordEntry
-          v-for="record in pagedRecords"
-          :key="record.recordId"
-          :record="record"
           mode="details"
           :confirmed="confirmedIds.has(record.recordId)"
           :action="canWrite ? 'edit' : 'none'"
-          :open="expandedRecordId === record.recordId"
+          :editing="encounter.recordId === record.recordId"
           @edit="editRecord"
           @delete="openRecordDelete"
-        />
+        >
+          <template #editor>
+            <div class="encounter-editor encounter-editor-inline">
+              <EncounterEditorForm
+                v-model:date="encounter.date"
+                v-model:selected-ids="encounter.selectedIds"
+                v-model:comment="encounter.comment"
+                v-model:optional-kinds="encounter.optionalKinds"
+                v-model:texts="encounter.texts"
+                :busy="busy"
+                editing
+                @save="saveEncounter"
+                @cancel="resetEncounter"
+                @remove-section="requestRemoveOptional"
+              />
+            </div>
+          </template>
+        </MedicalRecordEntry>
         <AppPaginator
           v-if="filteredRecords.length"
           v-model:page="historyPage"
@@ -670,6 +666,7 @@ onMounted(() => { void refreshPets(); });
 
     <ConfirmationDialog v-model="delegationConfirm" title="Подтвердить делегирование?" description="Выбранный врач получит доступ к медицинской карте." confirm-label="Делегировать" @confirm="delegate" />
     <ConfirmationDialog v-model="relinquishConfirm" title="Отказаться от доступа?" :description="relinquishDescription" confirm-label="Отказаться" :busy="busy" @confirm="relinquish" />
-    <ConfirmationDialog v-model="recordDeleteConfirm" title="Удалить приём?" description="Неподтверждённая запись будет удалена без возможности восстановления." confirm-label="Удалить приём" :busy="busy" @confirm="deleteMedicalRecord" />
+    <ConfirmationDialog v-model="recordDeleteConfirm" title="Удалить запись?" description="Неподтверждённая запись будет удалена без возможности восстановления." confirm-label="Удалить запись" :busy="busy" @confirm="deleteMedicalRecord" />
+    <ConfirmationDialog v-model="sectionDeleteConfirm" title="Удалить раздел?" :description="sectionDeleteDescription" confirm-label="Удалить раздел" @confirm="confirmRemoveOptional" />
   </WorkspaceShell>
 </template>

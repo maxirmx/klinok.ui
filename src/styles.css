@@ -699,18 +699,79 @@ dd {
 .doctor-pet-detail > .panel { margin: 0; }
 .doctor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .doctor-heading h2, .doctor-heading h3 { margin: 0; }
- .doctor-history-filters { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px); gap: 12px; }
-.doctor-history-filters { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
-.doctor-history-date-filter { display: flex; min-width: 0; align-items: center; gap: 8px; }
-.doctor-history-date-filter > span { flex: 0 0 auto; color: var(--text-muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
-.doctor-history-date-filter > input { width: auto; min-width: 0; flex: 1 1 auto; box-sizing: border-box; }
-.encounter-editor fieldset { display: grid; gap: 12px; min-width: 0; }
+.doctor-history-filters,
+.medical-record-filters { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 12px; }
+.doctor-history-date-filter,
+.medical-record-date-filter { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.doctor-history-date-filter > span,
+.medical-record-date-filter > span { flex: 0 0 auto; color: var(--text-muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.doctor-history-date-filter > input,
+.medical-record-date-filter > input { width: auto; min-width: 0; flex: 1 1 auto; box-sizing: border-box; }
+.encounter-editor fieldset { display: grid; gap: 3px; min-width: 0; }
 .encounter-editor-heading { align-items: center; }
-.encounter-taxonomy { display: grid; gap: 8px; margin: 0; padding-left: 18px; list-style: none; }
-.encounter-taxonomy summary { cursor: pointer; font-weight: 600; padding: 5px 0; }
+.encounter-editor-inline { width: 100%; }
+.workspace-content .encounter-editor .encounter-date-field {
+  display: flex;
+  width: 100%;
+  max-width: 190px;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-content .encounter-editor .encounter-date-field > span { flex: 0 0 auto; white-space: nowrap; }
+.workspace-content .encounter-editor .encounter-date-field > input { width: 100%; min-width: 0; max-width: 150px; flex: 1 1 150px; }
+.workspace-content .encounter-editor .encounter-add-section {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-content .encounter-editor .encounter-add-section > span { flex: 0 0 auto; white-space: nowrap; }
+.workspace-content .encounter-editor .encounter-add-section > select { width: auto; min-width: 0; flex: 1 1 auto; }
+.encounter-what-happened > .doctor-heading h3 { margin: 0; }
+.encounter-condition-trees { display: grid; gap: 3px; }
+.encounter-condition-trees > .encounter-taxonomy { padding-left: 0; }
+.encounter-editor label:not(.check-row) > span,
+.encounter-editor .check-row > span,
+.encounter-editor fieldset > legend {
+  color: #344054;
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 400;
+  line-height: 1.3;
+}
+.encounter-taxonomy { display: grid; gap: 3px; margin: 0; padding-left: 18px; list-style: none; }
+.encounter-taxonomy summary { cursor: pointer; font-weight: 600; padding: 3px 0; }
+.encounter-editor .check-row {
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+}
+.encounter-editor .check-row input {
+  flex: 0 0 auto;
+  margin: 0;
+}
 .encounter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .selection-chip { border: 1px solid var(--accent); border-radius: 999px; background: var(--brand-sky-soft); color: var(--ink); padding: 5px 10px; text-align: left; }
 .encounter-section-card, .encounter-history-section { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.encounter-editor .encounter-section-card,
+.encounter-history-section { border-width: 2px; }
+.encounter-section-card > .doctor-heading {
+  flex-direction: row;
+  align-items: center;
+}
+.encounter-section-card > .doctor-heading > h3 {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.workspace-content .encounter-section-card .encounter-section-delete {
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-self: center;
+}
 .temporary-note { margin: 0; color: var(--muted); font-size: .85rem; }
 .epicrisis-row { width: 100%; display: grid; grid-template-columns: 110px minmax(220px, 1fr) minmax(160px, .6fr) 150px; gap: 12px; align-items: center; padding: 12px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }
 .epicrisis-row:hover { background: var(--brand-sky-soft); }
@@ -741,17 +802,38 @@ dd {
 .owner-encounter-record[open] > .owner-encounter-summary .medical-record-chevron-expanded { display: block; }
 .owner-encounter-summary-copy { display: grid; min-width: 0; gap: 4px; }
 .owner-encounter-summary-copy :is(strong, small) { overflow-wrap: anywhere; }
+.medical-record-condition-well { color: #067647; }
+.medical-record-condition-problem { color: #b54708; }
+.medical-record-condition-critical { color: var(--danger); }
 .owner-encounter-sections {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 0;
   width: 100%;
   margin-top: 12px;
 }
-.owner-encounter-sections > .encounter-history-section { width: 100%; min-width: 0; }
+.owner-encounter-sections:not(.owner-encounter-sections-editing) {
+  overflow: hidden;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+}
+.owner-encounter-sections > .encounter-history-section {
+  width: 100%;
+  min-width: 0;
+  padding: 14px;
+  border: 0;
+  border-radius: 0;
+}
+.owner-encounter-sections-editing { gap: 12px; }
 .owner-encounter-confirm { justify-self: end; }
 .encounter-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .encounter-history-heading h3 { margin: 0; }
+.encounter-history-section { gap: 3px; }
+.encounter-history-section :is(ul, p) { margin: 0; }
+.encounter-history-section ul { padding-left: 22px; }
+.encounter-history-section li + li { margin-top: 3px; }
+.encounter-history-section .encounter-history-comment { margin-top: 8px; }
+.encounter-history-section > small { margin-top: 3px; }
 .medical-record-actions { justify-self: end; }
 .owner-medical-pagination { margin-top: 16px; }
 
@@ -761,7 +843,8 @@ dd {
   .encounter-editor-heading { align-items: center; flex-direction: row; }
   .owner-encounter-record > .owner-encounter-summary { grid-template-columns: auto minmax(0, 1fr); }
   .owner-encounter-summary > .status-badge { grid-column: 2; justify-self: start; }
-   .doctor-history-filters { grid-template-columns: 1fr; }
+  .doctor-history-filters,
+  .medical-record-filters { grid-template-columns: 1fr; }
   .epicrisis-row { grid-template-columns: 1fr; }
 }
 .role-selection-card.disabled .role-selection-title { cursor: default; }

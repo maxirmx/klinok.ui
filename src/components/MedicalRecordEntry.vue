@@ -23,10 +23,12 @@ const props = withDefaults(defineProps<{
   confirmed: boolean;
   action?: "none" | "confirm" | "edit";
   open?: boolean;
+  editing?: boolean;
   showAuthorAccountId?: boolean;
 }>(), {
   action: "none",
   open: false,
+  editing: false,
   showAuthorAccountId: false,
 });
 
@@ -44,6 +46,15 @@ const populatedSections = computed(() =>
       return section ? [{ kind, label, section }] : [];
     }),
 );
+
+const conditionHeadlines = computed(() => {
+  const selectedIds = whatHappenedSelectedIds(props.record.sections["what-happened"]?.value);
+  return [
+    { id: "well", label: "Всё хорошо", tone: "well" },
+    { id: "problem", label: "Не всё хорошо", tone: "problem" },
+    { id: "critical", label: "Всё плохо", tone: "critical" },
+  ].filter((condition) => selectedIds.some((id) => id === condition.id || id.startsWith(`${condition.id}.`)));
+});
 
 function formatDate(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -72,7 +83,7 @@ function formatLocalDateTime(value: string) {
     <strong>{{ encounterSummary(record) }}</strong>
     <span>{{ freeText(record.sections.outcome?.value) || 'Не заполнено' }}</span>
     <span class="status-badge" :class="confirmed ? 'approved' : 'pending'">
-      {{ confirmed ? 'Подтверждён' : 'Ожидает подтверждения' }}
+      {{ confirmed ? 'Подтверждена' : 'Ожидает подтверждения' }}
     </span>
   </button>
 
@@ -80,7 +91,7 @@ function formatLocalDateTime(value: string) {
     v-else
     :id="`encounter-${record.recordId}`"
     class="owner-encounter-record medical-record-entry medical-record-entry-details"
-    :open="open || undefined"
+    :open="open || editing || undefined"
   >
     <summary class="owner-encounter-summary">
       <span class="medical-record-chevron" aria-hidden="true">
@@ -88,42 +99,55 @@ function formatLocalDateTime(value: string) {
         <AppIcon class="medical-record-chevron-expanded" name="chevron-down" />
       </span>
       <span class="owner-encounter-summary-copy">
-        <strong>{{ formatDate(record.encounterDate) }} · {{ encounterSummary(record) }}</strong>
+        <strong>
+          {{ formatDate(record.encounterDate) }} ·
+          <template v-if="conditionHeadlines.length">
+            <template v-for="(condition, index) in conditionHeadlines" :key="condition.id">
+              <span v-if="index">; </span><span class="medical-record-condition" :class="`medical-record-condition-${condition.tone}`">{{ condition.label }}</span>
+            </template>
+          </template>
+          <template v-else>{{ encounterSummary(record) }}</template>
+        </strong>
         <small>Редакция {{ record.revision }} · {{ record.authorDisplayName }}</small>
       </span>
       <span class="status-badge" :class="confirmed ? 'approved' : 'pending'">
-        {{ confirmed ? 'Подтверждён' : 'Ожидает подтверждения' }}
+        {{ confirmed ? 'Подтверждена' : 'Ожидает подтверждения' }}
       </span>
     </summary>
 
-    <div class="owner-encounter-sections">
-      <button
-        v-if="action === 'confirm' && !confirmed"
-        class="primary-action inline owner-encounter-confirm"
-        type="button"
-        @click="emit('confirm', record)"
-      >
-        Подтвердить приём
-      </button>
-
-      <div v-for="item in populatedSections" :key="item.kind" class="encounter-history-section">
+    <div class="owner-encounter-sections" :class="{ 'owner-encounter-sections-editing': editing }">
+      <slot v-if="editing" name="editor" />
+      <template v-else>
+      <div v-for="(item, index) in populatedSections" :key="item.kind" class="encounter-history-section">
         <div class="encounter-history-heading">
           <h3>{{ item.label }}</h3>
-          <span v-if="item.kind === 'what-happened' && action === 'edit' && !confirmed" class="row-actions medical-record-actions">
+          <span v-if="index === 0 && !confirmed && (action === 'confirm' || action === 'edit')" class="row-actions medical-record-actions">
             <button
+              v-if="action === 'confirm'"
+              class="primary-action inline owner-profile-action owner-encounter-confirm"
+              type="button"
+              title="Подтвердить запись"
+              aria-label="Подтвердить запись"
+              @click="emit('confirm', record)"
+            >
+              <AppIcon name="check" />
+            </button>
+            <button
+              v-if="action === 'edit'"
               class="outline-action inline owner-profile-action medical-record-edit"
               type="button"
-              title="Редактировать приём"
-              aria-label="Редактировать приём"
+              title="Редактировать запись"
+              aria-label="Редактировать запись"
               @click="emit('edit', record)"
             >
               <AppIcon name="edit" />
             </button>
             <button
+              v-if="action === 'edit'"
               class="outline-action inline danger-outline owner-profile-action medical-record-delete"
               type="button"
-              title="Удалить приём"
-              aria-label="Удалить приём"
+              title="Удалить запись"
+              aria-label="Удалить запись"
               @click="emit('delete', record)"
             >
               <AppIcon name="trash" />
@@ -134,7 +158,7 @@ function formatLocalDateTime(value: string) {
           <ul>
             <li v-for="id in whatHappenedSelectedIds(item.section.value)" :key="id">{{ whatHappenedPath(id) }}</li>
           </ul>
-          <p v-if="whatHappenedComment(item.section.value)">{{ whatHappenedComment(item.section.value) }}</p>
+          <p v-if="whatHappenedComment(item.section.value)" class="encounter-history-comment">{{ whatHappenedComment(item.section.value) }}</p>
         </template>
         <p v-else-if="isFreeTextValue(item.section.value)">{{ freeText(item.section.value) }}</p>
         <small>
@@ -142,6 +166,8 @@ function formatLocalDateTime(value: string) {
           · {{ formatLocalDateTime(item.section.updatedAt) }}
         </small>
       </div>
+
+      </template>
 
     </div>
   </details>

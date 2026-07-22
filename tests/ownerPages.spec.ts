@@ -191,14 +191,23 @@ describe("Owner pages", () => {
     expect(wrapper.text()).not.toContain("Любит длительные прогулки");
   });
 
-  it("uses both record modes and refreshes confirmation status from the verified projection", async () => {
+  it("shows one medical card and refreshes confirmation status from the verified projection", async () => {
     await setMedical(snapshot({ pets: [pet], records: [medicalRecord] }));
     const wrapper = await mountAt("/owner/pets/pet-1", "owner-pet-detail");
 
-    expect(wrapper.findAll(".medical-record-entry-epicrisis")).toHaveLength(1);
+    expect(wrapper.get(".owner-medical-record h2").text()).toBe("Медицинская карта");
+    expect(wrapper.text()).not.toContain("Эпикриз");
+    expect(wrapper.text()).not.toContain("Предыдущие приёмы");
+    expect(wrapper.find(".medical-record-entry-epicrisis").exists()).toBe(false);
     expect(wrapper.findAll(".medical-record-entry-details")).toHaveLength(1);
-    expect(wrapper.get(".medical-record-entry-epicrisis").text()).toContain("Ожидает подтверждения");
-    await wrapper.get(".owner-encounter-confirm").trigger("click");
+    expect(wrapper.get(".medical-record-entry-details").text()).toContain("Ожидает подтверждения");
+    const confirm = wrapper.get(".owner-encounter-confirm");
+    expect(confirm.text()).toBe("");
+    expect(confirm.attributes("title")).toBe("Подтвердить запись");
+    expect(confirm.attributes("aria-label")).toBe("Подтвердить запись");
+    expect(confirm.getComponent(AppIcon).props("name")).toBe("check");
+    expect(confirm.element.closest(".encounter-history-heading")).not.toBeNull();
+    await confirm.trigger("click");
     await flushPromises();
     expect(repositoryMocks.confirmRecord).toHaveBeenCalledWith("pet-1", "record-1", 1);
 
@@ -208,8 +217,7 @@ describe("Owner pages", () => {
       confirmedRecordIds: [medicalRecord.recordId],
     }));
     await flushPromises();
-    expect(wrapper.get(".medical-record-entry-epicrisis").text()).toContain("Подтверждён");
-    expect(wrapper.get(".medical-record-entry-details").text()).toContain("Подтверждён");
+    expect(wrapper.get(".medical-record-entry-details").text()).toContain("Подтверждена");
     expect(wrapper.find(".owner-encounter-confirm").exists()).toBe(false);
   });
 
@@ -400,20 +408,28 @@ describe("Owner pages", () => {
     expect(detail.find(".owner-access-panel").exists()).toBe(false);
     expect(detail.get(".owner-pet-profile-details").text()).toContain("Шарик");
     expect(detail.get(".owner-pet-profile-details").text()).toContain("Собака · Бигль");
-    expect(detail.findAll(".medical-record-entry-epicrisis")).toHaveLength(10);
+    expect(detail.get(".owner-medical-record h2").text()).toBe("Медицинская карта");
+    expect(detail.find(".medical-record-entry-epicrisis").exists()).toBe(false);
     expect(detail.findAll("details.owner-encounter-record")).toHaveLength(10);
-    await detail.get(".medical-record-entry-epicrisis").trigger("click");
     const encounterRecord = detail.get("details.owner-encounter-record");
-    expect(encounterRecord.attributes()).toHaveProperty("open");
     expect(encounterRecord.get("summary").text()).toContain("Борис Врач");
     expect(encounterRecord.text()).not.toContain("doctor-2");
     expect(encounterRecord.get(".encounter-history-section").text()).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
     const medicalPagination = detail.get(".owner-medical-pagination");
     expect(medicalPagination.text()).toContain("Показаны 1–10 из 11");
     await medicalPagination.get('button[title="Следующая страница"]').trigger("click");
-    expect(detail.findAll(".medical-record-entry-epicrisis")).toHaveLength(1);
     expect(detail.findAll("details.owner-encounter-record")).toHaveLength(1);
     expect(medicalPagination.text()).toContain("Показаны 11–11 из 11");
+
+    const filters = detail.get(".medical-record-filters");
+    await filters.get('select[aria-label="Порядок"]').setValue("asc");
+    expect(detail.get("details.owner-encounter-record summary").text()).toContain("01.07.2026");
+    await filters.get('.medical-record-date-filter input[type="date"]').setValue("2026-07-10");
+    expect(detail.findAll("details.owner-encounter-record")).toHaveLength(2);
+    expect(medicalPagination.text()).toContain("Показаны 1–2 из 2");
+    await filters.get('select[aria-label="Статус"]').setValue("confirmed");
+    expect(detail.find("details.owner-encounter-record").exists()).toBe(false);
+    expect(detail.text()).toContain("Записи по выбранным условиям не найдены.");
 
     const wrapper = await mountAt("/owner/pets/pet-1/access", "owner-pet-access");
     expect(wrapper.get(".workspace-topbar h1").text()).toBe("Кабинет владельца");

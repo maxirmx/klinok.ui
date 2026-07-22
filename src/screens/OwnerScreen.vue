@@ -20,12 +20,17 @@ import PetProfileView from "../components/PetProfileView.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
 import { appState, deleteDirectoryPet, logout, requireRepository, searchDoctorDirectory, syncDirectoryPet } from "../appStore";
 import {
+  ENCOUNTER_SECTION_LABELS,
+  encounterSummary,
+  isFreeTextValue,
+} from "../medicalEncounter";
+import {
   normalizePetInput,
   petBirthSummary,
   preparePetPhoto,
 } from "../petProfile";
 import type { PetAccessRow } from "../petAccess";
-import type { MedicalRecordDraft, PetProfile, PetProfileInput } from "../repositories/types";
+import type { MedicalEncounterSectionKind, MedicalRecordDraft, PetProfile, PetProfileInput } from "../repositories/types";
 import { useAlertStore } from "../stores/alert";
 
 const props = defineProps<{ role: "owner"; scenarioId: string }>();
@@ -77,9 +82,14 @@ const isForm = computed(() => isCreate.value || isEdit.value);
 const pageSizes = [10, 20, 50] as const;
 const medicalPage = ref(1);
 const medicalPageSize = ref<(typeof pageSizes)[number]>(10);
+const medicalQuery = ref("");
+const medicalFrom = ref("");
+const medicalTo = ref("");
+const medicalSection = ref<MedicalEncounterSectionKind | "">("");
+const medicalStatus = ref<"" | "confirmed" | "unconfirmed">("");
+const medicalSort = ref<"desc" | "asc">("desc");
 const accessPage = ref(1);
 const accessPageSize = ref<(typeof pageSizes)[number]>(10);
-const expandedRecordId = ref("");
 const pageTitle = computed(() => {
   if (isHome.value) return "Мои питомцы";
   if (isCreate.value) return "Добавить питомца";
@@ -92,18 +102,39 @@ const petRecords = computed(() =>
   selectedPet.value
     ? appState.medical.records
       .filter((record) => record.petId === selectedPet.value!.petId)
-      .sort((left, right) => right.encounterDate.localeCompare(left.encounterDate)
-        || right.createdAt.localeCompare(left.createdAt))
     : [],
 );
-const medicalPageCount = computed(() => Math.max(1, Math.ceil(petRecords.value.length / medicalPageSize.value)));
-const pagedPetRecords = computed(() => petRecords.value.slice(
+const confirmedIds = computed(() => new Set(appState.medical.confirmedRecordIds));
+const filteredPetRecords = computed(() => petRecords.value.filter((record) => {
+  const confirmed = confirmedIds.value.has(record.recordId);
+  if (medicalStatus.value === "confirmed" && !confirmed) return false;
+  if (medicalStatus.value === "unconfirmed" && confirmed) return false;
+  if (medicalFrom.value && record.encounterDate < medicalFrom.value) return false;
+  if (medicalTo.value && record.encounterDate > medicalTo.value) return false;
+  if (medicalSection.value && !record.sections[medicalSection.value]) return false;
+  const query = medicalQuery.value.trim();
+  if (!query) return true;
+  const queryLower = query.toLocaleLowerCase("ru");
+  const content = `${encounterSummary(record)} ${record.authorDisplayName} ${record.authorAccountId} ${Object.values(record.sections).map((section) => section && isFreeTextValue(section.value) ? section.value.text : "").join(" ")}`.toLocaleLowerCase("ru");
+  return content.includes(queryLower);
+}).sort((left, right) => (medicalSort.value === "desc" ? -1 : 1)
+  * (left.encounterDate.localeCompare(right.encounterDate) || left.createdAt.localeCompare(right.createdAt))));
+const medicalPageCount = computed(() => Math.max(1, Math.ceil(filteredPetRecords.value.length / medicalPageSize.value)));
+const pagedPetRecords = computed(() => filteredPetRecords.value.slice(
   (medicalPage.value - 1) * medicalPageSize.value,
   medicalPage.value * medicalPageSize.value,
 ));
-const confirmedIds = computed(() => new Set(appState.medical.confirmedRecordIds));
 
-watch([() => selectedPet.value?.petId, medicalPageSize], () => { medicalPage.value = 1; });
+watch([
+  () => selectedPet.value?.petId,
+  medicalPageSize,
+  medicalQuery,
+  medicalFrom,
+  medicalTo,
+  medicalSection,
+  medicalStatus,
+  medicalSort,
+], () => { medicalPage.value = 1; });
 watch(medicalPageCount, (pageCount) => {
   if (medicalPage.value > pageCount) medicalPage.value = pageCount;
 });
@@ -417,11 +448,6 @@ async function deletePet() {
   });
 }
 
-function openMedicalRecord(record: MedicalRecordDraft) {
-  expandedRecordId.value = record.recordId;
-  requestAnimationFrame(() => document.getElementById(`encounter-${record.recordId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
-}
-
 function confirmMedicalRecord(record: MedicalRecordDraft) {
   void action(
     () => requireRepository().medical.confirmRecord(record.petId, record.recordId, record.revision),
@@ -686,22 +712,18 @@ function confirmMedicalRecord(record: MedicalRecordDraft) {
         </template>
       </PetProfileView>
 
-      <article class="panel owner-medical-placeholder">
-        <h2>Эпикриз</h2>
-        <p v-if="!petRecords.length">Записи появятся здесь после приёма у врача.</p>
-        <MedicalRecordEntry
-          v-for="record in pagedPetRecords"
-          :key="record.recordId"
-          :record="record"
-          mode="epicrisis"
-          :confirmed="confirmedIds.has(record.recordId)"
-          @activate="openMedicalRecord"
-        />
-      </article>
-
-      <article class="panel owner-medical-placeholder">
-        <h2>Предыдущие приёмы</h2>
-        <p v-if="!petRecords.length">Предыдущих приёмов пока нет.</p>
+      <article class="panel owner-medical-placeholder owner-medical-record">
+        <h2>Медицинская карта</h2>
+        <div class="medical-record-filters">
+          <input v-model="medicalQuery" type="search" placeholder="Содержание или автор" aria-label="Поиск по истории" />
+          <label class="medical-record-date-filter"><span>Дата с</span><input v-model="medicalFrom" type="date" /></label>
+          <label class="medical-record-date-filter"><span>Дата по</span><input v-model="medicalTo" type="date" /></label>
+          <select v-model="medicalSection" aria-label="Раздел"><option value="">Все разделы</option><option v-for="(label, kind) in ENCOUNTER_SECTION_LABELS" :key="kind" :value="kind">{{ label }}</option></select>
+          <select v-model="medicalStatus" aria-label="Статус"><option value="">Все статусы</option><option value="confirmed">Подтверждённые</option><option value="unconfirmed">Не подтверждённые</option></select>
+          <select v-model="medicalSort" aria-label="Порядок"><option value="desc">Сначала новые</option><option value="asc">Сначала старые</option></select>
+        </div>
+        <p v-if="!petRecords.length">Записей в медицинской карте пока нет.</p>
+        <p v-else-if="!filteredPetRecords.length">Записи по выбранным условиям не найдены.</p>
         <MedicalRecordEntry
           v-for="record in pagedPetRecords"
           :key="record.recordId"
@@ -709,15 +731,14 @@ function confirmMedicalRecord(record: MedicalRecordDraft) {
           mode="details"
           :confirmed="confirmedIds.has(record.recordId)"
           action="confirm"
-          :open="expandedRecordId === record.recordId"
           @confirm="confirmMedicalRecord"
         />
         <AppPaginator
-          v-if="petRecords.length"
+          v-if="filteredPetRecords.length"
           v-model:page="medicalPage"
           v-model:page-size="medicalPageSize"
           class="owner-medical-pagination"
-          :total-items="petRecords.length"
+          :total-items="filteredPetRecords.length"
           :page-sizes="pageSizes"
           page-size-label="Записей на странице"
           aria-label="Навигация по медицинским записям"
