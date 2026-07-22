@@ -1,4 +1,8 @@
 #!/bin/sh
+# Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+# All rights reserved.
+# This file is a part of Klinok application
+
 set -eu
 
 CONFIG_PATH=${CONFIG_PATH:-/var/www/klinok/config.json}

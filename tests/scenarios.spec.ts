@@ -1,3 +1,7 @@
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok application
+
 import { describe, expect, it } from "vitest";
 import { scenarioRegistry } from "../src/scenarios";
 import { routes } from "../src/router";

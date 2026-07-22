@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
-// This file is a part of Klinok ui application
+// This file is a part of Klinok application
 
 /// <reference types="vite/client" />
 

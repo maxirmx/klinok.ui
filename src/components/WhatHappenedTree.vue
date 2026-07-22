@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok application
+
 import type { WhatHappenedOption } from "../medicalEncounter";
 
 defineProps<{ nodes: WhatHappenedOption[]; selected: string[] }>();

@@ -1,3 +1,7 @@
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok application
+
 import type { Component } from "vue";
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import type { Role } from "@klinok/protocol";

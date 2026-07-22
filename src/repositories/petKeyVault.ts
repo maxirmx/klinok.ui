@@ -1,3 +1,7 @@
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok application
+
 const DB_NAME = "klinok-pet-keys-v1";
 const STORE = "keys";
 

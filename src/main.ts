@@ -1,3 +1,7 @@
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok application
+
 import { createApp } from "vue";
 import "@fontsource/montserrat/400.css";
 import "@fontsource/montserrat/500.css";

@@ -1,3 +1,7 @@
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok application
+
 import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent } from "vue";
 import { createMemoryHistory, createRouter } from "vue-router";

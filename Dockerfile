@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
 # All rights reserved.
-# This file is a part of Klinok ui application
+# This file is a part of Klinok application
 
 # Stage for building the frontend
 FROM node:24.18.0-alpine3.24 AS build

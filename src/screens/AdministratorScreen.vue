@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok application
+
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import type { AccountProfile, Role, RoleRequest, RoleStatus } from "@klinok/protocol";

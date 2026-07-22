@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Klinok application
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterView, useRoute } from "vue-router";
 import QaScenarioMenu from "./components/QaScenarioMenu.vue";

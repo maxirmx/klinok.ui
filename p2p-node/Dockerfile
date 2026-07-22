@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Maxim [maxirmx] Samsonov (www.sw.consulting)
 # All rights reserved.
-# This file is a part of Klinok ui application
+# This file is a part of Klinok application
 
 FROM node:24.18.0-bookworm-slim AS build
 WORKDIR /app
