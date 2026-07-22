@@ -93,7 +93,7 @@ async function requestPetAccess() {
           </div>
         </article>
         <article id="doctor-pets" class="panel wide-panel" data-workspace-section>
-          <h2>Доступные питомцы</h2>
+          <h2>Медицинские карты</h2>
           <div v-for="pet in appState.medical.pets" :key="pet.petId" class="pet-operational-card"><strong>{{ pet.name }}</strong><span>{{ pet.species }} · {{ pet.breed }}</span></div>
           <p v-if="!appState.medical.pets.length">Владельцы ещё не предоставили доступ.</p>
         </article>

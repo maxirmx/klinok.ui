@@ -9,13 +9,14 @@ import { promisify } from "node:util";
 const password = "correct horse battery";
 const replicationTimeout = 30_000;
 const execFile = promisify(execFileCallback);
+const mailpitUrl = process.env.KLINOK_E2E_MAILPIT_URL ?? "http://localhost:8025";
 
 async function verificationLink(request: APIRequestContext, email: string): Promise<string> {
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    const list = await request.get("http://localhost:8025/api/v1/messages");
+    const list = await request.get(`${mailpitUrl}/api/v1/messages`);
     const messages = (await list.json()).messages as Array<{ ID: string }>;
     for (const summary of messages) {
-      const message = await request.get(`http://localhost:8025/api/v1/message/${summary.ID}`);
+      const message = await request.get(`${mailpitUrl}/api/v1/message/${summary.ID}`);
       const body = await message.json() as { Text?: string; HTML?: string; To?: Array<{ Address?: string }> };
       if (body.To?.length && !body.To.some((recipient) => recipient.Address?.toLocaleLowerCase() === email.toLocaleLowerCase())) continue;
       const match = `${body.Text ?? ""} ${body.HTML ?? ""}`.match(/https?:\/\/[^\s<]+\/auth\/verify-email\?token=[^\s<]+/);
@@ -146,7 +147,7 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await expect(approvalDialog).toBeHidden();
 
   await doctorPage.bringToFront();
-  const doctorHome = doctorPage.locator(".workspace-sidebar").getByRole("link", { name: "Главная страница" });
+  const doctorHome = doctorPage.locator(".workspace-sidebar").getByRole("link", { name: "Мед. карты" });
   await expect(doctorHome).toBeVisible({ timeout: replicationTimeout });
   await doctorHome.click();
   await expect(doctorPage).toHaveURL(/\/doctor\/home/);
@@ -178,9 +179,15 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await expect(ownerPage).toHaveURL(new RegExp(`/owner/pets/${petId}$`));
 
   await doctorPage.bringToFront();
-  await doctorPage.getByLabel("Идентификатор питомца").fill(petId);
-  await doctorPage.getByRole("button", { name: "Отправить запрос" }).click();
-  await expect(doctorPage.getByText("Ожидает решения владельца")).toBeVisible();
+  await doctorPage.getByRole("button", { name: "Запросить доступ", exact: true }).click();
+  const accessDialog = doctorPage.getByRole("dialog", { name: "Запросить доступ" });
+  await accessDialog.getByLabel("ФИО владельца, его часть или полный ID").fill("Ольга Владелец");
+  await accessDialog.getByLabel("Кличка, её часть или полный ID питомца").fill("Шарик");
+  await accessDialog.getByRole("button", { name: "Найти питомца" }).click();
+  const requestResult = accessDialog.locator(".doctor-request-result").filter({ hasText: petId });
+  await expect(requestResult).toBeVisible({ timeout: replicationTimeout });
+  await requestResult.getByRole("button", { name: "Отправить запрос" }).click();
+  await expect(doctorPage.getByText("Запрос отправлен владельцу.")).toBeVisible();
 
   await ownerPage.bringToFront();
   await ownerPage.getByRole("link", { name: "Доступ врачей" }).click();
@@ -192,17 +199,24 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await expect(ownerPage).toHaveURL(new RegExp(`/owner/pets/${petId}$`));
 
   await doctorPage.bringToFront();
-  await expect(doctorPage.locator(".pet-operational-card strong").filter({ hasText: "Шарик" })).toBeVisible({ timeout: replicationTimeout });
-  await doctorPage.getByLabel("Питомец").selectOption({ label: "Шарик" });
-  await doctorPage.getByLabel("Заголовок").fill("Осмотр");
-  await doctorPage.getByRole("textbox", { name: "Запись", exact: true }).fill("Состояние стабильное");
-  await doctorPage.getByRole("button", { name: "Сохранить черновик" }).click();
-  await expect(doctorPage.getByText("Состояние стабильное")).toBeVisible();
+  await openProfileAndWaitForSync(doctorPage);
+  await doctorPage.locator(".workspace-sidebar").getByRole("link", { name: "Мед. карты" }).click();
+  await expect(doctorPage).toHaveURL(/\/doctor\/home/);
+  const medicalCard = doctorPage.locator(".doctor-access-table tbody tr").filter({ hasText: petId });
+  await expect(medicalCard).toBeVisible({ timeout: replicationTimeout });
+  await medicalCard.getByRole("link", { name: "Открыть медицинскую карту" }).click();
+  await expect(doctorPage).toHaveURL(new RegExp(`/doctor/pets/${petId}$`));
+  await doctorPage.getByLabel("Комментарий").fill("Состояние стабильное");
+  await doctorPage.getByRole("button", { name: "Сохранить приём" }).click();
+  await expect(doctorPage.locator(".medical-record-entry-epicrisis").filter({ hasText: "Состояние стабильное" })).toBeVisible();
 
   await ownerPage.bringToFront();
-  await expect(ownerPage.getByText("Состояние стабильное")).toBeVisible({ timeout: replicationTimeout });
-  await ownerPage.getByRole("button", { name: "Подтвердить" }).click();
-  await expect(ownerPage.getByText("Подтверждена")).toBeVisible();
+  const ownerEpicrisis = ownerPage.locator(".medical-record-entry-epicrisis").filter({ hasText: "Состояние стабильное" });
+  await expect(ownerEpicrisis).toBeVisible({ timeout: replicationTimeout });
+  await ownerEpicrisis.click();
+  const ownerRecord = ownerPage.locator(".medical-record-entry-details").filter({ hasText: "Состояние стабильное" });
+  await ownerRecord.getByRole("button", { name: "Подтвердить приём" }).click();
+  await expect(ownerRecord.getByText("Подтверждён", { exact: true })).toBeVisible();
   await openProfileAndWaitForSync(ownerPage);
   await ownerPage.locator(".workspace-sidebar").getByRole("link", { name: "Шарик", exact: true }).click();
   await expect(ownerPage).toHaveURL(new RegExp(`/owner/pets/${petId}$`));

@@ -345,7 +345,7 @@ onMounted(() => { void refreshPets(); });
     <p v-if="successMessage" class="form-alert success" role="status">{{ successMessage }}</p>
 
     <section v-if="scenarioId === 'doctor-home' || scenarioId === 'doctor-pet-request-access'" class="panel doctor-page">
-      <div class="doctor-heading"><div><h2>Доступные питомцы</h2><p>Медицинские карты, к которым вам предоставлен доступ.</p></div></div>
+      <div class="doctor-heading"><h2>Медицинские карты</h2></div>
       <label class="administrator-search">
         <span>ФИО владельца, кличка, вид или полный ID</span>
         <span class="administrator-search-control">

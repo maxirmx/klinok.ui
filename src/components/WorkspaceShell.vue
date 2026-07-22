@@ -43,7 +43,7 @@ const navigationByRole: Record<Role, WorkspaceNavItem[]> = {
   doctor: [
     { id: "workspace-top", label: "Главная страница", icon: "home" },
     { id: "doctor-request-access", label: "Запросить доступ", icon: "plus" },
-    { id: "doctor-pets", label: "Питомцы", icon: "pets" },
+    { id: "doctor-pets", label: "Мед. карты", icon: "pets" },
     { id: "doctor-new-record", label: "Новая запись", icon: "plus" },
     { id: "doctor-delegation", label: "Делегирование", icon: "user" },
     { id: "doctor-records", label: "Медкарта", icon: "medical-tools" },
@@ -71,7 +71,7 @@ const administratorNavigation: WorkspacePathNavItem[] = [
   { id: "administrator-audit", label: "Журнал", icon: "book", path: "/admin/audit", exact: true },
 ];
 const doctorNavigation: WorkspacePathNavItem[] = [
-  { id: "doctor-home", label: "Питомцы", icon: "home", path: "/doctor/home", exact: true },
+  { id: "doctor-home", label: "Мед. карты", icon: "home", path: "/doctor/home", exact: true },
   { id: "doctor-request-access", label: "Запросить доступ", icon: "plus", path: "/doctor/pets/request-access", exact: true },
 ];
 const effectiveRole = computed<Role | null>(() => props.role

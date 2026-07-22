@@ -173,7 +173,9 @@ describe("Doctor pages", () => {
     const wrapper = await mountAt("/doctor/home", "doctor-home");
     await flushPromises();
     expect(wrapper.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text()))
-      .toEqual(["Питомцы", "Запросить доступ"]);
+      .toEqual(["Мед. карты", "Запросить доступ"]);
+    expect(wrapper.get(".doctor-heading h2").text()).toBe("Медицинские карты");
+    expect(wrapper.text()).not.toContain("Медицинские карты, к которым вам предоставлен доступ.");
     const table = wrapper.get(".doctor-access-table");
     expect(table.findAll("th").map((header) => header.text())).toEqual([
       "Действия", "Питомец", "Владелец", "Делегирование",

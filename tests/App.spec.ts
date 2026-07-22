@@ -145,7 +145,7 @@ describe("operational Russian UI", () => {
 
   it.each([
     ["administrator", AdministratorScreen, "/admin/home", ["Пользователи", "Журнал"]],
-    ["doctor", WorkspaceScreen, "/doctor/home", ["Питомцы", "Запросить доступ"]],
+    ["doctor", WorkspaceScreen, "/doctor/home", ["Мед. карты", "Запросить доступ"]],
   ] as const)("renders responsive %s navigation for the current feature set", async (role, component, path, labels) => {
     const workspace = await mountScreen(component, path, { scenarioId: `${role}-home`, role });
     const sidebarLabels = workspace.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text());
