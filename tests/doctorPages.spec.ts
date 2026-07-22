@@ -3,7 +3,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppIcon from "../src/components/AppIcon.vue";
 import DoctorScreen from "../src/screens/DoctorScreen.vue";
-import type { MedicalSnapshot, PetProfile } from "../src/repositories/types";
+import type { MedicalRecordDraft, MedicalSnapshot, PetProfile } from "../src/repositories/types";
 
 const repositoryMocks = vi.hoisted(() => ({
   requestAccess: vi.fn().mockResolvedValue("request-1"),
@@ -29,7 +29,7 @@ vi.mock("../src/appStore", async () => {
       profile: { firstName: "Вера", lastName: "Врач" },
       profiles: [], roles: [], allRoles: [], devices: [], pendingQueue: [], notifications: [], events: [],
     },
-    medical: { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], events: [] } as MedicalSnapshot,
+    medical: { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], confirmedRecordIds: [], events: [] } as MedicalSnapshot,
   });
   return {
     appState: readonly(state),
@@ -62,7 +62,41 @@ const pet: PetProfile = {
   updatedAt: "2026-07-21T10:00:00.000Z",
 };
 
-function snapshot(actions: Array<"read" | "write_unconfirmed" | "delegate"> = ["read", "write_unconfirmed", "delegate"]): MedicalSnapshot {
+const medicalRecord: MedicalRecordDraft = {
+  recordId: "record-1",
+  petId: pet.petId,
+  revision: 1,
+  authorAccountId: "doctor-1",
+  authorDisplayName: "Вера Врач",
+  encounterDate: "2026-07-21",
+  title: "Осмотр",
+  text: "Не ест",
+  sections: {
+    "what-happened": {
+      kind: "what-happened",
+      templateVersion: "what-happened-v1",
+      value: { selectedIds: ["problem.digestive.1"], comment: "Не ест" },
+      authorAccountId: "doctor-1",
+      authorDisplayName: "Вера Врач",
+      updatedAt: "2026-07-21T10:00:00.000Z",
+    },
+    outcome: {
+      kind: "outcome",
+      templateVersion: "free-text-v0",
+      value: { text: "Назначено лечение" },
+      authorAccountId: "doctor-1",
+      authorDisplayName: "Вера Врач",
+      updatedAt: "2026-07-21T10:00:00.000Z",
+    },
+  },
+  createdAt: "2026-07-21T10:00:00.000Z",
+  updatedAt: "2026-07-21T10:00:00.000Z",
+};
+
+function snapshot(
+  actions: Array<"read" | "write_unconfirmed" | "delegate"> = ["read", "write_unconfirmed", "delegate"],
+  overrides: Partial<MedicalSnapshot> = {},
+): MedicalSnapshot {
   return {
     pets: [pet],
     grants: [{
@@ -75,7 +109,8 @@ function snapshot(actions: Array<"read" | "write_unconfirmed" | "delegate"> = ["
       status: "active",
       createdAt: "2026-07-21T10:00:00.000Z",
     }],
-    accessRequests: [], records: [], confirmations: [], events: [],
+    accessRequests: [], records: [], confirmations: [], confirmedRecordIds: [], events: [],
+    ...overrides,
   };
 }
 
@@ -287,6 +322,29 @@ describe("Doctor pages", () => {
         },
       },
     }));
+  });
+
+  it("uses verified status in both record modes and does not offer changes to a confirmed record", async () => {
+    await setMedical(snapshot(undefined, { records: [medicalRecord], confirmedRecordIds: [medicalRecord.recordId] }));
+    const wrapper = await mountAt("/doctor/pets/pet-1", "doctor-pet-detail");
+    await flushPromises();
+
+    const epicrisis = wrapper.get(".medical-record-entry-epicrisis");
+    const details = wrapper.get(".medical-record-entry-details");
+    expect(epicrisis.text()).toContain("Подтверждён");
+    expect(details.text()).toContain("Подтверждён");
+    expect(details.find(".medical-record-edit").exists()).toBe(false);
+
+    await epicrisis.trigger("click");
+    expect(details.attributes()).toHaveProperty("open");
+    expect(wrapper.get(".encounter-editor h2").text()).toBe("Сегодняшний приём");
+
+    await wrapper.get('.doctor-history-filters select[aria-label="Статус"]').setValue("unconfirmed");
+    expect(wrapper.find(".medical-record-entry-epicrisis").exists()).toBe(false);
+    expect(wrapper.find(".medical-record-entry-details").exists()).toBe(false);
+    await wrapper.get('.doctor-history-filters select[aria-label="Статус"]').setValue("confirmed");
+    expect(wrapper.findAll(".medical-record-entry-epicrisis")).toHaveLength(1);
+    expect(wrapper.findAll(".medical-record-entry-details")).toHaveLength(1);
   });
 
   it("shows the owner pet-profile information plus the owner's full name", async () => {

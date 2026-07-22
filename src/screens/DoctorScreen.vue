@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 import type { DirectoryPetDto, DirectoryProfileDto, PetGrantAction } from "@klinok/protocol";
 import AppIcon from "../components/AppIcon.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
+import MedicalRecordEntry from "../components/MedicalRecordEntry.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PetProfileDetails from "../components/PetProfileDetails.vue";
 import PetProfileHeader from "../components/PetProfileHeader.vue";
@@ -23,14 +24,11 @@ import {
   OPTIONAL_ENCOUNTER_SECTION_KINDS,
   WHAT_HAPPENED_TAXONOMY,
   encounterSummary,
-  freeText,
   isFreeTextValue,
   isWhatHappenedValue,
   whatHappenedPath,
-  whatHappenedComment,
-  whatHappenedSelectedIds,
 } from "../medicalEncounter";
-import type { MedicalEncounterSectionKind } from "../repositories/types";
+import type { MedicalEncounterSectionKind, MedicalRecordDraft } from "../repositories/types";
 
 const props = defineProps<{ role: "doctor"; scenarioId: string }>();
 type HomeSortField = "owner" | "pet";
@@ -73,7 +71,6 @@ const historyPageSize = ref<(typeof pageSizes)[number]>(10);
 const expandedRecordId = ref("");
 const encounter = reactive({
   recordId: "",
-  addendumTo: "",
   date: new Date().toISOString().slice(0, 10),
   selectedIds: [] as string[],
   comment: "",
@@ -88,7 +85,7 @@ const selectedGrant = computed(() => appState.medical.grants.find((grant) => gra
   && grant.granteeAccountId === appState.session.accountId && grant.status === "active") ?? null);
 const canWrite = computed(() => selectedGrant.value?.actions.includes("write_unconfirmed") ?? false);
 const canDelegate = computed(() => selectedGrant.value?.actions.includes("delegate") ?? false);
-const confirmedIds = computed(() => new Set(appState.medical.confirmations.map((item) => item.recordId)));
+const confirmedIds = computed(() => new Set(appState.medical.confirmedRecordIds));
 const petRecords = computed(() => appState.medical.records.filter((record) => record.petId === petId.value));
 const currentDirectoryPet = computed(() => selectedDirectoryPet.value?.petId === petId.value
   ? selectedDirectoryPet.value
@@ -223,7 +220,6 @@ function removeOptional(kind: MedicalEncounterSectionKind) {
 
 function resetEncounter() {
   encounter.recordId = "";
-  encounter.addendumTo = "";
   encounter.date = new Date().toISOString().slice(0, 10);
   encounter.selectedIds = [];
   encounter.comment = "";
@@ -242,18 +238,13 @@ async function saveEncounter() {
       encounterDate: encounter.date,
       sections,
       ...(encounter.recordId ? { recordId: encounter.recordId } : {}),
-      ...(encounter.addendumTo ? { addendumTo: encounter.addendumTo } : {}),
     });
     resetEncounter();
   }, "Приём сохранён.");
 }
 
 function editRecord(record: (typeof appState.medical.records)[number]) {
-  if (confirmedIds.value.has(record.recordId)) {
-    resetEncounter();
-    encounter.addendumTo = record.recordId;
-    return;
-  }
+  if (confirmedIds.value.has(record.recordId)) return;
   encounter.recordId = record.recordId;
   encounter.date = record.encounterDate;
   const what = record.sections["what-happened"]?.value;
@@ -291,9 +282,9 @@ async function relinquish() {
   });
 }
 
-function openRecord(recordId: string) {
-  expandedRecordId.value = recordId;
-  requestAnimationFrame(() => document.getElementById(`encounter-${recordId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+function openRecord(record: MedicalRecordDraft) {
+  expandedRecordId.value = record.recordId;
+  requestAnimationFrame(() => document.getElementById(`encounter-${record.recordId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
 }
 
 watch([homeQuery, homeSort, homeSortDirection, homePageSize], () => {
@@ -436,12 +427,37 @@ onMounted(() => { void refreshPets(); });
         <PetProfileDetails :pet="selectedPet" :owner-display-name="currentDirectoryPet?.ownerDisplayName || selectedPet.ownerAccountId" />
       </article>
 
-      <article class="panel"><h2>Эпикриз</h2><div class="doctor-history-filters"><input v-model="historyQuery" type="search" placeholder="Содержание или автор" aria-label="Поиск по истории" /><input v-model="historyFrom" type="date" aria-label="Дата с" /><input v-model="historyTo" type="date" aria-label="Дата по" /><select v-model="historySection" aria-label="Раздел"><option value="">Все разделы</option><option v-for="(label, kind) in ENCOUNTER_SECTION_LABELS" :key="kind" :value="kind">{{ label }}</option></select><select v-model="historyStatus" aria-label="Статус"><option value="">Все статусы</option><option value="confirmed">Подтверждённые</option><option value="unconfirmed">Не подтверждённые</option></select><select v-model="historySort" aria-label="Порядок"><option value="desc">Сначала новые</option><option value="asc">Сначала старые</option></select></div><button v-for="record in pagedRecords" :key="record.recordId" class="epicrisis-row" @click="openRecord(record.recordId)"><span>{{ record.encounterDate }}</span><strong>{{ encounterSummary(record) }}</strong><span>{{ freeText(record.sections.outcome?.value) || 'Не заполнено' }}</span><span class="status-badge" :class="confirmedIds.has(record.recordId) ? 'approved' : 'pending'">{{ confirmedIds.has(record.recordId) ? 'Подтверждён' : 'Ожидает подтверждения' }}</span></button></article>
+      <article class="panel">
+        <h2>Эпикриз</h2>
+        <div class="doctor-history-filters"><input v-model="historyQuery" type="search" placeholder="Содержание или автор" aria-label="Поиск по истории" /><input v-model="historyFrom" type="date" aria-label="Дата с" /><input v-model="historyTo" type="date" aria-label="Дата по" /><select v-model="historySection" aria-label="Раздел"><option value="">Все разделы</option><option v-for="(label, kind) in ENCOUNTER_SECTION_LABELS" :key="kind" :value="kind">{{ label }}</option></select><select v-model="historyStatus" aria-label="Статус"><option value="">Все статусы</option><option value="confirmed">Подтверждённые</option><option value="unconfirmed">Не подтверждённые</option></select><select v-model="historySort" aria-label="Порядок"><option value="desc">Сначала новые</option><option value="asc">Сначала старые</option></select></div>
+        <MedicalRecordEntry
+          v-for="record in pagedRecords"
+          :key="record.recordId"
+          :record="record"
+          mode="epicrisis"
+          :confirmed="confirmedIds.has(record.recordId)"
+          @activate="openRecord"
+        />
+      </article>
 
-      <article v-if="canWrite" class="panel encounter-editor"><h2>{{ encounter.recordId ? 'Редактирование приёма' : encounter.addendumTo ? 'Дополнение к приёму' : 'Сегодняшний приём' }}</h2><form class="form-stack" @submit.prevent="saveEncounter"><label><span>Дата</span><input v-model="encounter.date" type="date" required /></label><fieldset><legend>Что случилось</legend><div class="encounter-chips"><button v-for="id in encounter.selectedIds" :key="id" type="button" class="selection-chip" @click="toggleSelection(id)">{{ whatHappenedPath(id) }} ×</button></div><WhatHappenedTree :nodes="WHAT_HAPPENED_TAXONOMY" :selected="encounter.selectedIds" @toggle="toggleSelection" /><label><span>Комментарий</span><textarea v-model="encounter.comment" rows="4" /></label></fieldset><article v-for="kind in encounter.optionalKinds" :key="kind" class="encounter-section-card"><div class="doctor-heading"><h3>{{ ENCOUNTER_SECTION_LABELS[kind] }}</h3><button type="button" class="outline-action inline danger-link" @click="removeOptional(kind)">Удалить раздел</button></div><p class="temporary-note">Временный универсальный шаблон free-text-v0.</p><textarea v-model="encounter.texts[kind]" rows="4" required /></article><label v-if="optionalAvailable.length"><span>Добавить раздел</span><select @change="addOptional(($event.target as HTMLSelectElement).value as MedicalEncounterSectionKind); ($event.target as HTMLSelectElement).value = ''"><option value="">Выберите раздел</option><option v-for="kind in optionalAvailable" :key="kind" :value="kind">{{ ENCOUNTER_SECTION_LABELS[kind] }}</option></select></label><div class="row-actions"><button class="primary-action inline" :disabled="busy">Сохранить приём</button><button v-if="encounter.recordId || encounter.addendumTo" type="button" class="outline-action inline" @click="resetEncounter">Отмена</button></div></form></article>
+      <article v-if="canWrite" class="panel encounter-editor"><h2>{{ encounter.recordId ? 'Редактирование приёма' : 'Сегодняшний приём' }}</h2><form class="form-stack" @submit.prevent="saveEncounter"><label><span>Дата</span><input v-model="encounter.date" type="date" required /></label><fieldset><legend>Что случилось</legend><div class="encounter-chips"><button v-for="id in encounter.selectedIds" :key="id" type="button" class="selection-chip" @click="toggleSelection(id)">{{ whatHappenedPath(id) }} ×</button></div><WhatHappenedTree :nodes="WHAT_HAPPENED_TAXONOMY" :selected="encounter.selectedIds" @toggle="toggleSelection" /><label><span>Комментарий</span><textarea v-model="encounter.comment" rows="4" /></label></fieldset><article v-for="kind in encounter.optionalKinds" :key="kind" class="encounter-section-card"><div class="doctor-heading"><h3>{{ ENCOUNTER_SECTION_LABELS[kind] }}</h3><button type="button" class="outline-action inline danger-link" @click="removeOptional(kind)">Удалить раздел</button></div><p class="temporary-note">Временный универсальный шаблон free-text-v0.</p><textarea v-model="encounter.texts[kind]" rows="4" required /></article><label v-if="optionalAvailable.length"><span>Добавить раздел</span><select @change="addOptional(($event.target as HTMLSelectElement).value as MedicalEncounterSectionKind); ($event.target as HTMLSelectElement).value = ''"><option value="">Выберите раздел</option><option v-for="kind in optionalAvailable" :key="kind" :value="kind">{{ ENCOUNTER_SECTION_LABELS[kind] }}</option></select></label><div class="row-actions"><button class="primary-action inline" :disabled="busy">Сохранить приём</button><button v-if="encounter.recordId" type="button" class="outline-action inline" @click="resetEncounter">Отмена</button></div></form></article>
       <article v-else class="panel"><p>Доступ только для чтения: создание и изменение приёмов недоступно.</p></article>
 
-      <article class="panel"><h2>Предыдущие приёмы</h2><details v-for="record in pagedRecords" :id="`encounter-${record.recordId}`" :key="record.recordId" class="encounter-history" :open="expandedRecordId === record.recordId"><summary><span>{{ record.encounterDate }}</span><strong>{{ encounterSummary(record) }}</strong><span>{{ record.authorDisplayName }}</span></summary><div v-for="(label, kind) in ENCOUNTER_SECTION_LABELS" v-show="record.sections[kind]" :key="kind" class="encounter-history-section"><h3>{{ label }}</h3><template v-if="isWhatHappenedValue(record.sections[kind]?.value)"><ul><li v-for="id in whatHappenedSelectedIds(record.sections[kind]?.value)" :key="id">{{ whatHappenedPath(id) }}</li></ul><p>{{ whatHappenedComment(record.sections[kind]?.value) }}</p></template><p v-else-if="isFreeTextValue(record.sections[kind]?.value)">{{ freeText(record.sections[kind]?.value) }}</p><small>{{ record.sections[kind]?.authorDisplayName }} · {{ record.sections[kind]?.authorAccountId }} · {{ record.sections[kind]?.updatedAt }}</small></div><button v-if="canWrite" class="outline-action inline" @click="editRecord(record)">{{ confirmedIds.has(record.recordId) ? 'Добавить дополнение' : 'Редактировать' }}</button></details><div class="administrator-pagination"><button :disabled="historyPage <= 1" @click="historyPage--">Назад</button><span>{{ historyPage }} / {{ historyPageCount }}</span><button :disabled="historyPage >= historyPageCount" @click="historyPage++">Вперёд</button><label>На странице <select v-model.number="historyPageSize"><option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option></select></label></div></article>
+      <article class="panel">
+        <h2>Предыдущие приёмы</h2>
+        <MedicalRecordEntry
+          v-for="record in pagedRecords"
+          :key="record.recordId"
+          :record="record"
+          mode="details"
+          :confirmed="confirmedIds.has(record.recordId)"
+          :action="canWrite ? 'edit' : 'none'"
+          :open="expandedRecordId === record.recordId"
+          show-author-account-id
+          @edit="editRecord"
+        />
+        <div class="administrator-pagination"><button :disabled="historyPage <= 1" @click="historyPage--">Назад</button><span>{{ historyPage }} / {{ historyPageCount }}</span><button :disabled="historyPage >= historyPageCount" @click="historyPage++">Вперёд</button><label>На странице <select v-model.number="historyPageSize"><option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option></select></label></div>
+      </article>
     </section>
 
     <section v-else-if="selectedPet && scenarioId === 'doctor-pet-delegate'" class="panel doctor-page"><h2>Делегировать доступ: {{ selectedPet.name }}</h2><p v-if="!canDelegate">Текущий доступ не разрешает делегирование.</p><template v-else><form class="form-stack" @submit.prevent="findDoctors"><label><span>ФИО, его часть или полный ID врача</span><input v-model="doctorQuery" required /></label><button class="primary-action inline">Найти врача</button></form><div v-for="doctor in doctors" :key="doctor.accountId" class="list-row"><div><strong>{{ doctor.displayName }}</strong><span>{{ doctor.accountId }}</span></div><button class="outline-action inline" @click="delegationTarget = doctor">Выбрать</button></div><form v-if="delegationTarget" class="form-stack" @submit.prevent="delegationConfirm = true"><strong>{{ delegationTarget.displayName }}</strong><label v-if="selectedGrant?.actions.includes('delegate')" class="check-row"><input v-model="delegationDelegate" type="checkbox" /><span>Разрешить дальнейшее делегирование</span></label><button class="primary-action inline">Делегировать</button></form></template></section>

@@ -8,6 +8,7 @@ import {
 } from "@klinok/protocol";
 import AppIcon from "../components/AppIcon.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
+import MedicalRecordEntry from "../components/MedicalRecordEntry.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import PetProfileDetails from "../components/PetProfileDetails.vue";
 import PetProfileHeader from "../components/PetProfileHeader.vue";
@@ -18,8 +19,7 @@ import {
   petBirthSummary,
   preparePetPhoto,
 } from "../petProfile";
-import type { PetProfile, PetProfileInput } from "../repositories/types";
-import { ENCOUNTER_SECTION_LABELS, encounterSummary, freeText, isFreeTextValue, isWhatHappenedValue, whatHappenedComment, whatHappenedPath, whatHappenedSelectedIds } from "../medicalEncounter";
+import type { MedicalRecordDraft, PetProfile, PetProfileInput } from "../repositories/types";
 
 const props = defineProps<{ role: "owner"; scenarioId: string }>();
 const route = useRoute();
@@ -70,6 +70,7 @@ const isForm = computed(() => isCreate.value || isEdit.value);
 const medicalPageSizes = [10, 20, 50] as const;
 const medicalPage = ref(1);
 const medicalPageSize = ref<(typeof medicalPageSizes)[number]>(10);
+const expandedRecordId = ref("");
 const pageTitle = computed(() => {
   if (isHome.value) return "Мои питомцы";
   if (isCreate.value) return "Добавить питомца";
@@ -93,7 +94,7 @@ const pagedPetRecords = computed(() => petRecords.value.slice(
   (medicalPage.value - 1) * medicalPageSize.value,
   medicalPage.value * medicalPageSize.value,
 ));
-const confirmedIds = computed(() => new Set(appState.medical.confirmations.map((item) => item.recordId)));
+const confirmedIds = computed(() => new Set(appState.medical.confirmedRecordIds));
 
 watch([() => selectedPet.value?.petId, medicalPageSize], () => { medicalPage.value = 1; });
 watch(medicalPageCount, (pageCount) => {
@@ -408,24 +409,16 @@ async function deletePet() {
   });
 }
 
-function formatDate(value?: string) {
-  if (!value) return "Не указана";
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  return match ? `${match[3]}.${match[2]}.${match[1]}` : value;
+function openMedicalRecord(record: MedicalRecordDraft) {
+  expandedRecordId.value = record.recordId;
+  requestAnimationFrame(() => document.getElementById(`encounter-${record.recordId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
 }
 
-function formatLocalDateTime(value?: string) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("ru-RU", {
-    dateStyle: "short",
-    timeStyle: "medium",
-  }).format(date);
-}
-
-function recordSection(record: (typeof appState.medical.records)[number], kind: keyof typeof ENCOUNTER_SECTION_LABELS) {
-  return record.sections?.[kind];
+function confirmMedicalRecord(record: MedicalRecordDraft) {
+  void action(
+    () => requireRepository().medical.confirmRecord(record.petId, record.recordId, record.revision),
+    "Приём подтверждён.",
+  );
 }
 </script>
 
@@ -767,37 +760,31 @@ function recordSection(record: (typeof appState.medical.records)[number], kind: 
       </article>
 
       <article class="panel owner-medical-placeholder">
-        <h2>Медицинская карта</h2>
+        <h2>Эпикриз</h2>
         <p v-if="!petRecords.length">Записи появятся здесь после приёма у врача.</p>
-        <details v-for="record in pagedPetRecords" :key="record.recordId" class="owner-encounter-record">
-          <summary class="owner-encounter-summary">
-            <span class="owner-encounter-summary-copy">
-              <strong>{{ formatDate(record.encounterDate) }} · {{ encounterSummary(record) }}</strong>
-              <small>Редакция {{ record.revision }} · {{ record.authorDisplayName }}</small>
-            </span>
-            <span class="status-badge" :class="confirmedIds.has(record.recordId) ? 'approved' : 'pending'">
-              {{ confirmedIds.has(record.recordId) ? 'Подтверждён' : 'Ожидает подтверждения' }}
-            </span>
-          </summary>
-          <div class="owner-encounter-sections">
-            <button
-              v-if="!confirmedIds.has(record.recordId)"
-              class="primary-action inline owner-encounter-confirm"
-              @click="action(() => requireRepository().medical.confirmRecord(record.petId, record.recordId, record.revision), 'Приём подтверждён.')"
-            >
-              Подтвердить приём
-            </button>
-            <div v-for="(label, kind) in ENCOUNTER_SECTION_LABELS" v-show="recordSection(record, kind)" :key="kind" class="encounter-history-section">
-              <h3>{{ label }}</h3>
-              <template v-if="isWhatHappenedValue(recordSection(record, kind)?.value)">
-                <ul><li v-for="id in whatHappenedSelectedIds(recordSection(record, kind)?.value)" :key="id">{{ whatHappenedPath(id) }}</li></ul>
-                <p>{{ whatHappenedComment(recordSection(record, kind)?.value) }}</p>
-              </template>
-              <p v-else-if="isFreeTextValue(recordSection(record, kind)?.value)">{{ freeText(recordSection(record, kind)?.value) }}</p>
-              <small>{{ recordSection(record, kind)?.authorDisplayName }} · {{ formatLocalDateTime(recordSection(record, kind)?.updatedAt) }}</small>
-            </div>
-          </div>
-        </details>
+        <MedicalRecordEntry
+          v-for="record in pagedPetRecords"
+          :key="record.recordId"
+          :record="record"
+          mode="epicrisis"
+          :confirmed="confirmedIds.has(record.recordId)"
+          @activate="openMedicalRecord"
+        />
+      </article>
+
+      <article class="panel owner-medical-placeholder">
+        <h2>Предыдущие приёмы</h2>
+        <p v-if="!petRecords.length">Предыдущих приёмов пока нет.</p>
+        <MedicalRecordEntry
+          v-for="record in pagedPetRecords"
+          :key="record.recordId"
+          :record="record"
+          mode="details"
+          :confirmed="confirmedIds.has(record.recordId)"
+          action="confirm"
+          :open="expandedRecordId === record.recordId"
+          @confirm="confirmMedicalRecord"
+        />
         <div v-if="petRecords.length" class="administrator-pagination owner-medical-pagination" aria-label="Навигация по медицинским записям">
           <span>Показаны {{ medicalPageStart }}–{{ medicalPageEnd }} из {{ petRecords.length }}</span>
           <div class="administrator-page-buttons">

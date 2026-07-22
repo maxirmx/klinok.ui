@@ -59,7 +59,6 @@ export interface MedicalRecordDraft {
   sections: Partial<Record<MedicalEncounterSectionKind, MedicalEncounterSection>>;
   createdAt: string;
   updatedAt: string;
-  addendumTo?: string;
 }
 
 export const MEDICAL_ENCOUNTER_SECTION_KINDS = [
@@ -100,7 +99,6 @@ export interface MedicalEncounterInput {
   encounterDate: string;
   sections: Partial<Record<MedicalEncounterSectionKind, WhatHappenedSectionValue | FreeTextSectionValue>>;
   recordId?: string;
-  addendumTo?: string;
 }
 
 export interface ControlSnapshot {
@@ -120,6 +118,7 @@ export interface MedicalSnapshot {
   accessRequests: PetAccessRequest[];
   records: MedicalRecordDraft[];
   confirmations: MedicalRecordConfirmation[];
+  confirmedRecordIds: string[];
   events: SignedEvent[];
 }
 

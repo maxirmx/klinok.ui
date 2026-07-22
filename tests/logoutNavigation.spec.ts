@@ -41,7 +41,7 @@ vi.mock("../src/appStore", async () => {
       ],
       pendingQueue: [], notifications: [], events: [],
     },
-    medical: { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], events: [] },
+    medical: { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], confirmedRecordIds: [], events: [] },
     conflicts: [],
     sync: { pendingCount: 0, failedCount: 0, syncing: false, lastError: "" },
     repositoryConnected: true,

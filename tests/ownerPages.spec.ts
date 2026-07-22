@@ -3,7 +3,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppIcon from "../src/components/AppIcon.vue";
 import OwnerScreen from "../src/screens/OwnerScreen.vue";
-import type { MedicalSnapshot, PetProfile } from "../src/repositories/types";
+import type { MedicalRecordDraft, MedicalSnapshot, PetProfile } from "../src/repositories/types";
 
 const repositoryMocks = vi.hoisted(() => ({
   createPet: vi.fn().mockResolvedValue("pet-new"),
@@ -28,6 +28,7 @@ vi.mock("../src/appStore", async () => {
     accessRequests: [],
     records: [],
     confirmations: [],
+    confirmedRecordIds: [],
     events: [],
   };
   const state = reactive({
@@ -71,6 +72,29 @@ const pet: PetProfile = {
   updatedAt: "2026-07-17T10:00:00.000Z",
 };
 
+const medicalRecord: MedicalRecordDraft = {
+  recordId: "record-1",
+  petId: pet.petId,
+  revision: 1,
+  authorAccountId: "doctor-1",
+  authorDisplayName: "Анна Врач",
+  encounterDate: "2026-07-17",
+  title: "Осмотр",
+  text: "Контрольный осмотр",
+  sections: {
+    "what-happened": {
+      kind: "what-happened",
+      templateVersion: "what-happened-v1",
+      value: { selectedIds: ["well.1"], comment: "Без жалоб" },
+      authorAccountId: "doctor-1",
+      authorDisplayName: "Анна Врач",
+      updatedAt: "2026-07-17T10:00:00.000Z",
+    },
+  },
+  createdAt: "2026-07-17T10:00:00.000Z",
+  updatedAt: "2026-07-17T10:00:00.000Z",
+};
+
 function snapshot(overrides: Partial<MedicalSnapshot> = {}): MedicalSnapshot {
   return {
     pets: [],
@@ -78,6 +102,7 @@ function snapshot(overrides: Partial<MedicalSnapshot> = {}): MedicalSnapshot {
     accessRequests: [],
     records: [],
     confirmations: [],
+    confirmedRecordIds: [],
     events: [],
     ...overrides,
   };
@@ -158,6 +183,28 @@ describe("Owner pages", () => {
     expect(wrapper.get(".owner-pet-card").text()).toContain("Бигль");
     expect(wrapper.get(".owner-pet-card").text()).toMatch(/\d+ полн(?:ый|ых) (?:год|года|лет)/);
     expect(wrapper.text()).not.toContain("Любит длительные прогулки");
+  });
+
+  it("uses both record modes and refreshes confirmation status from the verified projection", async () => {
+    await setMedical(snapshot({ pets: [pet], records: [medicalRecord] }));
+    const wrapper = await mountAt("/owner/pets/pet-1", "owner-pet-detail");
+
+    expect(wrapper.findAll(".medical-record-entry-epicrisis")).toHaveLength(1);
+    expect(wrapper.findAll(".medical-record-entry-details")).toHaveLength(1);
+    expect(wrapper.get(".medical-record-entry-epicrisis").text()).toContain("Ожидает подтверждения");
+    await wrapper.get(".owner-encounter-confirm").trigger("click");
+    await flushPromises();
+    expect(repositoryMocks.confirmRecord).toHaveBeenCalledWith("pet-1", "record-1", 1);
+
+    await setMedical(snapshot({
+      pets: [pet],
+      records: [medicalRecord],
+      confirmedRecordIds: [medicalRecord.recordId],
+    }));
+    await flushPromises();
+    expect(wrapper.get(".medical-record-entry-epicrisis").text()).toContain("Подтверждён");
+    expect(wrapper.get(".medical-record-entry-details").text()).toContain("Подтверждён");
+    expect(wrapper.find(".owner-encounter-confirm").exists()).toBe(false);
   });
 
   it("offers exactly four sex values and creates a complete profile with notes", async () => {
@@ -346,15 +393,18 @@ describe("Owner pages", () => {
     expect(detail.text()).not.toContain("Анна Врач");
     expect(detail.find(".owner-access-panel").exists()).toBe(false);
     expect(detail.find(".owner-pet-profile-details").exists()).toBe(false);
+    expect(detail.findAll(".medical-record-entry-epicrisis")).toHaveLength(10);
     expect(detail.findAll("details.owner-encounter-record")).toHaveLength(10);
+    await detail.get(".medical-record-entry-epicrisis").trigger("click");
     const encounterRecord = detail.get("details.owner-encounter-record");
-    expect(encounterRecord.attributes()).not.toHaveProperty("open");
+    expect(encounterRecord.attributes()).toHaveProperty("open");
     expect(encounterRecord.get("summary").text()).toContain("Борис Врач");
     expect(encounterRecord.text()).not.toContain("doctor-2");
     expect(encounterRecord.get(".encounter-history-section").text()).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
     const medicalPagination = detail.get(".owner-medical-pagination");
     expect(medicalPagination.text()).toContain("Показаны 1–10 из 11");
     await medicalPagination.get('button[title="Следующая страница"]').trigger("click");
+    expect(detail.findAll(".medical-record-entry-epicrisis")).toHaveLength(1);
     expect(detail.findAll("details.owner-encounter-record")).toHaveLength(1);
     expect(medicalPagination.text()).toContain("Показаны 11–11 из 11");
 

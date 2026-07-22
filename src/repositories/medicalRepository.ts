@@ -527,17 +527,17 @@ export class MedicalRepository {
     if (!activeRecipients.has(this.context.accountId)) await deletePetKey(this.context.accountId, petId);
   }
 
-  async saveRecord(input: { petId: string; title: string; text: string; recordId?: string; addendumTo?: string }): Promise<string> {
+  async saveRecord(input: { petId: string; title: string; text: string; recordId?: string }): Promise<string> {
     return this.saveEncounter({
       petId: input.petId,
       encounterDate: new Date().toISOString().slice(0, 10),
       sections: { "what-happened": { selectedIds: [], comment: input.text } },
       ...(input.recordId ? { recordId: input.recordId } : {}),
-      ...(input.addendumTo ? { addendumTo: input.addendumTo } : {}),
     }, input.title);
   }
 
   async saveEncounter(input: MedicalEncounterInput, legacyTitle = "Что случилось"): Promise<string> {
+    if ("addendumTo" in input) throw new Error("Дополнения к медицинским записям не поддерживаются.");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.encounterDate) || input.encounterDate > new Date().toISOString().slice(0, 10)) {
       throw new Error("Укажите корректную дату приёма.");
     }
@@ -577,16 +577,15 @@ export class MedicalRepository {
       sections,
       createdAt: String(previous?.metadata.createdAt ?? now),
       updatedAt: now,
-      ...(input.addendumTo ? { addendumTo: input.addendumTo } : {}),
     };
     const recipientIds = new Set([this.control.signed.state.petOwners.get(input.petId) ?? "", this.context.accountId]);
     for (const grant of this.control.signed.state.grants.values()) {
       if (grant.petId === input.petId && isGrantEffectivelyActive(this.control.signed.state, grant)) recipientIds.add(grant.granteeAccountId);
     }
     await this.append(await this.factory.create({
-      database: "medical", eventType: previous ? "medical.record.updated" : input.addendumTo ? "medical.addendum.created" : "medical.record.created",
+      database: "medical", eventType: previous ? "medical.record.updated" : "medical.record.created",
       aggregateId: input.petId, resourceId: recordId,
-      metadata: { petId: input.petId, recordId, revision: record.revision, createdAt: record.createdAt, encounterDate: record.encounterDate, ...(input.addendumTo ? { addendumTo: input.addendumTo } : {}) },
+      metadata: { petId: input.petId, recordId, revision: record.revision, createdAt: record.createdAt, encounterDate: record.encounterDate },
       proofIds: [
         this.context.roleProofId,
         ...[...this.control.signed.state.grants.values()]
@@ -656,6 +655,7 @@ export class MedicalRepository {
         const actions = event.metadata.actions as PetGrantAction[] | undefined;
         if (grant && Array.isArray(actions)) grants.set(grant.grantId, { ...grant, actions: [...actions] });
       }
+      // Legacy addendum events remain readable, but no current command API can create them.
       if (["medical.record.created", "medical.record.updated", "medical.addendum.created"].includes(event.eventType)) {
         const raw = await this.decrypt<Partial<MedicalRecordDraft> & Pick<MedicalRecordDraft, "recordId" | "petId" | "revision" | "authorAccountId" | "createdAt" | "updatedAt">>(event);
         if (raw) {
@@ -688,7 +688,7 @@ export class MedicalRepository {
       }
     }
     if (this.context.role === "administrator") {
-      return { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], events: [...this.events] };
+      return { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], confirmedRecordIds: [], events: [...this.events] };
     }
     const accessiblePetIds = new Set<string>();
     if (this.context.role === "owner") {
@@ -705,12 +705,16 @@ export class MedicalRepository {
       .filter((request) => this.context.role === "owner"
         ? request.ownerAccountId === this.context.accountId && accessiblePetIds.has(request.petId)
         : request.requesterAccountId === this.context.accountId);
+    const accessibleRecords = [...records.values()].filter((record) => accessiblePetIds.has(record.petId));
     return {
       pets: [...pets.values()].filter((pet) => accessiblePetIds.has(pet.petId) && !pet.tombstoned),
       grants: [...grants.values()].filter((grant) => accessiblePetIds.has(grant.petId)),
       accessRequests,
-      records: [...records.values()].filter((record) => accessiblePetIds.has(record.petId)),
+      records: accessibleRecords,
       confirmations: confirmations.filter((confirmation) => accessiblePetIds.has(confirmation.petId)),
+      confirmedRecordIds: accessibleRecords
+        .filter((record) => this.control.signed.state.confirmedRecords.has(record.recordId))
+        .map((record) => record.recordId),
       events: [...this.events],
     };
   }

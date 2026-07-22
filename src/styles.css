@@ -2190,15 +2190,12 @@ dd {
 .temporary-note { margin: 0; color: var(--muted); font-size: .85rem; }
 .epicrisis-row { width: 100%; display: grid; grid-template-columns: 110px minmax(220px, 1fr) minmax(160px, .6fr) 150px; gap: 12px; align-items: center; padding: 12px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }
 .epicrisis-row:hover { background: var(--brand-sky-soft); }
-.encounter-history { border-bottom: 1px solid var(--line); padding: 12px 0; }
-.encounter-history summary { display: grid; grid-template-columns: 110px minmax(200px, 1fr) minmax(160px, .5fr); gap: 12px; cursor: pointer; }
-.encounter-history[open] { display: grid; gap: 12px; }
 .owner-encounter-record {
   width: 100%;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
 }
-.owner-encounter-summary {
+.owner-encounter-record > .owner-encounter-summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -2206,16 +2203,18 @@ dd {
   cursor: pointer;
   list-style: none;
 }
+.owner-encounter-summary::marker { content: ""; }
 .owner-encounter-summary::-webkit-details-marker { display: none; }
-.owner-encounter-summary::before {
-  content: "›";
+.medical-record-chevron {
+  display: grid;
+  width: 20px;
+  height: 20px;
   color: var(--accent);
-  font-size: 20px;
-  line-height: 1;
-  transform: rotate(0deg);
-  transition: transform 150ms ease;
 }
-.owner-encounter-record[open] > .owner-encounter-summary::before { transform: rotate(90deg); }
+.medical-record-chevron > .app-icon { grid-area: 1 / 1; width: 20px; height: 20px; }
+.medical-record-chevron-expanded { display: none; }
+.owner-encounter-record[open] > .owner-encounter-summary .medical-record-chevron-collapsed { display: none; }
+.owner-encounter-record[open] > .owner-encounter-summary .medical-record-chevron-expanded { display: block; }
 .owner-encounter-summary-copy { display: grid; min-width: 0; gap: 4px; }
 .owner-encounter-summary-copy :is(strong, small) { overflow-wrap: anywhere; }
 .owner-encounter-sections {
@@ -2231,10 +2230,10 @@ dd {
 
 @media (max-width: 760px) {
   .doctor-heading { align-items: stretch; flex-direction: column; }
-  .owner-encounter-summary { grid-template-columns: auto minmax(0, 1fr); }
+  .owner-encounter-record > .owner-encounter-summary { grid-template-columns: auto minmax(0, 1fr); }
   .owner-encounter-summary > .status-badge { grid-column: 2; justify-self: start; }
   .doctor-filters, .doctor-history-filters { grid-template-columns: 1fr; }
-  .epicrisis-row, .encounter-history summary { grid-template-columns: 1fr; }
+  .epicrisis-row { grid-template-columns: 1fr; }
   .doctor-table th:nth-child(2), .doctor-table th:nth-child(3) { width: auto; }
 }
 .role-selection-card.disabled .role-selection-title { cursor: default; }

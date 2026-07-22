@@ -35,7 +35,7 @@ import type { ControlSnapshot, MedicalSnapshot } from "./repositories/types";
 import type { EventSyncStatus } from "./repositories/eventTransport";
 
 const emptyControl: ControlSnapshot = { profile: null, profiles: [], roles: [], allRoles: [], devices: [], pendingQueue: [], notifications: [], events: [] };
-const emptyMedical: MedicalSnapshot = { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], events: [] };
+const emptyMedical: MedicalSnapshot = { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], confirmedRecordIds: [], events: [] };
 const emptySync: EventSyncStatus = { pendingCount: 0, failedCount: 0, syncing: false, lastError: "" };
 
 type AuthFeedback = { kind: "success" | "error"; text: string };

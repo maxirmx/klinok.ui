@@ -136,7 +136,22 @@ describe("medical authorization repository", () => {
     });
     expect(record.sections.diagnosis).toMatchObject({ templateVersion: "free-text-v0", value: { text: "Предварительный диагноз" } });
     await owner.medical.confirmRecord(petId, recordId, record.revision);
-    await tick();
+    await waitFor(async () => (await doctor.medical.snapshot()).confirmedRecordIds.includes(recordId));
+    const ownerConfirmed = await owner.medical.snapshot();
+    const doctorConfirmed = await doctor.medical.snapshot();
+    const delegateConfirmed = await delegate.medical.snapshot();
+    expect(ownerConfirmed.confirmedRecordIds).toContain(recordId);
+    expect(doctorConfirmed.confirmedRecordIds).toContain(recordId);
+    expect(delegateConfirmed.confirmedRecordIds).toContain(recordId);
+    expect(doctorConfirmed.confirmations).toEqual([]);
+    expect(delegateConfirmed.confirmations).toEqual([]);
+    expect((await administrator.medical.snapshot()).confirmedRecordIds).toEqual([]);
+    await expect(doctor.medical.saveEncounter({
+      petId,
+      encounterDate: "2026-07-21",
+      sections: { "what-happened": { selectedIds: [], comment: "Позднее дополнение" } },
+      addendumTo: recordId,
+    } as Parameters<typeof doctor.medical.saveEncounter>[0])).rejects.toThrow("Дополнения к медицинским записям не поддерживаются.");
     await expect(doctor.medical.saveEncounter({
       petId,
       recordId,
@@ -149,8 +164,12 @@ describe("medical authorization repository", () => {
     const ownerSnapshot = await owner.medical.snapshot();
     expect(ownerSnapshot.grants.find((grant) => grant.grantId === grantId)?.status).toBe("relinquished");
     expect(ownerSnapshot.grants.find((grant) => grant.grantId === delegatedGrantId)?.status).toBe("revoked");
-    expect((await doctor.medical.snapshot()).pets).toHaveLength(0);
-    expect((await delegate.medical.snapshot()).pets).toHaveLength(0);
+    const doctorAfterRelinquishment = await doctor.medical.snapshot();
+    const delegateAfterRelinquishment = await delegate.medical.snapshot();
+    expect(doctorAfterRelinquishment.pets).toHaveLength(0);
+    expect(delegateAfterRelinquishment.pets).toHaveLength(0);
+    expect(doctorAfterRelinquishment.confirmedRecordIds).toEqual([]);
+    expect(delegateAfterRelinquishment.confirmedRecordIds).toEqual([]);
   });
 
   it("shares a pet by grant, lets the Doctor draft, confirms immutably, and rotates on revocation", async () => {

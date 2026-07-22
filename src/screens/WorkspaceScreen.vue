@@ -8,11 +8,11 @@ import { appState, logout, requireRepository } from "../appStore";
 defineProps<{ role: Role; scenarioId: string }>();
 const router = useRouter();
 const roleLabels: Record<Role, string> = { administrator: "Администратор", doctor: "Врач", owner: "Владелец животного" };
-const recordDraft = reactive({ recordId: "", petId: "", title: "", text: "", addendumTo: "" });
+const recordDraft = reactive({ recordId: "", petId: "", title: "", text: "" });
 const delegationDraft = reactive({ parentGrantId: "", doctorAccountId: "", read: true, write: false, delegate: false });
 const accessRequestPetId = ref("");
 const actionError = ref("");
-const confirmedIds = computed(() => new Set(appState.medical.confirmations.map((item) => item.recordId)));
+const confirmedIds = computed(() => new Set(appState.medical.confirmedRecordIds));
 
 async function signOut() {
   await logout();
@@ -33,16 +33,15 @@ async function saveRecord() {
     await requireRepository().medical.saveRecord({
       petId: recordDraft.petId, title: recordDraft.title, text: recordDraft.text,
       ...(recordDraft.recordId ? { recordId: recordDraft.recordId } : {}),
-      ...(recordDraft.addendumTo ? { addendumTo: recordDraft.addendumTo } : {}),
     });
-    Object.assign(recordDraft, { recordId: "", petId: "", title: "", text: "", addendumTo: "" });
+    Object.assign(recordDraft, { recordId: "", petId: "", title: "", text: "" });
   });
 }
 
 function editRecord(recordId: string) {
   const record = appState.medical.records.find((candidate) => candidate.recordId === recordId);
   if (record && !confirmedIds.value.has(record.recordId)) Object.assign(recordDraft, {
-    recordId: record.recordId, petId: record.petId, title: record.title, text: record.text, addendumTo: "",
+    recordId: record.recordId, petId: record.petId, title: record.title, text: record.text,
   });
 }
 
@@ -104,7 +103,6 @@ async function requestPetAccess() {
             <label><span>Питомец</span><select v-model="recordDraft.petId" required><option value="" disabled>Выберите</option><option v-for="pet in appState.medical.pets" :key="pet.petId" :value="pet.petId">{{ pet.name }}</option></select></label>
             <label><span>Заголовок</span><input v-model="recordDraft.title" required /></label>
             <label><span>Запись</span><textarea v-model="recordDraft.text" required /></label>
-            <label><span>Дополнение к записи, если требуется</span><select v-model="recordDraft.addendumTo"><option value="">Новая запись</option><option v-for="record in appState.medical.records.filter(item => confirmedIds.has(item.recordId))" :key="record.recordId" :value="record.recordId">{{ record.title }}</option></select></label>
             <button class="primary-action">{{ recordDraft.recordId ? 'Сохранить изменения' : 'Сохранить черновик' }}</button>
           </form>
         </article>
