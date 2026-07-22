@@ -31,6 +31,7 @@ jobs:
       - run: npm test --workspace @klinok/protocol
       - run: npm run build --workspace @klinok/protocol
       - name: Set package version from tag
+        continue-on-error: true
         run: npm version "${GITHUB_REF_NAME#v}" --workspace @klinok/protocol --no-git-tag-version
       - name: Publish protocol package
         run: npm publish --workspace @klinok/protocol
