@@ -1,9 +1,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import AppIcon from "../src/components/AppIcon.vue";
 import RoleStatusScreen from "../src/screens/RoleStatusScreen.vue";
-import WorkspaceScreen from "../src/screens/WorkspaceScreen.vue";
 import { deleteAccount, logout, replaceLostBootstrapDevice, revokeDevice, switchRole, updateCredentials, updateProfile } from "../src/appStore";
 
 vi.mock("../src/appStore", async () => {
@@ -134,20 +132,6 @@ beforeEach(async () => {
 });
 
 describe("logout navigation", () => {
-  it("leaves the workspace after logout", async () => {
-    const { router, wrapper } = await mountAt(WorkspaceScreen, "/owner/home", { scenarioId: "owner-home", role: "owner" });
-    expect(wrapper.find("header .link-action").exists()).toBe(false);
-    expect(wrapper.get(".workspace-bottom-nav").text()).toContain("Настройки пользователя");
-    expect(wrapper.get(".workspace-bottom-nav").text()).toContain("Выйти");
-    const bottomBarButtons = wrapper.findAll(".workspace-bottom-nav button");
-    expect(bottomBarButtons[0]!.findComponent(AppIcon).props("name")).toBe("user");
-    expect(bottomBarButtons[1]!.findComponent(AppIcon).props("name")).toBe("close");
-    await wrapper.get(".workspace-bottom-nav button:last-of-type").trigger("click");
-    await flushPromises();
-    expect(logout).toHaveBeenCalledWith();
-    expect(router.currentRoute.value.path).toBe("/auth/login");
-  });
-
   it("leaves the role screen after logout on all devices", async () => {
     const { router, wrapper } = await mountAt(RoleStatusScreen, "/profile", { scenarioId: "user-profile" });
     const button = wrapper.findAll("button").find((candidate) => candidate.text() === "Выйти на всех устройствах");

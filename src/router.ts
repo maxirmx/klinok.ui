@@ -3,7 +3,6 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router"
 import type { Role } from "@klinok/protocol";
 import AuthScreen from "./screens/AuthScreen.vue";
 import RoleStatusScreen from "./screens/RoleStatusScreen.vue";
-import WorkspaceScreen from "./screens/WorkspaceScreen.vue";
 import OwnerScreen from "./screens/OwnerScreen.vue";
 import DoctorScreen from "./screens/DoctorScreen.vue";
 import AdministratorScreen from "./screens/AdministratorScreen.vue";
@@ -14,7 +13,6 @@ import { scenarioRegistry, type ScenarioComponentName } from "./scenarios";
 const components: Record<ScenarioComponentName, Component> = {
   AuthScreen,
   RoleStatusScreen,
-  WorkspaceScreen,
   OwnerScreen,
   DoctorScreen,
   AdministratorScreen,

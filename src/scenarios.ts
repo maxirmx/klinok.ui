@@ -1,5 +1,5 @@
 export type ScenarioRole = "auth" | "owner" | "doctor" | "administrator" | "shared";
-export type ScenarioComponentName = "AuthScreen" | "RoleStatusScreen" | "WorkspaceScreen" | "OwnerScreen" | "DoctorScreen" | "AdministratorScreen";
+export type ScenarioComponentName = "AuthScreen" | "RoleStatusScreen" | "OwnerScreen" | "DoctorScreen" | "AdministratorScreen";
 
 export interface ScenarioRegistryEntry {
   id: string;

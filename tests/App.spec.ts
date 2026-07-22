@@ -7,7 +7,6 @@ import PasswordInput from "../src/components/PasswordInput.vue";
 import RoleSelectionCards from "../src/components/RoleSelectionCards.vue";
 import AuthScreen from "../src/screens/AuthScreen.vue";
 import RoleStatusScreen from "../src/screens/RoleStatusScreen.vue";
-import WorkspaceScreen from "../src/screens/WorkspaceScreen.vue";
 import OwnerScreen from "../src/screens/OwnerScreen.vue";
 import AdministratorScreen from "../src/screens/AdministratorScreen.vue";
 import { getOrCreateDeviceId, setDeviceName } from "../src/repositories/deviceVault";
@@ -143,11 +142,11 @@ describe("operational Russian UI", () => {
     expect(administrator.text()).not.toContain("Конфликты авторизации");
   });
 
-  it.each([
-    ["administrator", AdministratorScreen, "/admin/home", ["Пользователи", "Журнал"]],
-    ["doctor", WorkspaceScreen, "/doctor/home", ["Мед. карты", "Запросить доступ"]],
-  ] as const)("renders responsive %s navigation for the current feature set", async (role, component, path, labels) => {
-    const workspace = await mountScreen(component, path, { scenarioId: `${role}-home`, role });
+  it("renders responsive administrator navigation for the current feature set", async () => {
+    const workspace = await mountScreen(AdministratorScreen, "/admin/home", {
+      scenarioId: "administrator-home",
+      role: "administrator",
+    });
     const sidebarLabels = workspace.findAll(".workspace-sidebar-nav .workspace-nav-item span").map((node) => node.text());
     const sidebarMenuLabels = [
       ...sidebarLabels,
@@ -155,7 +154,7 @@ describe("operational Russian UI", () => {
     ];
     const bottomLabels = workspace.findAll(".workspace-bottom-nav :is(a, button) span").map((node) => node.text());
 
-    expect(sidebarLabels).toEqual(labels);
+    expect(sidebarLabels).toEqual(["Пользователи", "Журнал"]);
     expect(bottomLabels).toEqual(sidebarMenuLabels);
     expect(workspace.find(".workspace-sidebar").attributes("aria-label")).toBe("Основная навигация");
     expect(workspace.find(".workspace-bottom-nav").attributes("aria-label")).toBe("Нижняя навигация");
@@ -164,9 +163,7 @@ describe("operational Russian UI", () => {
     const target = workspace.findAll(".workspace-sidebar-nav .workspace-nav-item")[1]!;
     await target.trigger("click");
     await flushPromises();
-    if (role === "administrator") expect(workspace.vm.$route.path).toBe("/admin/audit");
-    else if (role === "doctor") expect(workspace.vm.$route.path).toBe("/doctor/pets/request-access");
-    else expect(workspace.vm.$route.hash).toBe(target.attributes("href"));
+    expect(workspace.vm.$route.path).toBe("/admin/audit");
     expect(target.classes()).toContain("active");
   });
 
