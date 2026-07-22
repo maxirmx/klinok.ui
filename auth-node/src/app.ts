@@ -632,8 +632,7 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
     const query = request.query.query?.trim().toLocaleLowerCase("ru") ?? "";
     const profiles = (await store.listDirectoryProfiles()).filter((profile) => profile.accountId !== current.account.accountId
       && (!query || profile.displayName.toLocaleLowerCase("ru").includes(query)
-        || profile.accountId.toLocaleLowerCase("ru") === query)
-      && profile.accountId !== current.account.accountId);
+        || profile.accountId.toLocaleLowerCase("ru") === query));
     const approved: DirectoryProfileDto[] = [];
     for (const profile of profiles) if (await hasObservedRole(profile.accountId, "doctor")) approved.push(profile);
     approved.sort((left, right) => request.query.sort === "id"
