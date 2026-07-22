@@ -38,12 +38,12 @@ import { KlinokRepository } from "./repositories";
 import type { ControlSnapshot, MedicalSnapshot } from "./repositories/types";
 import type { EventSyncStatus } from "./repositories/eventTransport";
 import { reconcileDirectorySnapshot, type DirectoryPetInput } from "./directoryReconciliation";
+import { useAlertStore } from "./stores/alert";
 
 const emptyControl: ControlSnapshot = { profile: null, profiles: [], roles: [], allRoles: [], devices: [], pendingQueue: [], notifications: [], events: [] };
 const emptyMedical: MedicalSnapshot = { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], confirmedRecordIds: [], events: [] };
 const emptySync: EventSyncStatus = { pendingCount: 0, failedCount: 0, syncing: false, lastError: "" };
 
-type AuthFeedback = { kind: "success" | "error"; text: string };
 type AuthSuccessCode = "registration" | "verification" | "recovery" | "password-reset" | "device-approved";
 
 export const AUTH_SUCCESS_MESSAGES = {
@@ -57,7 +57,6 @@ export const AUTH_SUCCESS_MESSAGES = {
 const state = reactive({
   initialized: false,
   busy: false,
-  feedback: null as AuthFeedback | null,
   session: { authenticated: false } as AuthSessionDto,
   activeRole: null as Role | null,
   control: emptyControl,
@@ -78,18 +77,13 @@ let medicalUnsubscribe: (() => void) | null = null;
 let syncUnsubscribe: (() => void) | null = null;
 
 function setAuthFeedback(input: { kind: "success"; code: AuthSuccessCode } | { kind: "error"; reason: unknown } | null) {
+  const alertStore = useAlertStore();
   if (!input) {
-    state.feedback = null;
+    alertStore.clear();
     return;
   }
-  state.feedback = input.kind === "success"
-    ? { kind: "success", text: AUTH_SUCCESS_MESSAGES[input.code] }
-    : {
-        kind: "error",
-        text: input.reason instanceof AuthClientError || input.reason instanceof Error
-          ? input.reason.message
-          : "Не удалось выполнить операцию.",
-      };
+  if (input.kind === "success") alertStore.success(AUTH_SUCCESS_MESSAGES[input.code]);
+  else alertStore.error(input.reason);
 }
 
 function beginAuthAction() {
@@ -276,7 +270,7 @@ async function connectRepository(session: AuthSessionDto) {
 export async function bootstrapApp(force = false) {
   if (state.initialized && !force) return;
   state.busy = true;
-  if (state.feedback?.kind === "error") setAuthFeedback(null);
+  if (useAlertStore().alert?.kind === "error") setAuthFeedback(null);
   try {
     config = await loadRuntimeConfig();
     auth = new AuthClient(config.authBaseUrl);
@@ -575,10 +569,6 @@ export async function rejectDeviceEnrollment(enrollmentId: string) {
     ...state.session,
     enrollments: state.session.enrollments?.filter((item) => item.enrollmentId !== enrollmentId),
   };
-}
-
-export function dismissAuthFeedback() {
-  setAuthFeedback(null);
 }
 
 export const appState = readonly(state);

@@ -10,7 +10,7 @@ const status = computed(() => {
   if (!appState.repositoryConnected) return {
     kind: "error",
     label: "Хранилище недоступно",
-    title: appState.feedback?.kind === "error" ? appState.feedback.text : "",
+    title: appState.sync.lastError || "Подключение к хранилищу не установлено.",
   };
   if (appState.sync.lastError) return { kind: "error", label: "Ошибка синхронизации", title: appState.sync.lastError };
   if (appState.sync.failedCount) return { kind: "error", label: `Конфликты: ${appState.sync.failedCount}`, title: "Часть изменений отклонена проверкой доверенного узла." };

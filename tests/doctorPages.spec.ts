@@ -4,6 +4,7 @@
 
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
+import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppIcon from "../src/components/AppIcon.vue";
 import DoctorScreen from "../src/screens/DoctorScreen.vue";
@@ -140,7 +141,7 @@ async function mountAt(path: string, scenarioId: string) {
   });
   await router.push(path);
   await router.isReady();
-  return mount(DoctorScreen, { props: { role: "doctor", scenarioId }, global: { plugins: [router] } });
+  return mount(DoctorScreen, { props: { role: "doctor", scenarioId }, global: { plugins: [createPinia(), router] } });
 }
 
 beforeEach(async () => {

@@ -4,6 +4,7 @@
 
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
+import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountProfile, Role, RoleRequest, SignedEvent } from "@klinok/protocol";
 import AppIcon from "../src/components/AppIcon.vue";
@@ -124,7 +125,7 @@ async function mountAt(path: "/admin/home" | "/admin/audit", scenarioId: "admini
   await router.isReady();
   return mount(AdministratorScreen, {
     props: { role: "administrator", scenarioId },
-    global: { plugins: [router] },
+    global: { plugins: [createPinia(), router] },
   });
 }
 

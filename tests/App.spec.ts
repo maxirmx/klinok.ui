@@ -5,6 +5,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent } from "vue";
 import { createMemoryHistory, createRouter } from "vue-router";
+import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
 import AppIcon from "../src/components/AppIcon.vue";
 import PasswordInput from "../src/components/PasswordInput.vue";
@@ -22,7 +23,7 @@ async function mountScreen(component: object, path: string, props: Record<string
   const router = createRouter({ history: createMemoryHistory(), routes });
   await router.push(path);
   await router.isReady();
-  return mount(component, { props, global: { plugins: [router] } });
+  return mount(component, { props, global: { plugins: [createPinia(), router] } });
 }
 
 describe("operational Russian UI", () => {

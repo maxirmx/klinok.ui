@@ -35,14 +35,14 @@ import {
 } from "../medicalEncounter";
 import type { PetAccessRow } from "../petAccess";
 import type { MedicalEncounterSectionKind, MedicalRecordDraft } from "../repositories/types";
+import { useAlertStore } from "../stores/alert";
 
 const props = defineProps<{ role: "doctor"; scenarioId: string }>();
 type HomeSortField = "owner" | "pet";
 type SortDirection = "asc" | "desc";
 const route = useRoute();
 const router = useRouter();
-const errorMessage = ref("");
-const successMessage = ref("");
+const alertStore = useAlertStore();
 const busy = ref(false);
 const pageSizes = [10, 20, 50] as const;
 const homeQuery = ref("");
@@ -55,6 +55,7 @@ const directoryPets = ref<DirectoryPetDto[]>([]);
 const selectedDirectoryPet = ref<DirectoryPetDto | null>(null);
 const directoryTotal = ref(0);
 const requestDialogOpen = ref(props.scenarioId === "doctor-pet-request-access");
+const requestError = ref("");
 const petOwnerQuery = ref("");
 const petNameQuery = ref("");
 const petSearchResults = ref<DirectoryPetDto[]>([]);
@@ -66,6 +67,7 @@ const delegationTarget = ref<DirectoryProfileDto | null>(null);
 const delegationDelegate = ref(false);
 const delegationConfirm = ref(false);
 const delegationDialogOpen = ref(false);
+const delegationError = ref("");
 const delegationPage = ref(1);
 const delegationPageSize = ref<(typeof pageSizes)[number]>(10);
 const relinquishConfirm = ref(false);
@@ -140,14 +142,27 @@ const pagedRecords = computed(() => filteredRecords.value.slice((historyPage.val
 
 async function perform(task: () => Promise<unknown>, success = ""): Promise<boolean> {
   busy.value = true;
-  errorMessage.value = "";
-  successMessage.value = "";
+  alertStore.clear();
   try {
     await task();
-    successMessage.value = success;
+    if (success) alertStore.success(success);
     return true;
   } catch (reason) {
-    errorMessage.value = reason instanceof Error ? reason.message : "Операция не выполнена.";
+    alertStore.error(reason, "Операция не выполнена.");
+    return false;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function performModal(error: { value: string }, task: () => Promise<unknown>, fallback: string): Promise<boolean> {
+  busy.value = true;
+  error.value = "";
+  try {
+    await task();
+    return true;
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : fallback;
     return false;
   } finally {
     busy.value = false;
@@ -209,7 +224,7 @@ function homeSortAria(field: HomeSortField): "ascending" | "descending" | "none"
 async function findPets() {
   petSearchResults.value = [];
   petSearchPerformed.value = false;
-  await perform(async () => {
+  await performModal(requestError, async () => {
     const owner = petOwnerQuery.value.trim();
     const pet = petNameQuery.value.trim();
     if (!owner) petSearchResults.value = [await lookupPetDirectory(pet)];
@@ -218,7 +233,7 @@ async function findPets() {
       petSearchResults.value = result.items;
     }
     petSearchPerformed.value = true;
-  });
+  }, "Не удалось найти питомца.");
 }
 
 function showAutoApprovedPet(pet: DirectoryPetDto, requestId: string): boolean {
@@ -246,20 +261,20 @@ function showAutoApprovedPet(pet: DirectoryPetDto, requestId: string): boolean {
 
 async function requestAccess(pet: DirectoryPetDto) {
   let autoApproved = false;
-  const succeeded = await perform(async () => {
+  const succeeded = await performModal(requestError, async () => {
     const requestId = await requireRepository().medical.requestAccess(pet.petId);
     autoApproved = showAutoApprovedPet(pet, requestId);
     petSearchResults.value = petSearchResults.value.filter((candidate) => candidate.petId !== pet.petId);
     if (!petSearchResults.value.length) petSearchPerformed.value = false;
-  });
+  }, "Не удалось отправить запрос.");
   if (succeeded) {
-    successMessage.value = autoApproved ? "Доступ предоставлен автоматически." : "Запрос отправлен владельцу.";
+    alertStore.success(autoApproved ? "Доступ предоставлен автоматически." : "Запрос отправлен владельцу.");
     requestDialogOpen.value = false;
   }
 }
 
 function openRequestDialog() {
-  errorMessage.value = "";
+  requestError.value = "";
   petSearchResults.value = [];
   petSearchPerformed.value = false;
   requestDialogOpen.value = true;
@@ -342,15 +357,16 @@ async function deleteMedicalRecord() {
 
 async function findDoctors() {
   doctorSearchPerformed.value = false;
-  await perform(async () => {
+  await performModal(delegationError, async () => {
     const result = await searchDoctorDirectory(doctorQuery.value, 1, 50);
     const existing = new Set(appState.medical.grants.filter((grant) => grant.petId === petId.value && grant.status === "active").map((grant) => grant.granteeAccountId));
     doctors.value = result.items.filter((doctor) => doctor.accountId !== appState.session.accountId && !existing.has(doctor.accountId));
     doctorSearchPerformed.value = true;
-  });
+  }, "Не удалось найти врача.");
 }
 
 function openDelegationDialog() {
+  delegationError.value = "";
   doctorQuery.value = "";
   doctors.value = [];
   doctorSearchPerformed.value = false;
@@ -376,10 +392,10 @@ function openRelinquish(pet: Pick<DirectoryPetDto, "petId" | "name">) {
     candidate.petId === pet.petId && candidate.granteeAccountId === appState.session.accountId && candidate.status === "active",
   );
   if (!grant) {
-    errorMessage.value = "Доступ к медицинской карте уже закрыт.";
+    alertStore.error(new Error("Доступ к медицинской карте уже закрыт."));
     return;
   }
-  errorMessage.value = "";
+  alertStore.clear();
   relinquishTarget.value = { petId: pet.petId, petName: pet.name, grantId: grant.grantId };
   relinquishConfirm.value = true;
 }
@@ -394,7 +410,7 @@ async function relinquish() {
     directoryPets.value.splice(rowIndex, 1);
     directoryTotal.value = Math.max(0, directoryTotal.value - 1);
   }
-  successMessage.value = `Вы отказались от доступа к медицинской карте ${target.petName}.`;
+  alertStore.success(`Вы отказались от доступа к медицинской карте ${target.petName}.`);
   relinquishConfirm.value = false;
   relinquishTarget.value = null;
   if (route.path !== "/doctor/home") await router.replace("/doctor/home");
@@ -428,9 +444,6 @@ onMounted(() => { void refreshPets(); });
 
 <template>
   <WorkspaceShell role="doctor" title="Кабинет врача" :profile-name="profileName" @sign-out="signOut">
-    <p v-if="errorMessage || appState.feedback?.kind === 'error'" class="form-alert error" role="alert">{{ errorMessage || appState.feedback?.text }}</p>
-    <p v-if="successMessage" class="form-alert success" role="status">{{ successMessage }}</p>
-
     <section v-if="scenarioId === 'doctor-home' || scenarioId === 'doctor-pet-request-access'" class="panel doctor-page">
       <div class="doctor-heading doctor-access-heading">
         <h2>Медицинские карты</h2>
@@ -523,7 +536,7 @@ onMounted(() => { void refreshPets(); });
 
       <ModalDialog v-model="requestDialogOpen" title="Запросить доступ" :busy="busy">
         <div class="form-stack grant-access-form doctor-request-access-form">
-          <p v-if="errorMessage" class="form-alert error" role="alert">{{ errorMessage }}</p>
+          <p v-if="requestError" class="form-alert error" role="alert">{{ requestError }}</p>
           <form class="form-stack doctor-request-search-form" @submit.prevent="findPets">
             <label class="doctor-request-owner-field"><span>ФИО владельца, его часть или полный ID (необязательно при поиске по полному ID питомца)</span><input v-model="petOwnerQuery" type="search" /></label>
             <label class="doctor-request-pet-field"><span>Кличка, её часть или полный ID питомца</span><input v-model="petNameQuery" type="search" required /></label>
@@ -633,6 +646,7 @@ onMounted(() => { void refreshPets(); });
       <p v-if="!canDelegate" class="form-alert error">Текущий доступ не разрешает делегирование.</p>
       <ModalDialog v-model="delegationDialogOpen" title="Делегировать доступ" :busy="busy">
         <div class="form-stack grant-access-form">
+          <p v-if="delegationError" class="form-alert error" role="alert">{{ delegationError }}</p>
           <form class="form-stack grant-search-form" @submit.prevent="findDoctors">
             <label><span>ФИО врача, его часть или полный ID</span><input v-model="doctorQuery" required /></label>
             <button class="primary-action inline access-icon-action grant-search-action" type="submit" :disabled="busy" :title="busy ? 'Поиск врача…' : 'Найти врача'" :aria-label="busy ? 'Поиск врача…' : 'Найти врача'"><AppIcon name="search" /></button>

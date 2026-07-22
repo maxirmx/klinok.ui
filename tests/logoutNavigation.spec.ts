@@ -4,6 +4,7 @@
 
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
+import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppIcon from "../src/components/AppIcon.vue";
 import RoleStatusScreen from "../src/screens/RoleStatusScreen.vue";
@@ -91,7 +92,7 @@ async function mountAt(component: object, path: string, props: Record<string, un
   });
   await router.push(path);
   await router.isReady();
-  const wrapper = mount(component, { props, global: { plugins: [router] } });
+  const wrapper = mount(component, { props, global: { plugins: [createPinia(), router] } });
   return { router, wrapper };
 }
 
@@ -177,7 +178,7 @@ describe("logout navigation", () => {
     await wrapper.get('button[title="Копировать ID пользователя"]').trigger("click");
     await flushPromises();
     expect(clipboardWriteText).toHaveBeenCalledWith("account-1");
-    expect(wrapper.get(".account-security [role='status']").text()).toContain("ID пользователя скопирован.");
+    expect(wrapper.get(".workspace-alert[role='status']").text()).toContain("ID пользователя скопирован.");
 
     const pageButtons = wrapper.findAll(".profile-layout button");
     expect(pageButtons.length).toBeGreaterThan(0);
@@ -361,8 +362,8 @@ describe("logout navigation", () => {
     expect(updateProfile).toHaveBeenCalledWith({ firstName: "Мария", patronymic: "Сергеевич", lastName: "Иванов" });
     expect(wrapper.get(".workspace-topbar p").text()).toBe("Мария Сергеевич Иванов");
     expect(profileSave.element.disabled).toBe(true);
-    expect(wrapper.get(".profile-form-feedback").text()).toContain("Изменения профиля сохранены.");
-    expect(wrapper.findAll(".profile-form-feedback")).toHaveLength(1);
+    expect(wrapper.get(".workspace-alert").text()).toContain("Изменения профиля сохранены.");
+    expect(wrapper.findAll(".workspace-alert")).toHaveLength(1);
 
     const emailFields = wrapper.findAll<HTMLInputElement>('.credentials-form input[type="email"]');
     expect(emailFields).toHaveLength(1);
@@ -377,12 +378,12 @@ describe("logout navigation", () => {
     await flushPromises();
     expect(updateCredentials).toHaveBeenCalledWith({ email: "new-owner@example.ru" });
     expect(credentialsSave.element.disabled).toBe(true);
-    expect(wrapper.findAll(".profile-form-feedback")).toHaveLength(1);
-    expect(wrapper.get(".profile-form-feedback").text()).toContain("Электронная почта сохранена.");
+    expect(wrapper.findAll(".workspace-alert")).toHaveLength(1);
+    expect(wrapper.get(".workspace-alert").text()).toContain("Электронная почта сохранена.");
     expect(wrapper.text()).not.toContain("Изменения профиля сохранены.");
 
     await wrapper.get('button[aria-label="Закрыть сообщение"]').trigger("click");
-    expect(wrapper.find(".profile-form-feedback").exists()).toBe(false);
+    expect(wrapper.find(".workspace-alert").exists()).toBe(false);
   });
 
   it("allows repeated profile edits while background snapshots are received", async () => {

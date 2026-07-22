@@ -11,6 +11,7 @@ import AppPaginator from "../components/AppPaginator.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
 import { appState, decideRole, getConfig, logout } from "../appStore";
+import { useAlertStore } from "../stores/alert";
 
 type AdvancedRole = Extract<Role, "doctor" | "administrator">;
 type SortField = "name" | AdvancedRole;
@@ -38,6 +39,7 @@ type AuditRow = {
 
 const props = defineProps<{ role: "administrator"; scenarioId: string }>();
 const router = useRouter();
+const alertStore = useAlertStore();
 const advancedRoles: AdvancedRole[] = ["doctor", "administrator"];
 const pageSizes = [10, 20, 50] as const;
 const cabinetPageSizeKey = "klinok:admin-role-table-page-size";
@@ -49,8 +51,6 @@ const sortField = ref<SortField>("name");
 const sortDirection = ref<SortDirection>("asc");
 const page = ref(1);
 const pageSize = ref(readPageSize(cabinetPageSizeKey));
-const actionError = ref("");
-const actionMessage = ref("");
 const decision = ref<{ request: RoleRequest; action: DecisionAction } | null>(null);
 const decisionReason = ref("");
 const decisionBusy = ref(false);
@@ -165,8 +165,6 @@ function isBootstrapAdministrator(request: RoleRequest): boolean {
 
 function openDecision(request: RoleRequest, action: DecisionAction) {
   decisionReason.value = "";
-  actionError.value = "";
-  actionMessage.value = "";
   decision.value = { request, action };
 }
 
@@ -196,7 +194,7 @@ const destructiveDecision = computed(() => decision.value?.action === "reject" |
 async function submitDecision() {
   if (!decision.value || decisionBusy.value) return;
   decisionBusy.value = true;
-  actionError.value = "";
+  alertStore.clear();
   const current = decision.value;
   try {
     const status = current.action === "reject"
@@ -209,17 +207,17 @@ async function submitDecision() {
       status,
       destructiveDecision.value && decisionReason.value.trim() ? decisionReason.value.trim() : undefined,
     );
-    actionMessage.value = current.action === "approve"
+    alertStore.success(current.action === "approve"
       ? "Роль одобрена."
       : current.action === "restore"
         ? "Роль восстановлена."
         : current.action === "reject"
           ? "Запрос отклонён."
-          : "Роль отозвана.";
+          : "Роль отозвана.");
     decision.value = null;
     decisionReason.value = "";
   } catch (reason) {
-    actionError.value = reason instanceof Error ? reason.message : "Операция не выполнена.";
+    alertStore.error(reason, "Операция не выполнена.");
   } finally {
     decisionBusy.value = false;
   }
@@ -321,9 +319,6 @@ watch(auditPageCount, (count) => { if (auditPage.value > count) auditPage.value 
     :profile-name="formatProfileName(appState.control.profile)"
     @sign-out="signOut"
   >
-    <p v-if="actionError || appState.feedback?.kind === 'error'" class="form-alert error" role="alert">{{ actionError || appState.feedback?.text }}</p>
-    <p v-if="actionMessage" class="form-alert success" role="status">{{ actionMessage }}</p>
-
     <section v-if="!isAudit" class="administrator-page">
       <article class="panel administrator-panel">
         <div class="administrator-heading">

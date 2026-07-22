@@ -3,6 +3,7 @@
 // This file is a part of Klinok application
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
 
 const authMocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -45,12 +46,12 @@ import {
   AUTH_SUCCESS_MESSAGES,
   appState,
   bootstrapApp,
-  dismissAuthFeedback,
   forgotPassword,
   register,
   resetPassword,
   verifyEmail,
 } from "../src/appStore";
+import { useAlertStore } from "../src/stores/alert";
 
 const registration = {
   firstName: "Иван",
@@ -62,38 +63,39 @@ const registration = {
 };
 
 beforeAll(async () => {
+  setActivePinia(createPinia());
   authMocks.session.mockResolvedValue({ authenticated: false });
   await bootstrapApp();
 });
 
 beforeEach(() => {
+  setActivePinia(createPinia());
   vi.clearAllMocks();
   authMocks.register.mockResolvedValue({ accepted: true });
   authMocks.verifyEmail.mockResolvedValue({ verified: true });
   authMocks.forgotPassword.mockResolvedValue({ accepted: true });
   authMocks.resetPassword.mockResolvedValue({ reset: true });
-  dismissAuthFeedback();
 });
 
 describe("authentication feedback", () => {
   it("uses the centralized success-message catalog", async () => {
     await register(registration);
-    expect(appState.feedback).toEqual({
+    expect(useAlertStore().alert).toEqual({
       kind: "success",
       text: AUTH_SUCCESS_MESSAGES.registration,
     });
 
     await verifyEmail("verification-token");
-    expect(appState.feedback).toEqual({ kind: "success", text: AUTH_SUCCESS_MESSAGES.verification });
+    expect(useAlertStore().alert).toEqual({ kind: "success", text: AUTH_SUCCESS_MESSAGES.verification });
 
     await forgotPassword("user@example.com");
-    expect(appState.feedback).toEqual({
+    expect(useAlertStore().alert).toEqual({
       kind: "success",
       text: AUTH_SUCCESS_MESSAGES.recovery,
     });
 
     await resetPassword("reset-token", "new password");
-    expect(appState.feedback).toEqual({ kind: "success", text: AUTH_SUCCESS_MESSAGES["password-reset"] });
+    expect(useAlertStore().alert).toEqual({ kind: "success", text: AUTH_SUCCESS_MESSAGES["password-reset"] });
   });
 
   it("replaces stale success feedback with a caught error", async () => {
@@ -101,7 +103,7 @@ describe("authentication feedback", () => {
     authMocks.verifyEmail.mockRejectedValueOnce(new Error("Ссылка недействительна"));
 
     await expect(verifyEmail("expired-token")).rejects.toThrow("Ссылка недействительна");
-    expect(appState.feedback).toEqual({ kind: "error", text: "Ссылка недействительна" });
+    expect(useAlertStore().alert).toEqual({ kind: "error", text: "Ссылка недействительна" });
     expect(appState.busy).toBe(false);
   });
 
@@ -109,9 +111,9 @@ describe("authentication feedback", () => {
     authMocks.forgotPassword.mockRejectedValueOnce({ unexpected: true });
 
     await expect(forgotPassword("user@example.com")).rejects.toEqual({ unexpected: true });
-    expect(appState.feedback).toEqual({ kind: "error", text: "Не удалось выполнить операцию." });
-    dismissAuthFeedback();
-    expect(appState.feedback).toBeNull();
+    expect(useAlertStore().alert).toEqual({ kind: "error", text: "Не удалось выполнить операцию." });
+    useAlertStore().clear();
+    expect(useAlertStore().alert).toBeNull();
   });
 
   it("keeps recovery busy until the request completes", async () => {
@@ -120,10 +122,10 @@ describe("authentication feedback", () => {
 
     const operation = forgotPassword("user@example.com");
     expect(appState.busy).toBe(true);
-    expect(appState.feedback).toBeNull();
+    expect(useAlertStore().alert).toBeNull();
     resolveRequest({ accepted: true });
     await operation;
     expect(appState.busy).toBe(false);
-    expect(appState.feedback?.kind).toBe("success");
+    expect(useAlertStore().alert?.kind).toBe("success");
   });
 });

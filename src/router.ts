@@ -3,7 +3,8 @@
 // This file is a part of Klinok application
 
 import type { Component } from "vue";
-import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
+import type { Pinia } from "pinia";
+import { createRouter, createWebHistory, type RouteRecordRaw, type Router } from "vue-router";
 import type { Role } from "@klinok/protocol";
 import AuthScreen from "./screens/AuthScreen.vue";
 import RoleStatusScreen from "./screens/RoleStatusScreen.vue";
@@ -13,6 +14,7 @@ import AdministratorScreen from "./screens/AdministratorScreen.vue";
 import { appState, bootstrapApp } from "./appStore";
 import { roleHomePath } from "./roleNavigation";
 import { scenarioRegistry, type ScenarioComponentName } from "./scenarios";
+import { useAlertStore } from "./stores/alert";
 
 const components: Record<ScenarioComponentName, Component> = {
   AuthScreen,
@@ -53,12 +55,19 @@ export const routes: RouteRecordRaw[] = [
   { path: "/:pathMatch(.*)*", redirect: "/profile" },
 ];
 
-export function createAppRouter() {
+export function installAlertNavigationGuard(router: Router, pinia: Pinia): void {
+  router.beforeEach((to, from) => {
+    if (to.path !== from.path) useAlertStore(pinia).clear();
+  });
+}
+
+export function createAppRouter(pinia: Pinia) {
   const router = createRouter({
     history: createWebHistory(),
     routes,
     scrollBehavior: (to) => to.hash ? { el: to.hash } : { top: 0 },
   });
+  installAlertNavigationGuard(router, pinia);
   router.beforeEach(async (to) => {
     await bootstrapApp();
     if (to.meta.public) {

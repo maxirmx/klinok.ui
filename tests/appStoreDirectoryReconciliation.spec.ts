@@ -3,6 +3,7 @@
 // This file is a part of Klinok application
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
 
 const authMocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -69,8 +70,10 @@ vi.mock("../src/repositories", () => {
 });
 
 import { appState, bootstrapApp } from "../src/appStore";
+import { useAlertStore } from "../src/stores/alert";
 
 beforeEach(() => {
+  setActivePinia(createPinia());
   vi.clearAllMocks();
   authMocks.session.mockResolvedValue({
     authenticated: true,
@@ -133,7 +136,7 @@ describe("app-store directory reconciliation", () => {
 
     expect(appState.repositoryConnected).toBe(true);
     expect(appState.busy).toBe(false);
-    expect(appState.feedback).toBeNull();
+    expect(useAlertStore().alert).toBeNull();
     expect(authMocks.syncDirectoryProfile).toHaveBeenCalledOnce();
     expect(authMocks.syncDirectoryPet).not.toHaveBeenCalled();
 

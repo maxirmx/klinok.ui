@@ -848,14 +848,14 @@ dd {
 .form-alert { padding: 12px 14px; border-radius: 12px; margin: 0 0 16px; }
 .form-alert.error, .field-error { color: #b42318; background: #fef3f2; }
 .form-alert.success { color: #067647; background: #ecfdf3; }
-.auth-feedback {
+.app-alert {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
-.auth-feedback > span { min-width: 0; }
-.auth-feedback > button {
+.app-alert > span { min-width: 0; }
+.app-alert > button {
   display: grid;
   width: 28px;
   height: 28px;
@@ -868,9 +868,9 @@ dd {
   color: currentColor;
   cursor: pointer;
 }
-.auth-feedback > button:hover { background: rgb(255 255 255 / 55%); }
-.auth-feedback > button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
-.auth-feedback > button svg { width: 18px; height: 18px; }
+.app-alert > button:hover { background: rgb(255 255 255 / 55%); }
+.app-alert > button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.app-alert > button svg { width: 18px; height: 18px; }
 .field-error { padding: 8px; border-radius: 8px; }
 .confirmation-dialog-backdrop {
   position: fixed;
@@ -955,6 +955,11 @@ dd {
 .workspace-topbar p { margin: 4px 0 0; color: #667085; }
 .workspace-content {
   padding: 24px 14px calc(104px + env(safe-area-inset-bottom, 0px));
+}
+.workspace-main > .workspace-alert {
+  width: calc(100% - 28px);
+  max-width: 1320px;
+  margin: 16px auto 0;
 }
 .workspace-content > .form-alert { max-width: 1320px; margin-right: auto; margin-left: auto; }
 [data-workspace-section] { scroll-margin-top: 98px; }
@@ -1270,31 +1275,10 @@ dd {
   padding: 0;
 }
 .profile-page .form-alert { margin-bottom: 7px; padding: 7px 9px; border-radius: 7px; font-size: 12.5px; }
-.profile-page .profile-form-feedback {
-  display: flex;
+.profile-page .profile-form-validation {
   grid-column: 1 / -1;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   margin: 0;
 }
-.profile-form-feedback > span { min-width: 0; }
-.profile-form-feedback > button {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 auto;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: currentColor;
-  cursor: pointer;
-}
-.profile-form-feedback > button:hover { background: rgba(16, 24, 40, 0.08); }
-.profile-form-feedback > button:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
-.profile-form-feedback .app-icon { width: 16px; height: 16px; }
 .profile-page .field-error { margin: 0; padding: 6px 8px; font-size: 12.5px; }
 .profile-page .role-selection-grid { gap: 7px; }
 .profile-page .role-selection-card { gap: 7px; padding: 9px; }

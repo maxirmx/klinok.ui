@@ -8,6 +8,7 @@ import { useRoute, useRouter } from "vue-router";
 import type { Role } from "@klinok/protocol";
 import packageJson from "../../package.json";
 import AppIcon from "./AppIcon.vue";
+import AppAlert from "./AppAlert.vue";
 import BrandLogo from "./BrandLogo.vue";
 import { appState } from "../appStore";
 import { roleHomePath } from "../roleNavigation";
@@ -202,6 +203,8 @@ function selectPath(path: string) {
           <p>{{ profileName }}</p>
         </div>
       </header>
+
+      <AppAlert class="workspace-alert" />
 
       <div class="workspace-content">
         <slot />

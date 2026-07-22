@@ -4,6 +4,7 @@
 
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
+import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppIcon from "../src/components/AppIcon.vue";
 import OwnerScreen from "../src/screens/OwnerScreen.vue";
@@ -136,7 +137,7 @@ async function mountAt(path: string, scenarioId: string) {
   await router.isReady();
   return mount(OwnerScreen, {
     props: { role: "owner", scenarioId },
-    global: { plugins: [router] },
+    global: { plugins: [createPinia(), router] },
   });
 }
 

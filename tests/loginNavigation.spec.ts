@@ -4,10 +4,12 @@
 
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter, RouterView } from "vue-router";
+import { createPinia, setActivePinia, type Pinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AuthScreen from "../src/screens/AuthScreen.vue";
 import * as appStoreModule from "../src/appStore";
-import { routes } from "../src/router";
+import { installAlertNavigationGuard, routes } from "../src/router";
+import { useAlertStore } from "../src/stores/alert";
 
 vi.mock("../src/appStore", async () => {
   const { reactive, readonly } = await import("vue");
@@ -15,32 +17,28 @@ vi.mock("../src/appStore", async () => {
     activeRole: "doctor",
     busy: false,
     devicePending: false,
-    feedback: null as { kind: "success" | "error"; text: string } | null,
     keyRecoveryRequired: false,
   });
   return {
     AUTH_SUCCESS_MESSAGES: { registration: "Централизованное сообщение о регистрации" },
     appState: readonly(state),
-    dismissAuthFeedback: vi.fn(() => { state.feedback = null; }),
     forgotPassword: vi.fn(),
     getConfig: vi.fn(() => ({ legal: { personalDataConsent: {}, userAgreement: {} } })),
     login: vi.fn().mockResolvedValue(undefined),
     register: vi.fn(),
     resetPassword: vi.fn(),
-    setMockFeedback: (feedback: typeof state.feedback) => { state.feedback = feedback; },
     verifyEmail: vi.fn(),
   };
 });
 
-const { AUTH_SUCCESS_MESSAGES, dismissAuthFeedback, login, register } = appStoreModule;
-const { setMockFeedback } = appStoreModule as unknown as {
-  setMockFeedback: (feedback: { kind: "success" | "error"; text: string } | null) => void;
-};
+const { AUTH_SUCCESS_MESSAGES, login, register } = appStoreModule;
+let pinia: Pinia;
 
 beforeEach(() => {
+  pinia = createPinia();
+  setActivePinia(pinia);
   vi.clearAllMocks();
   sessionStorage.clear();
-  setMockFeedback(null);
 });
 
 describe("login navigation", () => {
@@ -53,7 +51,7 @@ describe("login navigation", () => {
     await router.isReady();
     const wrapper = mount(AuthScreen, {
       props: { scenarioId: "auth-login" },
-      global: { plugins: [router] },
+      global: { plugins: [pinia, router] },
     });
 
     await wrapper.get('input[type="email"]').setValue("doctor@example.ru");
@@ -66,37 +64,37 @@ describe("login navigation", () => {
   });
 
   it("renders and dismisses accessible authentication feedback", async () => {
-    setMockFeedback({ kind: "error", text: "Ошибка входа" });
+    useAlertStore().error(new Error("Ошибка входа"));
     const router = createRouter({ history: createMemoryHistory(), routes });
     await router.push("/auth/login");
     await router.isReady();
     const wrapper = mount(AuthScreen, {
       props: { scenarioId: "auth-login" },
-      global: { plugins: [router] },
+      global: { plugins: [pinia, router] },
     });
 
-    expect(dismissAuthFeedback).not.toHaveBeenCalled();
     expect(wrapper.get('[role="alert"]').text()).toContain("Ошибка входа");
     const close = wrapper.get('button[aria-label="Закрыть сообщение"]');
     await close.trigger("click");
-    expect(dismissAuthFeedback).toHaveBeenCalledOnce();
+    expect(useAlertStore().alert).toBeNull();
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
   });
 
   it("clears authentication feedback when the auth route changes", async () => {
-    setMockFeedback({ kind: "success", text: "Готово" });
     const router = createRouter({ history: createMemoryHistory(), routes });
+    installAlertNavigationGuard(router, pinia);
     await router.push("/auth/login");
     await router.isReady();
+    useAlertStore().success("Готово");
     const wrapper = mount(AuthScreen, {
       props: { scenarioId: "auth-login" },
-      global: { plugins: [router] },
+      global: { plugins: [pinia, router] },
     });
 
     expect(wrapper.get('[role="status"]').text()).toContain("Готово");
     await router.push("/auth/forgot-password");
     await flushPromises();
-    expect(dismissAuthFeedback).toHaveBeenCalledOnce();
+    expect(useAlertStore().alert).toBeNull();
     expect(wrapper.find('[role="status"]').exists()).toBe(false);
   });
 
@@ -112,7 +110,7 @@ describe("login navigation", () => {
     const router = createRouter({ history: createMemoryHistory(), routes });
     await router.push("/auth/register/consent");
     await router.isReady();
-    const wrapper = mount(RouterView, { global: { plugins: [router] } });
+    const wrapper = mount(RouterView, { global: { plugins: [pinia, router] } });
     await flushPromises();
 
     for (const checkbox of wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')) await checkbox.setValue(true);

@@ -26,12 +26,13 @@ import {
 } from "../petProfile";
 import type { PetAccessRow } from "../petAccess";
 import type { MedicalRecordDraft, PetProfile, PetProfileInput } from "../repositories/types";
+import { useAlertStore } from "../stores/alert";
 
 const props = defineProps<{ role: "owner"; scenarioId: string }>();
 const route = useRoute();
 const router = useRouter();
-const actionError = ref("");
-const actionMessage = ref("");
+const alertStore = useAlertStore();
+const formError = ref("");
 const photoBusy = ref(false);
 const deleteConfirmation = ref(false);
 const grantDialogOpen = ref(false);
@@ -191,8 +192,7 @@ function blankDraft() {
 }
 
 function hydrateDraft(pet: PetProfile | null) {
-  actionError.value = "";
-  actionMessage.value = "";
+  formError.value = "";
   if (!pet) {
     blankDraft();
     return;
@@ -231,13 +231,12 @@ async function signOut() {
 }
 
 async function action(task: () => Promise<unknown>, success = "") {
-  actionError.value = "";
-  actionMessage.value = "";
+  alertStore.clear();
   try {
     await task();
-    actionMessage.value = success;
+    if (success) alertStore.success(success);
   } catch (reason) {
-    actionError.value = reason instanceof Error ? reason.message : "Операция не выполнена.";
+    alertStore.error(reason, "Операция не выполнена.");
   }
 }
 
@@ -285,9 +284,11 @@ function petInput(): PetProfileInput {
 async function savePet() {
   const error = validateDraft();
   if (error) {
-    actionError.value = error;
+    alertStore.clear();
+    formError.value = error;
     return;
   }
+  formError.value = "";
   await action(async () => {
     if (isCreate.value) {
       const petId = await requireRepository().medical.createPet(petInput());
@@ -314,11 +315,11 @@ async function selectPhoto(event: Event) {
   const file = input.files?.[0];
   if (!file) return;
   photoBusy.value = true;
-  actionError.value = "";
+  alertStore.clear();
   try {
     draft.photoDataUrl = await preparePetPhoto(file);
   } catch (reason) {
-    actionError.value = reason instanceof Error ? reason.message : "Не удалось обработать фотографию.";
+    alertStore.error(reason, "Не удалось обработать фотографию.");
   } finally {
     photoBusy.value = false;
     input.value = "";
@@ -327,13 +328,12 @@ async function selectPhoto(event: Event) {
 
 async function copyPetId() {
   if (!selectedPet.value) return;
-  actionError.value = "";
-  actionMessage.value = "";
+  alertStore.clear();
   try {
     await navigator.clipboard.writeText(selectedPet.value.petId);
-    actionMessage.value = "ID питомца скопирован.";
+    alertStore.success("ID питомца скопирован.");
   } catch {
-    actionError.value = "Не удалось скопировать ID питомца.";
+    alertStore.error("clipboard", "Не удалось скопировать ID питомца.");
   }
 }
 
@@ -386,8 +386,7 @@ async function grantDoctor() {
     selectedDoctor.value = null;
     grantDelegate.value = false;
     grantDialogOpen.value = false;
-    actionError.value = "";
-    actionMessage.value = "Доступ предоставлен.";
+    alertStore.success("Доступ предоставлен.");
   } catch (reason) {
     grantError.value = reason instanceof Error ? reason.message : "Не удалось предоставить доступ.";
   } finally {
@@ -433,9 +432,6 @@ function confirmMedicalRecord(record: MedicalRecordDraft) {
 
 <template>
   <WorkspaceShell role="owner" title="Кабинет владельца" :profile-name="profileName" @sign-out="signOut">
-    <p v-if="actionError || appState.feedback?.kind === 'error'" class="form-alert error" role="alert">{{ actionError || appState.feedback?.text }}</p>
-    <p v-if="actionMessage" class="form-alert success" role="status">{{ actionMessage }}</p>
-
     <div v-if="isHome || isForm || isAccess || !selectedPet" class="owner-section-heading owner-page-heading">
       <div>
         <h2>{{ pageTitle }}</h2>
@@ -542,6 +538,8 @@ function confirmMedicalRecord(record: MedicalRecordDraft) {
             </RouterLink>
           </div>
         </div>
+
+        <p v-if="formError" class="field-error" role="alert">{{ formError }}</p>
 
         <div class="owner-form-grid">
           <label><span>Кличка</span><input v-model="draft.name" required /></label>

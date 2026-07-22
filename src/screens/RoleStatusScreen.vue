@@ -13,6 +13,7 @@ import RoleSelectionCards from "../components/RoleSelectionCards.vue";
 import SyncStatus from "../components/SyncStatus.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
 import { getDeviceName } from "../repositories/deviceVault";
+import { useAlertStore } from "../stores/alert";
 import {
   appState,
   approveDeviceEnrollment,
@@ -31,12 +32,11 @@ import {
   updateProfile,
 } from "../appStore";
 
-type FeedbackKey = "forms" | "roles" | "account" | "devices";
-type Feedback = { kind: "success" | "error"; text: string } | null;
 type ProfileValues = { firstName: string; lastName: string; patronymic: string };
 
 const route = useRoute();
 const router = useRouter();
+const alertStore = useAlertStore();
 const statuses: Record<RoleStatus, string> = {
   not_requested: "Не запрошена", pending: "Ожидает решения", approved: "Одобрена", rejected: "Отклонена",
   suspended: "Приостановлена", revoked: "Отозвана", expired: "Истекла",
@@ -53,7 +53,7 @@ const recoveryText = ref("");
 const recoveryPassphrase = ref("");
 const accountDeletionConfirmation = ref(false);
 const devicePendingRevocation = ref<{ deviceId: string; deviceName: string } | null>(null);
-const feedback = reactive<Record<FeedbackKey, Feedback>>({ forms: null, roles: null, account: null, devices: null });
+const formError = ref("");
 const profileDraft = reactive<ProfileValues>({ firstName: "", lastName: "", patronymic: "" });
 const savedProfile = reactive<ProfileValues>({ firstName: "", lastName: "", patronymic: "" });
 const credentialsDraft = reactive({ email: "", password: "", confirmPassword: "" });
@@ -135,14 +135,14 @@ watch(() => appState.session.email, (email) => {
 
 function restoreProfile() {
   Object.assign(profileDraft, savedProfile);
-  feedback.forms = null;
+  formError.value = "";
 }
 
 function restoreCredentials() {
   credentialsDraft.email = savedEmailDisplay.value;
   credentialsDraft.password = "";
   credentialsDraft.confirmPassword = "";
-  feedback.forms = null;
+  formError.value = "";
 }
 
 async function readRecoveryFile(event: Event) {
@@ -158,19 +158,19 @@ async function signOut(all = false) {
 async function copyAccountId() {
   const accountId = appState.session.accountId;
   if (!accountId) return;
-  await action("account", "ID пользователя скопирован.", async () => {
+  await action("ID пользователя скопирован.", async () => {
     await navigator.clipboard.writeText(accountId);
   });
 }
 
-async function action(key: FeedbackKey, success: string, task: () => Promise<unknown>) {
-  feedback[key] = null;
+async function action(success: string, task: () => Promise<unknown>) {
+  alertStore.clear();
   try {
     await task();
-    feedback[key] = { kind: "success", text: success };
+    alertStore.success(success);
     return true;
   } catch (reason) {
-    feedback[key] = { kind: "error", text: reason instanceof Error ? reason.message : "Не удалось сохранить изменения." };
+    alertStore.error(reason, "Не удалось сохранить изменения.");
     return false;
   }
 }
@@ -178,10 +178,11 @@ async function action(key: FeedbackKey, success: string, task: () => Promise<unk
 async function saveProfile() {
   const { firstName, lastName, patronymic } = normalizedProfileDraft.value;
   if (!firstName || !lastName) {
-    feedback.forms = { kind: "error", text: "Имя и фамилия обязательны." };
+    formError.value = "Имя и фамилия обязательны.";
     return;
   }
-  const saved = await action("forms", "Изменения профиля сохранены.", () => updateProfile({
+  formError.value = "";
+  const saved = await action("Изменения профиля сохранены.", () => updateProfile({
     firstName,
     lastName,
     patronymic,
@@ -195,15 +196,15 @@ async function saveProfile() {
 async function saveCredentials() {
   const email = normalizedEmailDraft.value;
   if (!email.includes("@")) {
-    feedback.forms = { kind: "error", text: "Введите корректный адрес электронной почты." };
+    formError.value = "Введите корректный адрес электронной почты.";
     return;
   }
   if (credentialsDraft.password !== credentialsDraft.confirmPassword) {
-    feedback.forms = { kind: "error", text: "Пароли не совпадают." };
+    formError.value = "Пароли не совпадают.";
     return;
   }
   if (credentialsDraft.password && (credentialsDraft.password.length < 6 || credentialsDraft.password.length > 128)) {
-    feedback.forms = { kind: "error", text: "Пароль должен содержать от 6 до 128 символов." };
+    formError.value = "Пароль должен содержать от 6 до 128 символов.";
     return;
   }
 
@@ -212,13 +213,14 @@ async function saveCredentials() {
     ...(credentialsDraft.password ? { password: credentialsDraft.password } : {}),
   };
   if (!input.email && !input.password) {
-    feedback.forms = { kind: "error", text: "Измените адрес электронной почты или укажите новый пароль." };
+    formError.value = "Измените адрес электронной почты или укажите новый пароль.";
     return;
   }
+  formError.value = "";
   const successMessage = input.email && input.password
     ? "Электронная почта и пароль сохранены."
     : input.email ? "Электронная почта сохранена." : "Новый пароль сохранён.";
-  const saved = await action("forms", successMessage, () => updateCredentials(input));
+  const saved = await action(successMessage, () => updateCredentials(input));
   if (saved) {
     savedEmail.value = email;
     savedEmailDisplay.value = email;
@@ -229,7 +231,7 @@ async function saveCredentials() {
 }
 
 async function activate(role: Role) {
-  const changed = await action("roles", "Активная роль изменена.", async () => {
+  const changed = await action("Активная роль изменена.", async () => {
     await switchRole(role);
     if (typeof route.query.continue === "string" && route.query.switch === role) await router.push(route.query.continue);
   });
@@ -239,22 +241,20 @@ async function activate(role: Role) {
 async function confirmAccountDeletion() {
   accountDeletionConfirmation.value = false;
   if (isBootstrapAccount.value) return;
-  await action("account", "Аккаунт удалён.", deleteAccount);
+  await action("Аккаунт удалён.", deleteAccount);
 }
 
 async function confirmDeviceRevocation() {
   const device = devicePendingRevocation.value;
   if (!device) return;
   devicePendingRevocation.value = null;
-  await action("devices", "Устройство отозвано.", () => revokeDevice(device.deviceId));
+  await action("Устройство отозвано.", () => revokeDevice(device.deviceId));
 }
 </script>
 
 <template>
   <WorkspaceShell :role="appState.activeRole" title="Настройки пользователя" :profile-name="profileName" settings @sign-out="signOut()">
     <div class="profile-page">
-      <p v-if="appState.feedback?.kind === 'error'" class="form-alert error profile-global-alert" role="alert">{{ appState.feedback.text }}</p>
-
     <section v-if="appState.keyRecoveryRequired" class="panel critical-panel" role="alert">
       <h2>Ключи этого аккаунта отсутствуют на устройстве</h2>
       <template v-if="appState.session.accountId === getConfig()?.p2p.bootstrapAccountId && !appState.session.devices?.length">
@@ -281,7 +281,7 @@ async function confirmDeviceRevocation() {
       <template v-if="isBootstrapAccount && !appState.session.serverKeySetAvailable">
         <h3>Все действующие устройства утрачены?</h3>
         <p>Замените их только с помощью офлайн-пакета начального администратора. Все прежние устройства и сеансы будут отозваны.</p>
-        <form class="form-stack" @submit.prevent="action('devices', 'Утраченное устройство заменено.', () => replaceLostBootstrapDevice(recoveryText, recoveryPassphrase))">
+        <form class="form-stack" @submit.prevent="action('Утраченное устройство заменено.', () => replaceLostBootstrapDevice(recoveryText, recoveryPassphrase))">
           <label><span>Пакет восстановления</span><input type="file" accept="application/json,.json" required @change="readRecoveryFile" /></label>
           <PasswordInput v-model="recoveryPassphrase" label="Пароль пакета" required />
           <button
@@ -293,7 +293,6 @@ async function confirmDeviceRevocation() {
             <AppIcon name="restore" />
           </button>
         </form>
-        <p v-if="feedback.devices" class="form-alert" :class="feedback.devices.kind" :role="feedback.devices.kind === 'error' ? 'alert' : 'status'">{{ feedback.devices.text }}</p>
       </template>
       <button class="outline-action inline profile-icon-action" title="Проверить статус" aria-label="Проверить статус" @click="bootstrapApp(true)"><AppIcon name="restore" /></button>
     </section>
@@ -366,21 +365,10 @@ async function confirmDeviceRevocation() {
         </form>
       </section>
 
-      <div
-        v-if="feedback.forms"
-        class="form-alert profile-form-feedback"
-        :class="feedback.forms.kind"
-        :role="feedback.forms.kind === 'error' ? 'alert' : 'status'"
-      >
-        <span>{{ feedback.forms.text }}</span>
-        <button type="button" title="Закрыть сообщение" aria-label="Закрыть сообщение" @click="feedback.forms = null">
-          <AppIcon name="close" />
-        </button>
-      </div>
+      <p v-if="formError" class="field-error profile-form-validation" role="alert">{{ formError }}</p>
 
       <section class="panel profile-section profile-roles">
         <div class="profile-section-heading"><div><h2>Роли и доступ</h2><p>Измените активную роль или отправьте запрос на новую.</p></div></div>
-        <p v-if="feedback.roles" class="form-alert" :class="feedback.roles.kind" :role="feedback.roles.kind === 'error' ? 'alert' : 'status'">{{ feedback.roles.text }}</p>
         <RoleSelectionCards
           :model-value="appState.activeRole"
           :status-by-role="roleStatuses"
@@ -403,7 +391,7 @@ async function confirmDeviceRevocation() {
               class="outline-action inline profile-icon-action"
               title="Отменить запрос роли"
               aria-label="Отменить запрос роли"
-              @click="action('roles', 'Запрос на роль отменён.', () => cancelRole(role))"
+              @click="action('Запрос на роль отменён.', () => cancelRole(role))"
             >
               <AppIcon name="close" />
             </button>
@@ -412,7 +400,7 @@ async function confirmDeviceRevocation() {
               class="outline-action inline profile-icon-action"
               :title="requests.has(role) ? 'Отправить запрос роли повторно' : 'Запросить роль'"
               :aria-label="requests.has(role) ? 'Отправить запрос роли повторно' : 'Запросить роль'"
-              @click="action('roles', 'Запрос на роль отправлен.', () => requestRole(role))"
+              @click="action('Запрос на роль отправлен.', () => requestRole(role))"
             >
               <AppIcon :name="requests.has(role) ? 'restore' : 'plus'" />
             </button>
@@ -461,12 +449,10 @@ async function confirmDeviceRevocation() {
             </button>
           </div>
         </div>
-        <p v-if="feedback.account" class="form-alert" :class="feedback.account.kind" :role="feedback.account.kind === 'error' ? 'alert' : 'status'">{{ feedback.account.text }}</p>
       </section>
 
       <section class="panel profile-section device-security">
         <div class="profile-section-heading"><div><h2>Устройства</h2><p>Управляйте подтверждёнными устройствами.</p></div></div>
-        <p v-if="feedback.devices" class="form-alert" :class="feedback.devices.kind" :role="feedback.devices.kind === 'error' ? 'alert' : 'status'">{{ feedback.devices.text }}</p>
 
         <template v-if="!appState.session.serverKeySetAvailable && appState.session.enrollments?.some(item => item.status === 'pending' && item.ephemeralPublicKey) && appState.session.device">
           <h3>Новые устройства</h3>
@@ -474,8 +460,8 @@ async function confirmDeviceRevocation() {
           <div v-for="enrollment in appState.session.enrollments.filter(item => item.status === 'pending' && item.ephemeralPublicKey)" :key="enrollment.enrollmentId" class="list-row">
             <div><strong>{{ deviceName(enrollment) }}</strong><span>ID: {{ enrollment.deviceId }}</span><small>Запрошено {{ enrollment.createdAt }}</small></div>
             <div class="row-actions">
-              <button class="primary-action inline profile-icon-action" title="Подтвердить устройство и передать ключи" aria-label="Подтвердить устройство и передать ключи" @click="action('devices', 'Устройство подтверждено.', () => approveDeviceEnrollment(enrollment.enrollmentId))"><AppIcon name="check" /></button>
-              <button class="outline-action inline danger-link profile-icon-action" title="Отклонить устройство" aria-label="Отклонить устройство" @click="action('devices', 'Запрос устройства отклонён.', () => rejectDeviceEnrollment(enrollment.enrollmentId))"><AppIcon name="close" /></button>
+              <button class="primary-action inline profile-icon-action" title="Подтвердить устройство и передать ключи" aria-label="Подтвердить устройство и передать ключи" @click="action('Устройство подтверждено.', () => approveDeviceEnrollment(enrollment.enrollmentId))"><AppIcon name="check" /></button>
+              <button class="outline-action inline danger-link profile-icon-action" title="Отклонить устройство" aria-label="Отклонить устройство" @click="action('Запрос устройства отклонён.', () => rejectDeviceEnrollment(enrollment.enrollmentId))"><AppIcon name="close" /></button>
             </div>
           </div>
         </template>

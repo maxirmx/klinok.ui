@@ -3,14 +3,14 @@
 // All rights reserved.
 // This file is a part of Klinok application
 
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { Role } from "@klinok/protocol";
-import AppIcon from "../components/AppIcon.vue";
+import AppAlert from "../components/AppAlert.vue";
 import BrandLogo from "../components/BrandLogo.vue";
 import PasswordInput from "../components/PasswordInput.vue";
 import RoleSelectionCards from "../components/RoleSelectionCards.vue";
-import { AUTH_SUCCESS_MESSAGES, appState, dismissAuthFeedback, forgotPassword, login, register, resetPassword, verifyEmail } from "../appStore";
+import { AUTH_SUCCESS_MESSAGES, appState, forgotPassword, login, register, resetPassword, verifyEmail } from "../appStore";
 import { getDeviceId, getOrCreateDeviceName, suggestedDeviceName } from "../repositories/deviceVault";
 import { roleHomePath } from "../roleNavigation";
 import { APP_VERSION } from "../version";
@@ -91,11 +91,6 @@ onMounted(async () => {
   }
 });
 
-watch(() => route.fullPath, (currentPath, previousPath) => {
-  if (currentPath !== previousPath) dismissAuthFeedback();
-});
-onBeforeUnmount(dismissAuthFeedback);
-
 // ...... real registration form is commented out for now
 //          <label><input v-model="acceptedConsent" type="checkbox" required />
 //            <span>Я принимаю <a :href="getConfig()?.legal.personalDataConsent.href" target="_blank">согласие на обработку персональных данных</a>.</span>
@@ -123,17 +118,7 @@ onBeforeUnmount(dismissAuthFeedback);
           <h1>{{ title }}</h1>
         </header>
 
-        <div
-          v-if="appState.feedback"
-          class="form-alert auth-feedback"
-          :class="appState.feedback.kind"
-          :role="appState.feedback.kind === 'error' ? 'alert' : 'status'"
-        >
-          <span>{{ appState.feedback.text }}</span>
-          <button type="button" aria-label="Закрыть сообщение" @click="dismissAuthFeedback">
-            <AppIcon name="close" />
-          </button>
-        </div>
+        <AppAlert class="auth-feedback" />
 
         <form v-if="mode === 'login'" class="form-stack" @submit.prevent="submitLogin">
           <label class="auth-field-label"><span>Электронная почта</span><input v-model="email" type="email" autocomplete="email" required /></label>
