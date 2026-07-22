@@ -1,3 +1,6 @@
+[![ci](https://github.com/maxirmx/klinok/actions/workflows/ci.yml/badge.svg)](https://github.com/maxirmx/klinok/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/maxirmx/klinok/graph/badge.svg?token=MVZxjomaeV)](https://codecov.io/gh/maxirmx/klinok)
+
 # Klinok
 
 Klinok is a Russian-language, local-first veterinary application with operational email/password authentication and signed P2P authorization.
