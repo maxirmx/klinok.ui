@@ -33,6 +33,7 @@ import {
 import { KlinokRepository } from "./repositories";
 import type { ControlSnapshot, MedicalSnapshot } from "./repositories/types";
 import type { EventSyncStatus } from "./repositories/eventTransport";
+import { reconcileDirectorySnapshot, type DirectoryPetInput } from "./directoryReconciliation";
 
 const emptyControl: ControlSnapshot = { profile: null, profiles: [], roles: [], allRoles: [], devices: [], pendingQueue: [], notifications: [], events: [] };
 const emptyMedical: MedicalSnapshot = { pets: [], grants: [], accessRequests: [], records: [], confirmations: [], confirmedRecordIds: [], events: [] };
@@ -191,6 +192,7 @@ async function connectRepository(session: AuthSessionDto) {
     initialRole,
   });
   const connectedRepository = repository;
+  const connectedAuth = auth;
   state.repositoryConnected = true;
   for (const operation of session.pendingOperations ?? []) {
     if (operation.kind === "profile" && operation.payload) {
@@ -244,16 +246,27 @@ async function connectRepository(session: AuthSessionDto) {
     });
   });
   state.conflicts = await repository.conflicts();
-  if (state.control.profile) {
-    await auth.syncDirectoryProfile({
-      firstName: state.control.profile.firstName,
-      lastName: state.control.profile.lastName,
-      ...(state.control.profile.patronymic ? { patronymic: state.control.profile.patronymic } : {}),
-    });
-  }
-  if (state.activeRole === "owner") {
-    for (const pet of state.medical.pets) await syncDirectoryPet({ petId: pet.petId, species: pet.species, name: pet.name });
-  }
+  const directoryProfile = state.control.profile
+    ? {
+        firstName: state.control.profile.firstName,
+        lastName: state.control.profile.lastName,
+        ...(state.control.profile.patronymic ? { patronymic: state.control.profile.patronymic } : {}),
+      }
+    : null;
+  const directoryPets = state.activeRole === "owner"
+    ? state.medical.pets.map((pet) => ({ petId: pet.petId, species: pet.species, name: pet.name }))
+    : [];
+  void reconcileDirectorySnapshot({
+    profile: directoryProfile,
+    pets: directoryPets,
+    syncProfile: (profile) => connectedAuth.syncDirectoryProfile(profile),
+    syncPet: (pet) => syncDirectoryPetWithClient(connectedAuth, pet),
+    shouldContinue: () => repository === connectedRepository && auth === connectedAuth,
+    onFailure: (failure) => {
+      const target = failure.kind === "profile" ? "profile" : `pet ${failure.petId}`;
+      console.warn(`Directory ${target} reconciliation failed.`, failure.reason);
+    },
+  }).catch((reason) => console.warn("Directory reconciliation failed.", reason));
 }
 
 export async function bootstrapApp(force = false) {
@@ -419,19 +432,24 @@ export function loadDoctorPets(query = "", page = 1, pageSize = 20, sort = "owne
   return auth.getMyDirectoryPets(query, page, pageSize, sort, direction);
 }
 
-export async function syncDirectoryPet(pet: Pick<DirectoryPetDto, "petId" | "species" | "name">): Promise<void> {
+async function syncDirectoryPetWithClient(client: AuthClient, pet: DirectoryPetInput): Promise<void> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      await auth.syncDirectoryPet(pet);
+      await client.syncDirectoryPet(pet);
       return;
     } catch (reason) {
       lastError = reason;
       if (!(reason instanceof AuthClientError) || reason.code !== "PET_PROJECTION_PENDING") throw reason;
+      if (attempt === 4) break;
       await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
     }
   }
   throw lastError;
+}
+
+export function syncDirectoryPet(pet: DirectoryPetInput): Promise<void> {
+  return syncDirectoryPetWithClient(auth, pet);
 }
 
 export function deleteDirectoryPet(petId: string): Promise<void> {
