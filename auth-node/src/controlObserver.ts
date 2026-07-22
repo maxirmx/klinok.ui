@@ -12,6 +12,8 @@ import {
   shouldDeferEventVerification,
   verifySignedEvent,
   type ProtocolState,
+  type Role,
+  type RoleStatus,
   type SignedEvent,
 } from "@klinok/protocol";
 import type { AuthConfig } from "./config.js";
@@ -19,7 +21,12 @@ import type { Mailer } from "./mailer.js";
 import type { AuthStore } from "./store.js";
 
 interface ObserverRuntime {
-  dbs: Array<{ iterator(): AsyncIterable<unknown>; close(): Promise<void>; events?: { on?(event: string, callback: () => void): void; off?(event: string, callback: () => void): void } }>;
+  dbs: Array<{
+    address?: { toString(): string } | string;
+    iterator(): AsyncIterable<unknown>;
+    close(): Promise<void>;
+    events?: { on?(event: string, callback: () => void): void; off?(event: string, callback: () => void): void };
+  }>;
   orbitdb: { stop(): Promise<unknown> };
   helia: { stop(): Promise<unknown> };
 }
@@ -28,7 +35,46 @@ function valueFrom(entry: unknown): SignedEvent | null {
   return extractSignedEvent(entry);
 }
 
-function observerAccessController(state: ProtocolState, authAttestationPublicKey: JsonWebKey, database: "control" | "medical") {
+async function waitForDatabaseJoin(database: ObserverRuntime["dbs"][number], timeoutMs = 5_000): Promise<boolean> {
+  const events = database.events;
+  if (!events?.on || !events.off) return false;
+  return new Promise((resolve) => {
+    const joined = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    const finish = (replicated: boolean) => {
+      clearTimeout(timer);
+      events.off?.("join", joined);
+      resolve(replicated);
+    };
+    events.on?.("join", joined);
+  });
+}
+
+export function roleStatusMailText(role: unknown, status: unknown): string {
+  const roleLabels: Record<Role, string> = {
+    administrator: "Администратор",
+    doctor: "Врач",
+    owner: "Владелец",
+  };
+  const roleLabel = roleLabels[role as Role] ?? String(role);
+  const messages: Record<RoleStatus, string> = {
+    not_requested: `Роль «${roleLabel}» не запрошена.`,
+    pending: `Ваша заявка на роль «${roleLabel}» ожидает подтверждения.`,
+    approved: `Ваша роль «${roleLabel}» подтверждена.`,
+    rejected: `Ваша заявка на роль «${roleLabel}» отклонена.`,
+    suspended: `Ваша роль «${roleLabel}» приостановлена.`,
+    revoked: `Ваша роль «${roleLabel}» отозвана.`,
+    expired: `Срок действия вашей роли «${roleLabel}» истёк.`,
+  };
+  return messages[status as RoleStatus] ?? `Статус роли «${roleLabel}» изменён.`;
+}
+
+function observerAccessController(
+  state: ProtocolState,
+  authAttestationPublicKey: JsonWebKey,
+  bootstrapSigningPublicKey: JsonWebKey | undefined,
+  database: "control" | "medical",
+) {
   const type = ACCESS_CONTROLLER_TYPES[database];
   const factory = async () => ({
     type,
@@ -47,6 +93,7 @@ function observerAccessController(state: ProtocolState, authAttestationPublicKey
       const result = await verifySignedEvent(event, state, {
         allowUnknownDevice: event.eventType === "device.attested",
         authAttestationPublicKey,
+        bootstrapSigningPublicKey,
         requireTrustedAttestation: true,
       });
       if (shouldDeferEventVerification(result)) {
@@ -59,7 +106,16 @@ function observerAccessController(state: ProtocolState, authAttestationPublicKey
         }));
         return true;
       }
-      if (!result.accepted) return false;
+      if (!result.accepted) {
+        console.warn(JSON.stringify({
+          level: "warn",
+          event: "auth.control-observer.authorization.rejected",
+          code: result.code,
+          eventId: event.eventId,
+          eventType: event.eventType,
+        }));
+        return false;
+      }
       applyAcceptedEvent(event, state);
       return true;
     },
@@ -92,8 +148,8 @@ export class ControlPlaneObserver {
       import("@orbitdb/core"), import("@libp2p/websockets"), import("@libp2p/bootstrap"), import("@libp2p/identify"),
       import("@libp2p/gossipsub"), import("@chainsafe/libp2p-noise"), import("@chainsafe/libp2p-yamux"), import("@multiformats/multiaddr"), import("blockstore-level"),
     ]);
-    const controlAccess = observerAccessController(this.accessState, this.authAttestationPublicKey, "control");
-    const medicalAccess = observerAccessController(this.accessState, this.authAttestationPublicKey, "medical");
+    const controlAccess = observerAccessController(this.accessState, this.authAttestationPublicKey, this.config.bootstrapSigningPublicKey, "control");
+    const medicalAccess = observerAccessController(this.accessState, this.authAttestationPublicKey, this.config.bootstrapSigningPublicKey, "medical");
     useIdentityProvider(KlinokIdentityProvider);
     useAccessController(controlAccess);
     useAccessController(medicalAccess);
@@ -119,11 +175,60 @@ export class ControlPlaneObserver {
     await helia.start();
     const orbitdb = await createOrbitDB({ ipfs: helia, id: "klinok-auth-observer", directory: `${this.config.dataDir}/observer-orbitdb` });
     const controlDb = await orbitdb.open(this.config.controlObserver.databaseAddress ?? this.config.controlObserver.databaseName, { type: "events", AccessController: controlAccess });
+    const controlReplicated = await waitForDatabaseJoin(controlDb);
+    console.log(JSON.stringify({
+      level: controlReplicated ? "info" : "warn",
+      event: "auth.control-observer.database.opened",
+      database: "control",
+      address: controlDb.address?.toString(),
+      replicated: controlReplicated,
+    }));
     const medicalDb = await orbitdb.open(this.config.controlObserver.medicalDatabaseAddress ?? this.config.controlObserver.medicalDatabaseName ?? "klinok-medical-v3", { type: "events", AccessController: medicalAccess });
+    const medicalReplicated = await waitForDatabaseJoin(medicalDb);
+    console.log(JSON.stringify({
+      level: medicalReplicated ? "info" : "warn",
+      event: "auth.control-observer.database.opened",
+      database: "medical",
+      address: medicalDb.address?.toString(),
+      replicated: medicalReplicated,
+    }));
     this.runtime = { dbs: [controlDb, medicalDb], orbitdb, helia };
     this.updateHandler = () => void this.process();
     for (const db of this.runtime.dbs) db.events?.on?.("update", this.updateHandler);
     await this.process();
+  }
+
+  ingest(value: unknown): Promise<boolean> {
+    const event = valueFrom(value);
+    if (!event) return Promise.resolve(false);
+    let accepted = false;
+    this.processing = this.processing.catch(() => undefined).then(async () => {
+      if (this.state.knownEvents.has(event.eventId)) {
+        await this.handleAcceptedEvent(event);
+        accepted = true;
+        return;
+      }
+      const result = await verifySignedEvent(event, this.state, {
+        allowUnknownDevice: event.eventType === "device.attested",
+        authAttestationPublicKey: this.authAttestationPublicKey,
+        bootstrapSigningPublicKey: this.config.bootstrapSigningPublicKey,
+        requireTrustedAttestation: true,
+      });
+      if (!result.accepted) {
+        console.warn(JSON.stringify({
+          level: "warn",
+          event: "auth.control-observer.event.rejected",
+          code: result.code,
+          eventId: event.eventId,
+          eventType: event.eventType,
+        }));
+        return;
+      }
+      applyAcceptedEvent(event, this.state);
+      await this.handleAcceptedEvent(event);
+      accepted = true;
+    });
+    return this.processing.then(() => accepted);
   }
 
   private process(): Promise<void> {
@@ -149,12 +254,22 @@ export class ControlPlaneObserver {
         const result = await verifySignedEvent(event, this.state, {
           allowUnknownDevice: event.eventType === "device.attested",
           authAttestationPublicKey: this.authAttestationPublicKey,
+          bootstrapSigningPublicKey: this.config.bootstrapSigningPublicKey,
           requireTrustedAttestation: true,
         });
         if (!result.accepted && result.code === "EVENT_PARENT_MISSING") continue;
         remaining.delete(eventId);
         progressed = true;
-        if (!result.accepted) continue;
+        if (!result.accepted) {
+          console.warn(JSON.stringify({
+            level: "warn",
+            event: "auth.control-observer.event.rejected",
+            code: result.code,
+            eventId: event.eventId,
+            eventType: event.eventType,
+          }));
+          continue;
+        }
         applyAcceptedEvent(event, this.state);
         await this.handleAcceptedEvent(event);
       }
@@ -200,13 +315,38 @@ export class ControlPlaneObserver {
         await this.store.putAccount(account);
       }
     }
-    if (!event.eventType.startsWith("role.") || await this.store.hasMarker(`mail:${event.eventId}`)) return;
+    if (event.eventType !== "email.role-transition") return;
+    const eventMailHandled = await this.store.hasMarker(`mail:${event.eventId}`);
+    const transitionEventId = event.parents[0];
+    const legacyMailHandled = Boolean(transitionEventId && await this.store.hasMarker(`mail:${transitionEventId}`));
+    if (eventMailHandled) return;
+    if (legacyMailHandled) {
+      await this.store.putMarker(`mail:${event.eventId}`);
+      return;
+    }
     if (account) {
       await this.mailer.send({
         to: account.email,
         subject: "Статус роли в Клинок изменён",
-        text: `Роль ${String(event.metadata.role)}: ${String(event.metadata.status)}.`,
+        text: roleStatusMailText(event.metadata.role, event.metadata.status),
       });
+      console.log(JSON.stringify({
+        level: "info",
+        event: "auth.control-observer.role-mail.sent",
+        eventId: event.eventId,
+        accountId,
+        role: event.metadata.role,
+        status: event.metadata.status,
+      }));
+    } else {
+      console.warn(JSON.stringify({
+        level: "warn",
+        event: "auth.control-observer.role-mail.recipient-missing",
+        eventId: event.eventId,
+        accountId,
+        role: event.metadata.role,
+        status: event.metadata.status,
+      }));
     }
     if (event.metadata.status === "pending") {
       for (const projection of this.state.roles.values()) {

@@ -29,6 +29,7 @@ export interface AuthConfig {
   };
   controlObserver: {
     enabled: boolean;
+    internalEventToken?: string;
     databaseName: string;
     databaseAddress?: string;
     medicalDatabaseName?: string;
@@ -142,6 +143,7 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
     },
     controlObserver: {
       enabled: bool(env.KLINOK_AUTH_CONTROL_OBSERVER_ENABLED, false),
+      ...(env.KLINOK_INTERNAL_EVENT_TOKEN ? { internalEventToken: env.KLINOK_INTERNAL_EVENT_TOKEN } : {}),
       databaseName: env.KLINOK_CONTROL_DB ?? "klinok-control-v1",
       ...(env.KLINOK_CONTROL_DB_ADDRESS ? { databaseAddress: env.KLINOK_CONTROL_DB_ADDRESS } : {}),
       medicalDatabaseName: env.KLINOK_MEDICAL_DB ?? "klinok-medical-v3",

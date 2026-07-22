@@ -27,6 +27,20 @@ async function verificationLink(request: APIRequestContext, email: string): Prom
   throw new Error(`Verification email for ${email} was not captured by Mailpit.`);
 }
 
+async function expectEmailText(request: APIRequestContext, email: string, expectedText: string): Promise<void> {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const list = await request.get(`${mailpitUrl}/api/v1/messages`);
+    const messages = (await list.json()).messages as Array<{ ID: string }>;
+    for (const summary of messages) {
+      const message = await request.get(`${mailpitUrl}/api/v1/message/${summary.ID}`);
+      const body = await message.json() as { Text?: string; To?: Array<{ Address?: string }> };
+      if (body.To?.some((recipient) => recipient.Address?.toLocaleLowerCase() === email.toLocaleLowerCase()) && body.Text?.includes(expectedText)) return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Email containing "${expectedText}" for ${email} was not captured by Mailpit.`);
+}
+
 async function register(page: Page, request: APIRequestContext, input: {
   firstName: string;
   lastName: string;
@@ -145,6 +159,7 @@ test("fresh provisioning, Doctor approval, grant, draft, and confirmation", asyn
   await expect(approvalDialog).toBeVisible();
   await approvalDialog.getByRole("button", { name: "Одобрить", exact: true }).click();
   await expect(approvalDialog).toBeHidden();
+  await expectEmailText(request, doctorEmail, "Ваша роль «Врач» подтверждена.");
 
   await doctorPage.bringToFront();
   const doctorHome = doctorPage.locator(".workspace-sidebar").getByRole("link", { name: "Мед. карты" });

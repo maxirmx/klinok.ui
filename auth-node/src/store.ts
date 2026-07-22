@@ -215,7 +215,7 @@ export class AuthStore {
   }
 
   async hasMarker(id: string): Promise<boolean> {
-    return (await this.get<{ id: string }>(`marker:${id}`)) !== null;
+    return (await this.get<{ id: string }>(`marker:${id}`)) != null;
   }
 
   async putMarker(id: string): Promise<void> {

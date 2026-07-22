@@ -260,10 +260,21 @@ export async function buildAuthApp(options: AuthAppOptions): Promise<FastifyInst
 
   app.addHook("onClose", async () => store.close());
   const observer = new ControlPlaneObserver(options.config, store, countedMailer, await attestation.publicJwk());
+  if (options.config.controlObserver.internalEventToken) {
+    app.post<{ Body: unknown }>("/internal/events", async (request, reply) => {
+      if (request.headers.authorization !== `Bearer ${options.config.controlObserver.internalEventToken}`) {
+        return error(reply, 403, "INTERNAL_EVENT_FORBIDDEN", "Internal event authentication failed.");
+      }
+      if (!await observer.ingest(request.body)) {
+        return error(reply, 422, "INTERNAL_EVENT_REJECTED", "The signed event was rejected.");
+      }
+      return reply.code(202).send({ accepted: true });
+    });
+  }
   await observer.start();
   app.addHook("onClose", async () => observer.stop());
   app.addHook("preHandler", async (request, reply) => {
-    if (!options.config.enforceOrigin || request.method === "GET" || request.url === "/healthz") return;
+    if (!options.config.enforceOrigin || request.method === "GET" || request.url === "/healthz" || request.url === "/internal/events") return;
     if (request.headers.origin !== options.config.publicOrigin) {
       metrics.originRejected += 1;
       return error(reply, 403, "ORIGIN_REJECTED", "Запрос с другого сайта отклонён.");

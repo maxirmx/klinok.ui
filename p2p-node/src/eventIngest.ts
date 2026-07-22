@@ -27,11 +27,21 @@ export interface EventIngestServiceOptions {
   state: ProtocolState;
   databases: Record<DatabaseKind, IngestDatabase>;
   verification: VerificationOptions;
+  onPersisted?: (event: SignedEvent) => Promise<void>;
 }
 
 function eventId(value: unknown): string {
   if (!value || typeof value !== "object" || !("eventId" in value)) return "";
   return typeof value.eventId === "string" ? value.eventId : "";
+}
+
+function notificationFailure(event: SignedEvent, reason: unknown): EventIngestResult {
+  return {
+    eventId: event.eventId,
+    status: "deferred",
+    code: "EVENT_NOTIFICATION_FAILED",
+    message: reason instanceof Error ? reason.message : "The persisted event notification failed.",
+  };
 }
 
 export class EventIngestService {
@@ -54,9 +64,16 @@ export class EventIngestService {
         const event = item.value as SignedEvent;
         const existing = this.options.state.events.get(event.eventId);
         if (existing) {
-          results[item.index] = stableSerialize(existing) === stableSerialize(event)
-            ? { eventId: event.eventId, status: "duplicate", code: "EVENT_DUPLICATE" }
-            : { eventId: event.eventId, status: "rejected", code: "EVENT_ID_COLLISION", message: "The event ID is already used by different content." };
+          if (stableSerialize(existing) === stableSerialize(event)) {
+            try {
+              await this.options.onPersisted?.(existing);
+              results[item.index] = { eventId: event.eventId, status: "duplicate", code: "EVENT_DUPLICATE" };
+            } catch (reason) {
+              results[item.index] = notificationFailure(event, reason);
+            }
+          } else {
+            results[item.index] = { eventId: event.eventId, status: "rejected", code: "EVENT_ID_COLLISION", message: "The event ID is already used by different content." };
+          }
           continue;
         }
         const verification = await verifySignedEvent(event, this.options.state, {
@@ -80,8 +97,13 @@ export class EventIngestService {
         try {
           await this.options.databases[event.database].add(event);
           if (!this.options.state.knownEvents.has(event.eventId)) applyAcceptedEvent(event, this.options.state);
-          results[item.index] = { eventId: event.eventId, status: "persisted" };
           stateProgressed = true;
+          try {
+            await this.options.onPersisted?.(event);
+            results[item.index] = { eventId: event.eventId, status: "persisted" };
+          } catch (reason) {
+            results[item.index] = notificationFailure(event, reason);
+          }
         } catch (reason) {
           results[item.index] = {
             eventId: event.eventId,

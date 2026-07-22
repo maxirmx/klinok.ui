@@ -54,6 +54,29 @@ const bootstrapSigningPublicKey = optionalEnv("KLINOK_BOOTSTRAP_SIGNING_PUBLIC_K
   ? JSON.parse(optionalEnv("KLINOK_BOOTSTRAP_SIGNING_PUBLIC_KEY")!) as JsonWebKey
   : undefined;
 const counters = createP2pOperationalCounters();
+const authEventUrl = optionalEnv("KLINOK_AUTH_EVENT_URL");
+const internalEventToken = optionalEnv("KLINOK_INTERNAL_EVENT_TOKEN");
+
+async function notifyAuthObserver(event: SignedEvent): Promise<void> {
+  if (!authEventUrl || !internalEventToken) return;
+  try {
+    const response = await fetch(authEventUrl, {
+      method: "POST",
+      headers: { authorization: `Bearer ${internalEventToken}`, "content-type": "application/json" },
+      body: JSON.stringify(event),
+    });
+    if (!response.ok) throw new Error(`Auth observer responded with HTTP ${response.status}.`);
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: "error",
+      event: "p2p.auth-observer.notification.failed",
+      eventId: event.eventId,
+      eventType: event.eventType,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    throw error;
+  }
+}
 
 function valueFrom(entry: unknown): SignedEvent | null {
   return extractSignedEvent(entry);
@@ -135,6 +158,7 @@ const ingestServer = await startEventIngestServer({
     state,
     databases: { control: controlDb, medical: medicalDb },
     verification: { authAttestationPublicKey, bootstrapSigningPublicKey, requireTrustedAttestation: true },
+    onPersisted: notifyAuthObserver,
   }),
 });
 const unregisterControl = registerOrbitDbEventHandlers(controlDb, "control", counters, () => state.roleConflicts.length);
