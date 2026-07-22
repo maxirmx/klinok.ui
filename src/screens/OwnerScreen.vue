@@ -9,6 +9,7 @@ import {
 import AppIcon from "../components/AppIcon.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import PetProfileDetails from "../components/PetProfileDetails.vue";
 import PetProfileHeader from "../components/PetProfileHeader.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
 import { appState, deleteDirectoryPet, logout, requireRepository, searchDoctorDirectory, syncDirectoryPet } from "../appStore";
@@ -762,22 +763,7 @@ function recordSection(record: (typeof appState.medical.records)[number], kind: 
             </button>
           </template>
         </PetProfileHeader>
-        <dl class="owner-profile-fields">
-          <div><dt>Вид</dt><dd>{{ selectedPet.species }}</dd></div>
-          <div><dt>Кличка</dt><dd>{{ selectedPet.name }}</dd></div>
-          <div><dt>Порода</dt><dd>{{ selectedPet.breed }}</dd></div>
-          <div><dt>Пол</dt><dd>{{ selectedPet.sex || 'Не указан' }}</dd></div>
-          <div><dt>Возраст</dt><dd>{{ petBirthSummary(selectedPet) }}</dd></div>
-          <div><dt>Окрас</dt><dd>{{ selectedPet.color || 'Не указан' }}</dd></div>
-          <div><dt>Номер чипа</dt><dd>{{ selectedPet.chip || 'Нет' }}</dd></div>
-          <div><dt>Клеймо</dt><dd>{{ selectedPet.brandMark || 'Нет' }}</dd></div>
-          <div><dt>Последняя вакцинация</dt><dd>{{ selectedPet.latestVaccination ? `${formatDate(selectedPet.latestVaccination.date)} · ${selectedPet.latestVaccination.name}` : 'Не указана' }}</dd></div>
-          <div><dt>Вес</dt><dd>{{ selectedPet.weightKg ? `${selectedPet.weightKg} кг` : 'Не указан' }}</dd></div>
-        </dl>
-        <div v-if="selectedPet.notes" class="owner-pet-notes">
-          <h3>Заметки</h3>
-          <p>{{ selectedPet.notes }}</p>
-        </div>
+        <PetProfileDetails :pet="selectedPet" />
       </article>
 
       <article class="panel owner-medical-placeholder">

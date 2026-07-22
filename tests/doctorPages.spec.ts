@@ -52,8 +52,11 @@ const pet: PetProfile = {
   sex: "Интактная самка",
   birthDate: "2022-06-17",
   color: "трёхцветный",
+  chip: "643094100000001",
+  brandMark: "ABC-123",
+  latestVaccination: { date: "2026-04-15", name: "Рабикан" },
   weightKg: 11.8,
-  notes: "",
+  notes: "Боится громких звуков",
   keyVersion: 1,
   tombstoned: false,
   updatedAt: "2026-07-21T10:00:00.000Z",
@@ -117,6 +120,14 @@ beforeEach(async () => {
       updatedAt: pet.updatedAt,
     }],
     page: 1, pageSize: 20, total: 1, pageCount: 1,
+  });
+  directoryMocks.lookupPetDirectory.mockResolvedValue({
+    petId: pet.petId,
+    ownerAccountId: pet.ownerAccountId,
+    ownerDisplayName: "Ольга Петровна Владелец",
+    species: pet.species,
+    name: pet.name,
+    updatedAt: pet.updatedAt,
   });
   directoryMocks.searchDoctorDirectory.mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0, pageCount: 1 });
   directoryMocks.searchPetDirectory.mockResolvedValue({ items: [], page: 1, pageSize: 50, total: 0, pageCount: 1 });
@@ -276,6 +287,26 @@ describe("Doctor pages", () => {
         },
       },
     }));
+  });
+
+  it("shows the owner pet-profile information plus the owner's full name", async () => {
+    directoryMocks.loadDoctorPets.mockResolvedValue({ items: [], page: 1, pageSize: 10, total: 0, pageCount: 1 });
+    const wrapper = await mountAt("/doctor/pets/pet-1", "doctor-pet-detail");
+    await flushPromises();
+
+    expect(directoryMocks.lookupPetDirectory).toHaveBeenCalledWith("pet-1");
+    expect(wrapper.findAll(".owner-profile-fields dt").map((node) => node.text())).toEqual([
+      "Вид", "Кличка", "Порода", "Пол", "Возраст", "Окрас", "Номер чипа", "Клеймо",
+      "Последняя вакцинация", "Вес", "ФИО владельца",
+    ]);
+    const profile = wrapper.get(".owner-pet-profile");
+    expect(profile.text()).toContain("трёхцветный");
+    expect(profile.text()).toContain("643094100000001");
+    expect(profile.text()).toContain("ABC-123");
+    expect(profile.text()).toContain("15.04.2026 · Рабикан");
+    expect(profile.text()).toContain("11.8 кг");
+    expect(profile.text()).toContain("Ольга Петровна Владелец");
+    expect(profile.text()).toContain("Боится громких звуков");
   });
 
   it("keeps the encounter editor read-only without write permission", async () => {

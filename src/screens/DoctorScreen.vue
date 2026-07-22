@@ -5,12 +5,14 @@ import type { DirectoryPetDto, DirectoryProfileDto, PetGrantAction } from "@klin
 import AppIcon from "../components/AppIcon.vue";
 import ConfirmationDialog from "../components/ConfirmationDialog.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import PetProfileDetails from "../components/PetProfileDetails.vue";
 import PetProfileHeader from "../components/PetProfileHeader.vue";
 import WhatHappenedTree from "../components/WhatHappenedTree.vue";
 import WorkspaceShell from "../components/WorkspaceShell.vue";
 import {
   appState,
   loadDoctorPets,
+  lookupPetDirectory,
   logout,
   requireRepository,
   searchDoctorDirectory,
@@ -46,6 +48,7 @@ const homePage = ref(1);
 const storedPageSize = Number(localStorage.getItem("klinok:doctor-pets-page-size"));
 const homePageSize = ref<(typeof pageSizes)[number]>(pageSizes.includes(storedPageSize as never) ? storedPageSize as never : 10);
 const directoryPets = ref<DirectoryPetDto[]>([]);
+const selectedDirectoryPet = ref<DirectoryPetDto | null>(null);
 const directoryTotal = ref(0);
 const directoryPageCount = ref(1);
 const requestDialogOpen = ref(props.scenarioId === "doctor-pet-request-access");
@@ -87,7 +90,9 @@ const canWrite = computed(() => selectedGrant.value?.actions.includes("write_unc
 const canDelegate = computed(() => selectedGrant.value?.actions.includes("delegate") ?? false);
 const confirmedIds = computed(() => new Set(appState.medical.confirmations.map((item) => item.recordId)));
 const petRecords = computed(() => appState.medical.records.filter((record) => record.petId === petId.value));
-const currentDirectoryPet = computed(() => directoryPets.value.find((pet) => pet.petId === petId.value));
+const currentDirectoryPet = computed(() => selectedDirectoryPet.value?.petId === petId.value
+  ? selectedDirectoryPet.value
+  : directoryPets.value.find((pet) => pet.petId === petId.value));
 const optionalAvailable = computed(() => OPTIONAL_ENCOUNTER_SECTION_KINDS.filter((kind) => !encounter.optionalKinds.includes(kind)));
 const homePageStart = computed(() => directoryTotal.value ? (homePage.value - 1) * homePageSize.value + 1 : 0);
 const homePageEnd = computed(() => Math.min(homePage.value * homePageSize.value, directoryTotal.value));
@@ -149,6 +154,16 @@ async function refreshPets() {
     directoryTotal.value = pets.length;
     directoryPageCount.value = Math.max(1, Math.ceil(pets.length / homePageSize.value));
     directoryPets.value = pets.slice((homePage.value - 1) * homePageSize.value, homePage.value * homePageSize.value);
+  }
+}
+
+async function refreshSelectedDirectoryPet(id: string) {
+  selectedDirectoryPet.value = null;
+  if (!id) return;
+  try {
+    selectedDirectoryPet.value = await lookupPetDirectory(id);
+  } catch {
+    // The paged directory remains a useful fallback when the direct lookup is unavailable.
   }
 }
 
@@ -287,6 +302,7 @@ watch([homeQuery, homeSort, homeSortDirection, homePageSize], () => {
   else homePage.value = 1;
 });
 watch(homePage, () => { void refreshPets(); });
+watch(petId, (id) => { void refreshSelectedDirectoryPet(id); }, { immediate: true });
 watch(() => props.scenarioId, (scenarioId) => {
   if (scenarioId === "doctor-pet-request-access") openRequestDialog();
 });
@@ -410,7 +426,15 @@ onMounted(() => { void refreshPets(); });
     </section>
 
     <section v-else-if="selectedPet && scenarioId === 'doctor-pet-detail'" class="doctor-page doctor-pet-detail">
-      <article class="panel"><PetProfileHeader :pet="selectedPet" :show-details="false"><template #actions><RouterLink v-if="canDelegate" class="outline-action inline owner-profile-action" :to="`/doctor/pets/${petId}/delegate`" title="Делегировать доступ" aria-label="Делегировать доступ"><AppIcon name="share" /></RouterLink><RouterLink class="outline-action inline danger-outline owner-profile-action" :to="`/doctor/pets/${petId}/cancel-access`" title="Отказаться от доступа" aria-label="Отказаться от доступа"><AppIcon name="close" /></RouterLink></template></PetProfileHeader><dl class="owner-profile-fields"><div><dt>Вид</dt><dd>{{ selectedPet.species }}</dd></div><div><dt>Кличка</dt><dd>{{ selectedPet.name }}</dd></div><div><dt>Порода</dt><dd>{{ selectedPet.breed }}</dd></div><div><dt>Пол</dt><dd>{{ selectedPet.sex || 'Не указан' }}</dd></div><div><dt>Владелец</dt><dd>{{ currentDirectoryPet?.ownerDisplayName || selectedPet.ownerAccountId }}</dd></div><div><dt>ID питомца</dt><dd>{{ selectedPet.petId }}</dd></div></dl></article>
+      <article class="panel owner-pet-profile">
+        <PetProfileHeader :pet="selectedPet" :show-details="false">
+          <template #actions>
+            <RouterLink v-if="canDelegate" class="outline-action inline owner-profile-action" :to="`/doctor/pets/${petId}/delegate`" title="Делегировать доступ" aria-label="Делегировать доступ"><AppIcon name="share" /></RouterLink>
+            <RouterLink class="outline-action inline danger-outline owner-profile-action" :to="`/doctor/pets/${petId}/cancel-access`" title="Отказаться от доступа" aria-label="Отказаться от доступа"><AppIcon name="close" /></RouterLink>
+          </template>
+        </PetProfileHeader>
+        <PetProfileDetails :pet="selectedPet" :owner-display-name="currentDirectoryPet?.ownerDisplayName || selectedPet.ownerAccountId" />
+      </article>
 
       <article class="panel"><h2>Эпикриз</h2><div class="doctor-history-filters"><input v-model="historyQuery" type="search" placeholder="Содержание или автор" aria-label="Поиск по истории" /><input v-model="historyFrom" type="date" aria-label="Дата с" /><input v-model="historyTo" type="date" aria-label="Дата по" /><select v-model="historySection" aria-label="Раздел"><option value="">Все разделы</option><option v-for="(label, kind) in ENCOUNTER_SECTION_LABELS" :key="kind" :value="kind">{{ label }}</option></select><select v-model="historyStatus" aria-label="Статус"><option value="">Все статусы</option><option value="confirmed">Подтверждённые</option><option value="unconfirmed">Не подтверждённые</option></select><select v-model="historySort" aria-label="Порядок"><option value="desc">Сначала новые</option><option value="asc">Сначала старые</option></select></div><button v-for="record in pagedRecords" :key="record.recordId" class="epicrisis-row" @click="openRecord(record.recordId)"><span>{{ record.encounterDate }}</span><strong>{{ encounterSummary(record) }}</strong><span>{{ freeText(record.sections.outcome?.value) || 'Не заполнено' }}</span><span class="status-badge" :class="confirmedIds.has(record.recordId) ? 'approved' : 'pending'">{{ confirmedIds.has(record.recordId) ? 'Подтверждён' : 'Ожидает подтверждения' }}</span></button></article>
 
