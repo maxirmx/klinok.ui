@@ -5,21 +5,33 @@
 
 import type { WhatHappenedOption } from "../medicalEncounter";
 
-defineProps<{ nodes: WhatHappenedOption[]; selected: string[] }>();
+withDefaults(defineProps<{ node: WhatHappenedOption; selected: string[]; root?: boolean }>(), {
+  root: false,
+});
 const emit = defineEmits<{ toggle: [id: string] }>();
 </script>
 
 <template>
-  <ul class="encounter-taxonomy">
-    <li v-for="node in nodes" :key="node.id">
-      <details v-if="node.children?.length">
+  <ul v-if="root" class="encounter-taxonomy encounter-taxonomy-root" role="tree" :aria-label="node.label">
+    <li role="treeitem">
+      <details>
         <summary>{{ node.label }}</summary>
-        <WhatHappenedTree :nodes="node.children" :selected="selected" @toggle="emit('toggle', $event)" />
+        <ul class="encounter-taxonomy encounter-taxonomy-children" role="group">
+          <WhatHappenedTree v-for="child in node.children ?? []" :key="child.id" :node="child" :selected="selected" @toggle="emit('toggle', $event)" />
+        </ul>
       </details>
-      <label v-else class="check-row">
-        <input type="checkbox" :checked="selected.includes(node.id)" @change="emit('toggle', node.id)" />
-        <span>{{ node.label }}</span>
-      </label>
     </li>
   </ul>
+  <li v-else role="treeitem">
+    <details v-if="node.children?.length">
+      <summary>{{ node.label }}</summary>
+      <ul class="encounter-taxonomy encounter-taxonomy-children" role="group">
+        <WhatHappenedTree v-for="child in node.children" :key="child.id" :node="child" :selected="selected" @toggle="emit('toggle', $event)" />
+      </ul>
+    </details>
+    <label v-else class="check-row">
+      <input type="checkbox" :checked="selected.includes(node.id)" @change="emit('toggle', node.id)" />
+      <span>{{ node.label }}</span>
+    </label>
+  </li>
 </template>

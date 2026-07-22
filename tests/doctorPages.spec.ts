@@ -443,11 +443,17 @@ describe("Doctor pages", () => {
   it("saves a structured encounter with the mandatory taxonomy section", async () => {
     const wrapper = await mountAt("/doctor/pets/pet-1", "doctor-pet-detail");
     await flushPromises();
+    const save = wrapper.get<HTMLButtonElement>('.encounter-editor-heading button[title="Сохранить запись"]');
+    expect(save.element.disabled).toBe(true);
+    const dateField = wrapper.get(".encounter-date-field");
+    expect(dateField.get("span").text()).toBe("Дата");
+    expect(dateField.get('input[type="date"]').exists()).toBe(true);
     const notEating = wrapper.findAll(".encounter-taxonomy label").find((label) => label.text() === "Не ест");
     expect(notEating).toBeDefined();
     await notEating!.get("input").trigger("change");
+    expect(save.element.disabled).toBe(false);
     await wrapper.get(".encounter-editor textarea").setValue("Не ест со вчерашнего дня");
-    await wrapper.get('.encounter-editor-heading button[title="Сохранить приём"]').trigger("click");
+    await save.trigger("click");
     await flushPromises();
     expect(repositoryMocks.saveEncounter).toHaveBeenCalledWith(expect.objectContaining({
       petId: "pet-1",
@@ -460,30 +466,117 @@ describe("Doctor pages", () => {
     }));
   });
 
-  it("uses verified status in both record modes and does not offer changes to a confirmed record", async () => {
+  it("uses a small icon action to remove an optional encounter section", async () => {
+    const wrapper = await mountAt("/doctor/pets/pet-1", "doctor-pet-detail");
+    await flushPromises();
+    await wrapper.get<HTMLSelectElement>(".encounter-editor > form > label:last-child select").setValue("diagnosis");
+
+    const remove = wrapper.get(".encounter-section-delete");
+    expect(remove.text()).toBe("");
+    expect(remove.attributes("title")).toBe("Удалить раздел");
+    expect(remove.attributes("aria-label")).toBe("Удалить раздел");
+    expect(remove.getComponent(AppIcon).props("name")).toBe("trash");
+    await remove.trigger("click");
+    let dialog = wrapper.get('[role="alertdialog"]');
+    expect(dialog.text()).toContain("Удалить раздел?");
+    expect(dialog.text()).toContain("Раздел «Диагноз» и введённые в нём данные будут удалены из записи.");
+    expect(wrapper.find(".encounter-section-card:not(.encounter-what-happened)").exists()).toBe(true);
+    await dialog.get(".outline-action").trigger("click");
+    expect(wrapper.find(".encounter-section-card:not(.encounter-what-happened)").exists()).toBe(true);
+
+    await remove.trigger("click");
+    dialog = wrapper.get('[role="alertdialog"]');
+    await dialog.get(".danger").trigger("click");
+    expect(wrapper.find(".encounter-section-card:not(.encounter-what-happened)").exists()).toBe(false);
+  });
+
+  it("edits an unconfirmed medical record in place", async () => {
+    await setMedical(snapshot(undefined, { records: [medicalRecord] }));
+    const wrapper = await mountAt("/doctor/pets/pet-1", "doctor-pet-detail");
+    await flushPromises();
+    const record = wrapper.get(".medical-record-entry-details");
+
+    await record.get(".medical-record-edit").trigger("click");
+    const inlineEditor = record.get(".encounter-editor-inline");
+    expect(record.attributes()).toHaveProperty("open");
+    expect(inlineEditor.get("h2").text()).toBe("Редактирование записи");
+    expect(inlineEditor.get<HTMLInputElement>('.encounter-date-field input').element.value).toBe("2026-07-21");
+    expect(wrapper.find(".doctor-pet-detail > .encounter-editor").exists()).toBe(false);
+
+    await inlineEditor.get('button[title="Отменить редактирование"]').trigger("click");
+    expect(record.find(".encounter-editor-inline").exists()).toBe(false);
+    expect(wrapper.get(".doctor-pet-detail > .encounter-editor h2").text()).toBe("Сегодняшний приём");
+
+    await record.get(".medical-record-edit").trigger("click");
+    const activeEditor = record.get(".encounter-editor-inline");
+    await activeEditor.get(".encounter-what-happened textarea").setValue("Обновлённый комментарий");
+    await activeEditor.get('button[title="Сохранить запись"]').trigger("click");
+    await flushPromises();
+    expect(repositoryMocks.saveEncounter).toHaveBeenCalledWith(expect.objectContaining({
+      petId: "pet-1",
+      recordId: "record-1",
+      sections: expect.objectContaining({
+        "what-happened": expect.objectContaining({ comment: "Обновлённый комментарий" }),
+      }),
+    }));
+    expect(record.find(".encounter-editor-inline").exists()).toBe(false);
+  });
+
+  it("allows selections from only one general condition at a time", async () => {
+    const wrapper = await mountAt("/doctor/pets/pet-1", "doctor-pet-detail");
+    await flushPromises();
+    expect(wrapper.get(".encounter-what-happened > .doctor-heading h3").text()).toBe("Что случилось");
+    expect(wrapper.findAll('.encounter-condition-trees > .encounter-taxonomy[role="tree"]')).toHaveLength(3);
+    expect(wrapper.findAll('.encounter-condition-trees > .encounter-taxonomy[role="tree"]').map((tree) => tree.attributes("aria-label")))
+      .toEqual(["Всё хорошо, необходимо", "Не всё хорошо с", "Всё плохо"]);
+    expect(wrapper.findAll(".encounter-condition-trees > .encounter-taxonomy > li > details").every((tree) => tree.attributes("open") === undefined)).toBe(true);
+    expect(wrapper.get(".encounter-date-field").exists()).toBe(true);
+    expect(wrapper.get(".encounter-add-section").exists()).toBe(true);
+    const checkbox = (label: string) => wrapper.findAll(".encounter-taxonomy label")
+      .find((candidate) => candidate.text() === label)!
+      .get<HTMLInputElement>('input[type="checkbox"]');
+    const checkup = checkbox("Контрольный осмотр");
+    const vaccination = checkbox("Вакцинация");
+    const notEating = checkbox("Не ест");
+    const bleeding = checkbox("Обильное кровотечение");
+
+    await checkup.trigger("change");
+    await vaccination.trigger("change");
+    expect(checkup.element.checked).toBe(true);
+    expect(vaccination.element.checked).toBe(true);
+
+    await notEating.trigger("change");
+    expect(checkup.element.checked).toBe(false);
+    expect(vaccination.element.checked).toBe(false);
+    expect(notEating.element.checked).toBe(true);
+
+    await bleeding.trigger("change");
+    expect(notEating.element.checked).toBe(false);
+    expect(bleeding.element.checked).toBe(true);
+  });
+
+  it("uses verified status in the medical card and does not offer changes to a confirmed record", async () => {
     await setMedical(snapshot(undefined, { records: [medicalRecord], confirmedRecordIds: [medicalRecord.recordId] }));
     const wrapper = await mountAt("/doctor/pets/pet-1", "doctor-pet-detail");
     await flushPromises();
 
-    const epicrisis = wrapper.get(".medical-record-entry-epicrisis");
     const details = wrapper.get(".medical-record-entry-details");
-    expect(epicrisis.text()).toContain("Подтверждён");
-    expect(details.text()).toContain("Подтверждён");
+    expect(wrapper.get(".doctor-medical-record h2").text()).toBe("Медицинская карта");
+    expect(wrapper.text()).not.toContain("Эпикриз");
+    expect(wrapper.text()).not.toContain("Предыдущие приёмы");
+    expect(wrapper.find(".medical-record-entry-epicrisis").exists()).toBe(false);
+    expect(details.text()).toContain("Подтверждена");
     expect(details.find(".medical-record-edit").exists()).toBe(false);
 
-    await epicrisis.trigger("click");
-    expect(details.attributes()).toHaveProperty("open");
     expect(wrapper.get(".encounter-editor h2").text()).toBe("Сегодняшний приём");
-    const saveEncounterButton = wrapper.get('.encounter-editor-heading button[title="Сохранить приём"]');
+    const saveEncounterButton = wrapper.get('.encounter-editor-heading button[title="Сохранить запись"]');
     expect(saveEncounterButton.text()).toBe("");
-    expect(saveEncounterButton.attributes("aria-label")).toBe("Сохранить приём");
+    expect(saveEncounterButton.attributes("aria-label")).toBe("Сохранить запись");
     expect(saveEncounterButton.getComponent(AppIcon).props("name")).toBe("check");
 
     await wrapper.get('.doctor-history-filters select[aria-label="Статус"]').setValue("unconfirmed");
-    expect(wrapper.find(".medical-record-entry-epicrisis").exists()).toBe(false);
     expect(wrapper.find(".medical-record-entry-details").exists()).toBe(false);
     await wrapper.get('.doctor-history-filters select[aria-label="Статус"]').setValue("confirmed");
-    expect(wrapper.findAll(".medical-record-entry-epicrisis")).toHaveLength(1);
     expect(wrapper.findAll(".medical-record-entry-details")).toHaveLength(1);
   });
 
