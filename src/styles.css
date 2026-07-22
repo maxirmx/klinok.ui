@@ -274,7 +274,7 @@ dd {
   display: block;
   overflow: hidden;
   font-size: 17px;
-  font-weight: 400;
+  font-weight: 500;
   overflow-wrap: anywhere;
   text-overflow: clip;
   white-space: normal;
@@ -775,7 +775,7 @@ dd {
   min-width: 0;
   color: #344054;
   font-size: .9rem;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.5;
   text-align: left;
 }
@@ -1273,7 +1273,7 @@ dd {
 .profile-page .credentials-form .password-field > label {
   color: #344054;
   font-size: .9rem;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.35;
 }
 .profile-page .form-stack input:not([type="checkbox"]):not([type="radio"]) {
@@ -1529,7 +1529,7 @@ dd {
   gap: 3px;
   color: #344054;
   font-size: .9rem;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.35;
 }
 .workspace-content .owner-form-grid > label > span,
@@ -1538,7 +1538,7 @@ dd {
   color: #344054;
   font-family: var(--font);
   font-size: .9rem;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.35;
 }
 .owner-form-grid :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea),
@@ -1667,7 +1667,7 @@ dd {
   color: #344054;
   font-family: var(--font);
   font-size: .9rem;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.35;
 }
 .owner-pet-notes { margin-top: 18px; }
